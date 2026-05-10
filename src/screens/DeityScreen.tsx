@@ -13,10 +13,12 @@ import {
 import { useSadhana } from '../context';
 import { ICONS } from '../constants';
 import { COLORS, SPACING } from '../theme';
+import { Deity } from '../types';
 
 export const DeityScreen = () => {
   const { deities, setDeities, showToast, notifGranted, requestNotif } = useSadhana();
   const [showAdd, setShowAdd] = useState(false);
+  const [editingReminder, setEditingReminder] = useState<Deity | null>(null);
   const [name, setName] = useState('');
   const [mantra, setMantra] = useState('');
   const [icon, setIcon] = useState('🙏');
@@ -45,8 +47,12 @@ export const DeityScreen = () => {
     showToast(`${icon} ${newDeity.name} added!`);
   };
 
-  const toggleAlarm = (id: string) => {
-    setDeities(p => p.map(d => (d.id === id ? { ...d, alarmOn: !d.alarmOn } : d)));
+  const updateReminder = (id: string, prayerAlarm: string, alarmOn: boolean) => {
+    setDeities(p =>
+      p.map(d => (d.id === id ? { ...d, prayerAlarm, alarmOn } : d))
+    );
+    showToast(alarmOn ? `Reminder set for ${prayerAlarm}` : 'Reminder turned off');
+    setEditingReminder(null);
   };
 
   const remove = (id: string) => {
@@ -83,9 +89,9 @@ export const DeityScreen = () => {
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.deityName}>{d.name}</Text>
               <Text style={styles.deityMantra}>{d.mantra}</Text>
-              <TouchableOpacity onPress={() => toggleAlarm(d.id)}>
+              <TouchableOpacity onPress={() => setEditingReminder(d)} style={styles.alarmPill}>
                 <Text style={styles.alarmStatus}>
-                  {d.alarmOn ? '⏰' : '🔕'} {d.prayerAlarm} — {d.alarmOn ? 'ON' : 'OFF'}
+                  {d.alarmOn ? '⏰' : '🔕'} {d.prayerAlarm} · Tap to edit
                 </Text>
               </TouchableOpacity>
             </View>
@@ -182,7 +188,76 @@ export const DeityScreen = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Edit Reminder Modal */}
+      {editingReminder && (
+        <ReminderEditor
+          deity={editingReminder}
+          onSave={(t, on) => updateReminder(editingReminder.id, t, on)}
+          onClose={() => setEditingReminder(null)}
+        />
+      )}
     </View>
+  );
+};
+
+const ReminderEditor: React.FC<{
+  deity: Deity;
+  onSave: (time: string, on: boolean) => void;
+  onClose: () => void;
+}> = ({ deity, onSave, onClose }) => {
+  const [time, setTime] = useState(deity.prayerAlarm);
+  const [on, setOn] = useState(deity.alarmOn);
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHandle} />
+          <Text style={styles.modalTitle}>Edit Reminder</Text>
+          <Text style={{ fontSize: 14, color: COLORS.gold, marginBottom: SPACING.md }}>
+            {deity.icon} {deity.name}
+          </Text>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Prayer Time (HH:MM)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="06:00"
+              placeholderTextColor={COLORS.muted}
+              value={time}
+              onChangeText={setTime}
+              keyboardType="numbers-and-punctuation"
+              autoFocus
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.md }}>
+              <Switch
+                value={on}
+                onValueChange={setOn}
+                trackColor={{ false: COLORS.border, true: COLORS.gold }}
+                thumbColor={on ? COLORS.cream : COLORS.muted}
+              />
+              <Text style={{ flex: 1, fontSize: 14, color: COLORS.cream }}>
+                Daily reminder {on ? 'enabled' : 'disabled'}
+              </Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={styles.submitBtn}
+            onPress={() => onSave(time, on)}
+          >
+            <Text style={styles.submitBtnText}>Save Reminder</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
+            <Text style={styles.cancelBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 };
 
@@ -261,6 +336,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.muted,
     marginBottom: SPACING.xs,
+  },
+  alarmPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(212, 160, 23, 0.15)',
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginTop: 2,
   },
   alarmStatus: {
     fontSize: 12,

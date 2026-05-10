@@ -9,7 +9,7 @@ import {
   Switch,
   TextInput,
 } from 'react-native';
-import { PANCHANG_FESTIVALS, REGIONS, PanchangFestival } from '../festivalsData';
+import { PANCHANG_FESTIVALS, PanchangFestival } from '../festivalsData';
 import { Storage } from '../storage';
 import { getDaysUntil, formatShortDate } from '../utils';
 import { COLORS, SPACING } from '../theme';
@@ -31,7 +31,6 @@ const previousSundayBefore = (dateStr: string): string => {
 };
 
 export const FestivalScreen = () => {
-  const [region, setRegion] = useState<(typeof REGIONS)[number]>('All');
   const [checked, setChecked] = useState<CheckedState>({});
   const [reminders, setReminders] = useState<ReminderState>({});
   const [selected, setSelected] = useState<PanchangFestival | null>(null);
@@ -67,7 +66,7 @@ export const FestivalScreen = () => {
   };
 
   const filtered = PANCHANG_FESTIVALS
-    .filter(f => region === 'All' || f.region === region)
+    .filter(f => f.region === 'Hindu')
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   const handleCalDate = (date: string, fests: PanchangFestival[]) => {
@@ -101,19 +100,6 @@ export const FestivalScreen = () => {
             </Text>
           </TouchableOpacity>
         </View>
-
-        {/* Region filter */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsRow}>
-          {REGIONS.map(r => (
-            <TouchableOpacity
-              key={r}
-              style={[styles.tab, region === r && styles.tabActive]}
-              onPress={() => setRegion(r)}
-            >
-              <Text style={[styles.tabText, region === r && styles.tabTextActive]}>{r}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
 
         {view === 'calendar' ? (
           <Calendar festivals={filtered} onDatePress={handleCalDate} />

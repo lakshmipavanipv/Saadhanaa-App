@@ -23,39 +23,30 @@ export const JapaScreen = () => {
   const [popBead, setPopBead] = useState(-1);
 
   const tap = useCallback(() => {
+    if (!selectedDeity) {
+      showToast('Please select a deity first!');
+      return;
+    }
     setCount(c => {
       setPopBead(c);
       setTimeout(() => setPopBead(-1), 280);
       const next = c + 1;
       if (next >= BEADS) {
+        // Auto-save on mala completion
+        saveSession({
+          deity: selectedDeity.name,
+          deityId: selectedDeity.id,
+          malas: 1,
+          japas: 108,
+          date: todayStr(),
+        });
         setMalas(m => m + 1);
+        showToast(`🪷 1 mala saved for ${selectedDeity.name}`);
         return 0;
       }
       return next;
     });
-  }, []);
-
-  const saveSession_internal = () => {
-    if (malas === 0 && count === 0) {
-      showToast('Nothing to save yet!');
-      return;
-    }
-    const totalM = malas + (count > 0 ? 1 : 0);
-    if (!selectedDeity) {
-      showToast('Please select a deity first!');
-      return;
-    }
-    saveSession({
-      deity: selectedDeity.name,
-      deityId: selectedDeity.id,
-      malas: totalM,
-      japas: totalM * 108,
-      date: todayStr(),
-    });
-    setCount(0);
-    setMalas(0);
-    showToast(`${totalM} mala${totalM > 1 ? 's' : ''} saved for ${selectedDeity.name}!`);
-  };
+  }, [selectedDeity, saveSession, showToast]);
 
   const reset = () => {
     setCount(0);
@@ -110,18 +101,15 @@ export const JapaScreen = () => {
           </View>
         </View>
 
-        {/* Controls */}
+        {/* Reset only — Japa saves automatically each mala */}
         <View style={styles.controls}>
-          <TouchableOpacity style={styles.primaryBtn} onPress={tap}>
-            <Text style={styles.primaryBtnText}>+ 1 Japa</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={saveSession_internal}>
-            <Text style={styles.secondaryBtnText}>💾</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={reset}>
-            <Text style={styles.secondaryBtnText}>↺</Text>
+          <TouchableOpacity style={styles.resetBtn} onPress={reset}>
+            <Text style={styles.resetBtnText}>↺ Reset session</Text>
           </TouchableOpacity>
         </View>
+        <Text style={styles.autoSaveHint}>
+          Tap the center bead to count · 1 mala saves automatically
+        </Text>
       </ScrollView>
 
       {/* Deity Picker Modal */}
@@ -261,30 +249,28 @@ const styles = StyleSheet.create({
   controls: {
     flexDirection: 'row',
     gap: SPACING.md,
-  },
-  primaryBtn: {
-    flex: 1,
-    backgroundColor: COLORS.gold,
-    borderRadius: 8,
-    paddingVertical: SPACING.md,
-    alignItems: 'center',
-  },
-  primaryBtnText: {
-    color: COLORS.deep,
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  secondaryBtn: {
-    width: 50,
-    backgroundColor: COLORS.cardBg,
-    borderRadius: 8,
-    alignItems: 'center',
     justifyContent: 'center',
+  },
+  resetBtn: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    borderRadius: 20,
+    backgroundColor: COLORS.cardBg,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-  secondaryBtnText: {
-    fontSize: 18,
+  resetBtnText: {
+    fontSize: 13,
+    color: COLORS.muted,
+    fontWeight: '500',
+  },
+  autoSaveHint: {
+    fontSize: 11,
+    color: COLORS.muted,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: SPACING.md,
+    paddingHorizontal: SPACING.md,
   },
   modalOverlay: {
     flex: 1,

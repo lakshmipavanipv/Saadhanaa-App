@@ -48,3 +48,4 @@ app-example
 
 # nested empty repo
 /Saadhana App
+scripts/__pycache__/
