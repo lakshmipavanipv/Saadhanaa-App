@@ -1,11 +1,13 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
 import { COLORS } from '../theme';
 
 const BEADS = 108;
-const SIZE = 320;
-const RADIUS_OUTER = 145;
-const RADIUS_INNER = 115;
+const SIZE = 340;
+const CENTER = SIZE / 2;
+const OUTER_R = 152;
+const INNER_R = 110;
+const HALF = BEADS / 2; // 54
 
 interface MalaProps {
   count: number;
@@ -15,57 +17,110 @@ interface MalaProps {
 }
 
 export const Mala: React.FC<MalaProps> = ({ count, malas, onTap, popBead }) => {
+  // Beads start at top-right (just clockwise of Meru) and wrap around back to Meru.
+  // First 54 = outer ring, next 54 = inner ring. Both go clockwise from 12 o'clock.
   const beads = [];
-  const totalRings = 2;
-  const beadsPerRing = Math.ceil(BEADS / totalRings);
-
   for (let i = 0; i < BEADS; i++) {
-    const ring = Math.floor(i / beadsPerRing);
-    const radius = ring === 0 ? RADIUS_OUTER : RADIUS_INNER;
-    const indexInRing = i % beadsPerRing;
-    const angle = (indexInRing / beadsPerRing) * 2 * Math.PI - Math.PI / 2;
-    const x = SIZE / 2 + radius * Math.cos(angle);
-    const y = SIZE / 2 + radius * Math.sin(angle);
+    const ringIdx = i < HALF ? 0 : 1;
+    const r = ringIdx === 0 ? OUTER_R : INNER_R;
+    const localIdx = i - ringIdx * HALF; // 0..53
+    // Angle: start just past 12 (one-step clockwise from Meru) and wrap fully around.
+    // 54 beads spaced over 360°, with the first slightly clockwise of the top.
+    const slotAngle = (2 * Math.PI) / HALF;
+    const angle = -Math.PI / 2 + (localIdx + 0.5) * slotAngle;
+    const x = CENTER + r * Math.cos(angle);
+    const y = CENTER + r * Math.sin(angle);
     const isDone = i < count;
-    const isSumeru = i === BEADS - 1;
     const isPop = i === popBead;
-    beads.push(
-      <View
-        key={i}
-        style={[
-          styles.bead,
-          {
-            left: x - 6,
-            top: y - 6,
-          },
-          isDone && styles.beadDone,
-          isSumeru && styles.sumeru,
-          isPop && styles.beadPop,
-        ]}
-      />
-    );
+    beads.push({ x, y, isDone, isPop, ringIdx, key: i });
   }
 
-  const progress = count / BEADS;
+  // Meru bead — fixed at the very top of the outer ring
+  const meruX = CENTER;
+  const meruY = CENTER - OUTER_R;
 
   return (
     <View style={styles.container}>
       <View style={styles.malaWrap}>
-        {beads}
-        <TouchableOpacity
-          style={styles.center}
-          onPress={onTap}
-          activeOpacity={0.85}
+        {/* Subtle string circle */}
+        <View
+          style={[
+            styles.stringRing,
+            {
+              width: OUTER_R * 2 + 14,
+              height: OUTER_R * 2 + 14,
+              borderRadius: OUTER_R + 7,
+              top: CENTER - OUTER_R - 7,
+              left: CENTER - OUTER_R - 7,
+            },
+          ]}
+        />
+        <View
+          style={[
+            styles.stringRing,
+            {
+              width: INNER_R * 2 + 14,
+              height: INNER_R * 2 + 14,
+              borderRadius: INNER_R + 7,
+              top: CENTER - INNER_R - 7,
+              left: CENTER - INNER_R - 7,
+              opacity: 0.4,
+            },
+          ]}
+        />
+
+        {beads.map(b => (
+          <View
+            key={b.key}
+            style={[
+              styles.bead,
+              {
+                left: b.x - 7,
+                top: b.y - 7,
+              },
+              b.isDone && styles.beadDone,
+              b.isPop && styles.beadPop,
+            ]}
+          />
+        ))}
+
+        {/* Meru / Sumeru bead — distinct, slightly larger, never lit */}
+        <View
+          style={[
+            styles.meru,
+            {
+              left: meruX - 14,
+              top: meruY - 14,
+            },
+          ]}
         >
-          <View style={styles.glow} />
-          <View style={styles.centerInner}>
-            <Text style={styles.malaCount}>{malas}</Text>
-            <Text style={styles.malaLabel}>MALA{malas !== 1 ? 'S' : ''}</Text>
-            <View style={styles.divider} />
-            <Text style={styles.beadCount}>{count}</Text>
-            <Text style={styles.beadLabel}>of 108</Text>
+          <View style={styles.meruInner} />
+          <View style={styles.meruHighlight} />
+        </View>
+
+        {/* Center clickable BEAD — the japa bead */}
+        <Pressable
+          onPress={onTap}
+          style={({ pressed }) => [
+            styles.center,
+            pressed && { transform: [{ scale: 0.97 }] },
+          ]}
+        >
+          <View style={styles.beadShadow} />
+          <View style={styles.beadBody}>
+            <View style={styles.beadFaceDark} />
+            <View style={styles.beadFaceMid} />
+            <View style={styles.beadFaceLight}>
+              <Text style={styles.malaCount}>{malas}</Text>
+              <Text style={styles.malaLabel}>MALA{malas !== 1 ? 'S' : ''}</Text>
+              <View style={styles.divider} />
+              <Text style={styles.beadCount}>{count}</Text>
+              <Text style={styles.beadLabelSmall}>of 108</Text>
+            </View>
+            {/* Specular highlight (top-left) */}
+            <View style={styles.specular} />
           </View>
-        </TouchableOpacity>
+        </Pressable>
       </View>
     </View>
   );
@@ -82,103 +137,162 @@ const styles = StyleSheet.create({
     height: SIZE,
     position: 'relative',
   },
+  stringRing: {
+    position: 'absolute',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 160, 23, 0.18)',
+    borderStyle: 'dashed',
+  },
   bead: {
     position: 'absolute',
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: 'rgba(212, 160, 23, 0.15)',
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: 'rgba(80, 60, 30, 0.85)',
     borderWidth: 1.5,
-    borderColor: 'rgba(212, 160, 23, 0.4)',
+    borderColor: 'rgba(212, 160, 23, 0.45)',
   },
   beadDone: {
     backgroundColor: COLORS.gold,
     borderColor: '#fff5d6',
     shadowColor: COLORS.gold,
-    shadowOpacity: 0.8,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 4,
+    shadowOpacity: 1,
+    shadowRadius: 5,
+    elevation: 5,
   },
   beadPop: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: COLORS.saffron,
     borderColor: '#ffd6a8',
   },
-  sumeru: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+  meru: {
+    position: 'absolute',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: COLORS.saffron,
-    borderColor: COLORS.gold,
     borderWidth: 2.5,
+    borderColor: COLORS.gold,
     shadowColor: COLORS.saffron,
     shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowRadius: 12,
+    elevation: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
+  meruInner: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#ffb380',
+  },
+  meruHighlight: {
+    position: 'absolute',
+    top: 4,
+    left: 5,
+    width: 7,
+    height: 5,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 245, 220, 0.85)',
+  },
+
+  // ── BIG center japa bead — sphere-like 3D feel via stacked ovals ──
   center: {
     position: 'absolute',
-    left: SIZE / 2 - 100,
-    top: SIZE / 2 - 100,
-    width: 200,
-    height: 200,
-    borderRadius: 100,
+    left: CENTER - 95,
+    top: CENTER - 95,
+    width: 190,
+    height: 190,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  glow: {
+  beadShadow: {
     position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: 'rgba(212, 160, 23, 0.12)',
-    borderWidth: 3,
-    borderColor: 'rgba(212, 160, 23, 0.5)',
-    shadowColor: COLORS.gold,
-    shadowOpacity: 0.6,
-    shadowRadius: 20,
-    elevation: 12,
+    width: 190,
+    height: 190,
+    borderRadius: 95,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    top: 8,
+    left: 0,
   },
-  centerInner: {
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: 'rgba(26, 31, 58, 0.95)',
+  beadBody: {
+    width: 190,
+    height: 190,
+    borderRadius: 95,
+    overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
+  },
+  beadFaceDark: {
+    position: 'absolute',
+    width: 190,
+    height: 190,
+    borderRadius: 95,
+    backgroundColor: '#3d2a08',
+    borderWidth: 3,
     borderColor: COLORS.gold,
   },
+  beadFaceMid: {
+    position: 'absolute',
+    width: 168,
+    height: 168,
+    borderRadius: 84,
+    backgroundColor: '#5e3f10',
+    top: 11,
+    left: 11,
+  },
+  beadFaceLight: {
+    position: 'absolute',
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    backgroundColor: '#1a1f3a',
+    top: 21,
+    left: 21,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(212, 160, 23, 0.6)',
+  },
+  specular: {
+    position: 'absolute',
+    width: 38,
+    height: 22,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 245, 220, 0.55)',
+    top: 26,
+    left: 42,
+    transform: [{ rotate: '-25deg' }],
+  },
   malaCount: {
-    fontSize: 56,
+    fontSize: 50,
     fontWeight: '700',
     color: COLORS.gold,
-    lineHeight: 60,
+    lineHeight: 56,
   },
   malaLabel: {
-    fontSize: 11,
+    fontSize: 10,
     color: COLORS.muted,
     letterSpacing: 3,
-    marginTop: 2,
+    marginTop: 1,
   },
   divider: {
-    width: 50,
+    width: 44,
     height: 1,
-    backgroundColor: 'rgba(212, 160, 23, 0.3)',
-    marginVertical: 8,
+    backgroundColor: 'rgba(212, 160, 23, 0.35)',
+    marginVertical: 6,
   },
   beadCount: {
-    fontSize: 28,
+    fontSize: 26,
     color: COLORS.cream,
     fontWeight: '600',
   },
-  beadLabel: {
-    fontSize: 10,
+  beadLabelSmall: {
+    fontSize: 9,
     color: COLORS.muted,
     letterSpacing: 1,
-    marginTop: 2,
+    marginTop: 1,
   },
 });
