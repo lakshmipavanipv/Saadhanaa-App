@@ -64,7 +64,7 @@ const TabNavigator = () => {
         component={SandhyaScreen}
         options={{
           tabBarLabel: 'Sandhya',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🌅</Text>,
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🪷</Text>,
         }}
       />
       <Tab.Screen
