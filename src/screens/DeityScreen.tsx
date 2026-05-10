@@ -24,13 +24,15 @@ export const DeityScreen = () => {
   const [icon, setIcon] = useState('🙏');
   const [time, setTime] = useState('06:00');
   const [alarmOn, setAlarmOn] = useState(true);
+  const [target, setTarget] = useState('');
 
   const add = () => {
     if (!name.trim()) {
       showToast('Please enter a deity name');
       return;
     }
-    const newDeity = {
+    const targetNum = parseInt(target, 10);
+    const newDeity: Deity = {
       id: Date.now().toString(),
       name: name.trim(),
       icon,
@@ -38,11 +40,13 @@ export const DeityScreen = () => {
       prayerAlarm: time,
       alarmOn,
       totalMalas: 0,
+      ...(targetNum > 0 ? { targetMalas: targetNum } : {}),
     };
     setDeities(p => [...p, newDeity]);
     setName('');
     setMantra('');
     setIcon('🙏');
+    setTarget('');
     setShowAdd(false);
     showToast(`${icon} ${newDeity.name} added!`);
   };
@@ -83,27 +87,41 @@ export const DeityScreen = () => {
         )}
 
         {/* Deities List */}
-        {deities.map((d, i) => (
-          <View key={d.id} style={styles.deityItem}>
-            <Text style={styles.deityIcon}>{d.icon}</Text>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.deityName}>{d.name}</Text>
-              <Text style={styles.deityMantra}>{d.mantra}</Text>
-              <TouchableOpacity onPress={() => setEditingReminder(d)} style={styles.alarmPill}>
-                <Text style={styles.alarmStatus}>
-                  {d.alarmOn ? '⏰' : '🔕'} {d.prayerAlarm} · Tap to edit
-                </Text>
-              </TouchableOpacity>
+        {deities.map((d, i) => {
+          const target = d.targetMalas || 0;
+          const todayPct = target > 0 ? Math.min(100, (d.totalMalas / target) * 100) : 0;
+          return (
+            <View key={d.id} style={styles.deityItem}>
+              <Text style={styles.deityIcon}>{d.icon}</Text>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.deityName}>{d.name}</Text>
+                <Text style={styles.deityMantra}>{d.mantra}</Text>
+                {target > 0 && (
+                  <View style={styles.targetRow}>
+                    <View style={styles.targetTrack}>
+                      <View style={[styles.targetFill, { width: `${todayPct}%` }]} />
+                    </View>
+                    <Text style={styles.targetText}>
+                      {d.totalMalas}/{target}
+                    </Text>
+                  </View>
+                )}
+                <TouchableOpacity onPress={() => setEditingReminder(d)} style={styles.alarmPill}>
+                  <Text style={styles.alarmStatus}>
+                    {d.alarmOn ? '⏰' : '🔕'} {d.prayerAlarm} · Tap to edit
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.deityStats}>
+                <Text style={styles.totalMalas}>{d.totalMalas}</Text>
+                <Text style={styles.totalMalasLabel}>malas</Text>
+                <TouchableOpacity onPress={() => remove(d.id)}>
+                  <Text style={styles.deleteBtn}>✕</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            <View style={styles.deityStats}>
-              <Text style={styles.totalMalas}>{d.totalMalas}</Text>
-              <Text style={styles.totalMalasLabel}>malas</Text>
-              <TouchableOpacity onPress={() => remove(d.id)}>
-                <Text style={styles.deleteBtn}>✕</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ))}
+          );
+        })}
       </ScrollView>
 
       {/* Add Button */}
@@ -157,6 +175,21 @@ export const DeityScreen = () => {
                   </TouchableOpacity>
                 ))}
               </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Daily Target (malas)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. 1, 3, 11, 108"
+                placeholderTextColor={COLORS.muted}
+                value={target}
+                onChangeText={setTarget}
+                keyboardType="number-pad"
+              />
+              <Text style={{ fontSize: 11, color: COLORS.muted, marginTop: 4 }}>
+                Optional. Each mala = 108 japas. Progress shows on the deity card.
+              </Text>
             </View>
 
             <View style={styles.inputGroup}>
@@ -344,6 +377,29 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 4,
     marginTop: 2,
+  },
+  targetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginVertical: 6,
+  },
+  targetTrack: {
+    flex: 1,
+    height: 6,
+    backgroundColor: 'rgba(212, 160, 23, 0.15)',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  targetFill: {
+    height: '100%',
+    backgroundColor: COLORS.gold,
+    borderRadius: 3,
+  },
+  targetText: {
+    fontSize: 11,
+    color: COLORS.gold,
+    fontWeight: '600',
   },
   alarmStatus: {
     fontSize: 12,

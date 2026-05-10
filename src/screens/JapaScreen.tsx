@@ -7,6 +7,7 @@ import {
   ScrollView,
   Modal,
   FlatList,
+  TextInput,
 } from 'react-native';
 import { useSadhana } from '../context';
 import { todayStr } from '../utils';
@@ -21,6 +22,36 @@ export const JapaScreen = () => {
   const [malas, setMalas] = useState(0);
   const [showPicker, setShowPicker] = useState(false);
   const [popBead, setPopBead] = useState(-1);
+  const [showManual, setShowManual] = useState(false);
+  const [manualMalas, setManualMalas] = useState('');
+  const [manualJapas, setManualJapas] = useState('');
+  const [manualDate, setManualDate] = useState(todayStr());
+
+  const submitManual = () => {
+    const mNum = parseInt(manualMalas, 10) || 0;
+    const jNum = parseInt(manualJapas, 10) || 0;
+    if (mNum === 0 && jNum === 0) {
+      showToast('Enter malas or japas count');
+      return;
+    }
+    if (!selectedDeity) {
+      showToast('Select a deity first');
+      return;
+    }
+    const totalJapas = mNum * 108 + jNum;
+    const totalMalas = Math.round((totalJapas / 108) * 100) / 100;
+    saveSession({
+      deity: selectedDeity.name,
+      deityId: selectedDeity.id,
+      malas: Math.floor(totalJapas / 108) || (totalJapas > 0 ? 1 : 0),
+      japas: totalJapas,
+      date: manualDate,
+    });
+    setManualMalas('');
+    setManualJapas('');
+    setShowManual(false);
+    showToast(`Logged ${totalMalas} malas / ${totalJapas} japas`);
+  };
 
   const tap = useCallback(() => {
     if (!selectedDeity) {
@@ -101,14 +132,17 @@ export const JapaScreen = () => {
           </View>
         </View>
 
-        {/* Reset only — Japa saves automatically each mala */}
+        {/* Controls — auto-save on mala completion */}
         <View style={styles.controls}>
           <TouchableOpacity style={styles.resetBtn} onPress={reset}>
-            <Text style={styles.resetBtnText}>↺ Reset session</Text>
+            <Text style={styles.resetBtnText}>↺ Reset</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.manualBtn} onPress={() => setShowManual(true)}>
+            <Text style={styles.manualBtnText}>+ Log past japas</Text>
           </TouchableOpacity>
         </View>
         <Text style={styles.autoSaveHint}>
-          Tap the center bead to count · 1 mala saves automatically
+          Tap the center bead · 1 mala (108 beads) saves automatically
         </Text>
       </ScrollView>
 
@@ -153,6 +187,72 @@ export const JapaScreen = () => {
               onPress={() => setShowPicker(false)}
             >
               <Text style={styles.closeBtnText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Manual Japa Entry Modal */}
+      <Modal visible={showManual} transparent animationType="slide" onRequestClose={() => setShowManual(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Log past japas</Text>
+            <Text style={{ fontSize: 12, color: COLORS.muted, marginBottom: SPACING.md }}>
+              Enter malas or japas you've already done. They'll be added to your history & dashboard.
+            </Text>
+
+            <Text style={styles.fieldLabel}>Deity</Text>
+            <View style={[styles.deitySelector, { marginBottom: SPACING.md }]}>
+              <Text style={styles.deityName}>
+                {selectedDeity ? `${selectedDeity.icon} ${selectedDeity.name}` : 'Select deity above first'}
+              </Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>Malas</Text>
+                <TextInput
+                  style={styles.input}
+                  value={manualMalas}
+                  onChangeText={setManualMalas}
+                  placeholder="0"
+                  placeholderTextColor={COLORS.muted}
+                  keyboardType="number-pad"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>Extra Japas</Text>
+                <TextInput
+                  style={styles.input}
+                  value={manualJapas}
+                  onChangeText={setManualJapas}
+                  placeholder="0"
+                  placeholderTextColor={COLORS.muted}
+                  keyboardType="number-pad"
+                />
+              </View>
+            </View>
+            <Text style={styles.fieldHint}>
+              {manualMalas || manualJapas
+                ? `Total: ${(parseInt(manualMalas, 10) || 0) * 108 + (parseInt(manualJapas, 10) || 0)} japas`
+                : 'e.g. 5 malas = 540 japas'}
+            </Text>
+
+            <Text style={styles.fieldLabel}>Date</Text>
+            <TextInput
+              style={styles.input}
+              value={manualDate}
+              onChangeText={setManualDate}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={COLORS.muted}
+            />
+
+            <TouchableOpacity style={styles.primaryBtn} onPress={submitManual}>
+              <Text style={styles.primaryBtnText}>Log this</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowManual(false)}>
+              <Text style={styles.cancelBtnText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -252,7 +352,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   resetBtn: {
-    paddingHorizontal: SPACING.lg,
+    paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm,
     borderRadius: 20,
     backgroundColor: COLORS.cardBg,
@@ -264,6 +364,19 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
     fontWeight: '500',
   },
+  manualBtn: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: 20,
+    backgroundColor: 'rgba(212, 160, 23, 0.15)',
+    borderWidth: 1,
+    borderColor: COLORS.gold,
+  },
+  manualBtnText: {
+    fontSize: 13,
+    color: COLORS.gold,
+    fontWeight: '600',
+  },
   autoSaveHint: {
     fontSize: 11,
     color: COLORS.muted,
@@ -272,6 +385,45 @@ const styles = StyleSheet.create({
     marginTop: SPACING.md,
     paddingHorizontal: SPACING.md,
   },
+  fieldLabel: {
+    fontSize: 11,
+    color: COLORS.muted,
+    fontWeight: '600',
+    marginBottom: 4,
+    marginTop: 8,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  fieldHint: {
+    fontSize: 11,
+    color: COLORS.gold,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  input: {
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 8,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+    color: COLORS.cream,
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  primaryBtn: {
+    backgroundColor: COLORS.gold,
+    borderRadius: 10,
+    paddingVertical: SPACING.md,
+    alignItems: 'center',
+    marginTop: SPACING.lg,
+  },
+  primaryBtnText: { color: COLORS.deep, fontWeight: '700', fontSize: 14 },
+  cancelBtn: {
+    paddingVertical: SPACING.md,
+    alignItems: 'center',
+    marginTop: SPACING.sm,
+  },
+  cancelBtnText: { color: COLORS.muted, fontSize: 13 },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',

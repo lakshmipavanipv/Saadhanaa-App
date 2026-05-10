@@ -6,6 +6,15 @@ export interface Deity {
   prayerAlarm: string;
   alarmOn: boolean;
   totalMalas: number;
+  targetMalas?: number;
+}
+
+export interface UserProfile {
+  name: string;
+  email?: string;
+  phone?: string;
+  createdAt: string;
+  onboarded: boolean;
 }
 
 export interface Festival {

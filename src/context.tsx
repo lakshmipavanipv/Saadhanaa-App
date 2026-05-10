@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import { Deity, HistoryEntry, JapaSession } from './types';
+import { Deity, HistoryEntry, JapaSession, UserProfile } from './types';
 import { DEFAULT_DEITIES, SAMPLE_HISTORY } from './constants';
 import { Storage } from './storage';
 
@@ -18,6 +18,9 @@ interface SadhanaContextType {
   toast: string | null;
   saveSession: (session: JapaSession) => void;
   isLoading: boolean;
+  userProfile: UserProfile | null;
+  setUserProfile: (p: UserProfile | null) => void;
+  resetAll: () => Promise<void>;
 }
 
 const SadhanaContext = createContext<SadhanaContextType | undefined>(undefined);
@@ -30,14 +33,25 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [notifGranted, setNotifGranted] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const toastRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load data from storage
   useEffect(() => {
     const loadData = async () => {
       try {
-        const loadedDeities = await Storage.get<Deity[]>('deities', DEFAULT_DEITIES);
-        const loadedHistory = await Storage.get<HistoryEntry[]>('history', SAMPLE_HISTORY);
+        const loadedProfile = await Storage.get<UserProfile | null>('userProfile', null);
+        setUserProfile(loadedProfile);
+
+        // Only seed default data on first run (when not yet onboarded).
+        const loadedDeities = await Storage.get<Deity[]>(
+          'deities',
+          loadedProfile?.onboarded ? [] : DEFAULT_DEITIES
+        );
+        const loadedHistory = await Storage.get<HistoryEntry[]>(
+          'history',
+          loadedProfile?.onboarded ? [] : []
+        );
         setDeities(loadedDeities);
         setHistory(loadedHistory);
         if (loadedDeities.length > 0) {
@@ -49,6 +63,24 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
     loadData();
   }, []);
+
+  // Persist user profile
+  useEffect(() => {
+    if (userProfile) Storage.set('userProfile', userProfile);
+  }, [userProfile]);
+
+  const resetAll = async () => {
+    await Storage.remove('userProfile');
+    await Storage.remove('deities');
+    await Storage.remove('history');
+    await Storage.remove('festChecked');
+    await Storage.remove('festReminders');
+    await Storage.remove('sandhyaSettings');
+    setUserProfile(null);
+    setDeities([]);
+    setHistory([]);
+    setSelectedDeity(null);
+  };
 
   // Persist deities
   useEffect(() => {
@@ -133,6 +165,9 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     toast,
     saveSession,
     isLoading,
+    userProfile,
+    setUserProfile,
+    resetAll,
   };
 
   return <SadhanaContext.Provider value={value}>{children}</SadhanaContext.Provider>;
