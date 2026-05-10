@@ -1,7 +1,11 @@
 import React from 'react';
-import { StyleSheet, View, ActivityIndicator, Text } from 'react-native';
+import { StyleSheet, View, ActivityIndicator, Text, StatusBar } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import {
+  SafeAreaProvider,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { SadhanaProvider, useSadhana } from './context';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { JapaScreen } from './screens/JapaScreen';
@@ -13,6 +17,7 @@ import { COLORS } from './theme';
 const Tab = createBottomTabNavigator();
 
 const TabNavigator = () => {
+  const insets = useSafeAreaInsets();
   return (
     <Tab.Navigator
       screenOptions={{
@@ -21,15 +26,19 @@ const TabNavigator = () => {
           backgroundColor: COLORS.darkBg,
           borderTopColor: COLORS.border,
           borderTopWidth: 1,
-          paddingBottom: 8,
           paddingTop: 8,
-          height: 60,
+          paddingBottom: Math.max(insets.bottom, 8),
+          height: 60 + insets.bottom,
         },
         tabBarActiveTintColor: COLORS.gold,
         tabBarInactiveTintColor: COLORS.muted,
         tabBarLabelStyle: {
           fontSize: 11,
-          marginTop: 4,
+          marginTop: 2,
+        },
+        sceneStyle: {
+          backgroundColor: COLORS.deep,
+          paddingTop: insets.top,
         },
       }}
     >
@@ -77,11 +86,14 @@ const TabNavigator = () => {
   );
 };
 
-const Toast = ({ message }: { message: string }) => (
-  <View style={styles.toast}>
-    <Text style={{ color: COLORS.cream, fontSize: 14 }}>🙏 {message}</Text>
-  </View>
-);
+const Toast = ({ message }: { message: string }) => {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.toast, { bottom: 80 + insets.bottom }]}>
+      <Text style={{ color: COLORS.cream, fontSize: 14 }}>🙏 {message}</Text>
+    </View>
+  );
+};
 
 const AppContent = () => {
   const { isLoading, toast } = useSadhana();
@@ -96,6 +108,7 @@ const AppContent = () => {
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.deep} translucent />
       <NavigationContainer>
         <TabNavigator />
       </NavigationContainer>
@@ -106,9 +119,11 @@ const AppContent = () => {
 
 export default function App() {
   return (
-    <SadhanaProvider>
-      <AppContent />
-    </SadhanaProvider>
+    <SafeAreaProvider>
+      <SadhanaProvider>
+        <AppContent />
+      </SadhanaProvider>
+    </SafeAreaProvider>
   );
 }
 
@@ -119,9 +134,8 @@ const styles = StyleSheet.create({
   },
   toast: {
     position: 'absolute',
-    bottom: 20,
     alignSelf: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 8,
