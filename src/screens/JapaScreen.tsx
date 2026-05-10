@@ -11,6 +11,7 @@ import {
 import { useSadhana } from '../context';
 import { todayStr } from '../utils';
 import { COLORS, SPACING, FONT_SIZES } from '../theme';
+import { Mala } from '../components/Mala';
 
 const BEADS = 108;
 
@@ -19,9 +20,12 @@ export const JapaScreen = () => {
   const [count, setCount] = useState(0);
   const [malas, setMalas] = useState(0);
   const [showPicker, setShowPicker] = useState(false);
+  const [popBead, setPopBead] = useState(-1);
 
   const tap = useCallback(() => {
     setCount(c => {
+      setPopBead(c);
+      setTimeout(() => setPopBead(-1), 280);
       const next = c + 1;
       if (next >= BEADS) {
         setMalas(m => m + 1);
@@ -83,42 +87,26 @@ export const JapaScreen = () => {
           <Text style={styles.chevron}>▾</Text>
         </TouchableOpacity>
 
-        {/* Mala Circle */}
-        <TouchableOpacity style={styles.malaCircle} onPress={tap} activeOpacity={0.8}>
-          <Text style={styles.countValue}>{count}</Text>
-          <Text style={styles.countLabel}>Japa</Text>
-          <Text style={styles.malaStatus}>
-            🙏 {malas} mala{malas !== 1 ? 's' : ''} complete
-          </Text>
-        </TouchableOpacity>
+        {/* Circular Mala */}
+        <Mala count={count} malas={malas} onTap={tap} popBead={popBead} />
 
-        {/* Beads Display */}
-        <View style={styles.beadsContainer}>
-          {Array.from({ length: BEADS }).map((_, i) => (
-            <View
-              key={i}
-              style={[
-                styles.bead,
-                i < count && styles.beadDone,
-                i === BEADS - 1 && styles.sumeru,
-              ]}
-            />
-          ))}
-        </View>
+        {/* Mantra display */}
+        {selectedDeity?.mantra && (
+          <Text style={styles.mantra}>“{selectedDeity.mantra}”</Text>
+        )}
 
         {/* Stats */}
         <View style={styles.statsContainer}>
           <View style={styles.statCol}>
-            <Text style={styles.statValue}>{count}</Text>
-            <Text style={styles.statLabel}>Beads</Text>
-          </View>
-          <View style={styles.statCol}>
-            <Text style={styles.statValue}>{malas}</Text>
-            <Text style={styles.statLabel}>Malas</Text>
-          </View>
-          <View style={styles.statCol}>
             <Text style={styles.statValue}>{malas * 108 + count}</Text>
-            <Text style={styles.statLabel}>Japas</Text>
+            <Text style={styles.statLabel}>Total Japas</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statCol}>
+            <Text style={styles.statValue}>
+              {Math.round(((malas * 108 + count) / 108) * 100) / 100}
+            </Text>
+            <Text style={styles.statLabel}>Malas</Text>
           </View>
         </View>
 
@@ -234,63 +222,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.muted,
   },
-  malaCircle: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: COLORS.cardBg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    alignSelf: 'center',
-    marginBottom: SPACING.lg,
-    borderWidth: 2,
-    borderColor: COLORS.gold,
-  },
-  countValue: {
-    fontSize: 48,
+  mantra: {
+    fontSize: 14,
     color: COLORS.gold,
-    fontWeight: 'bold',
-  },
-  countLabel: {
-    fontSize: 12,
-    color: COLORS.muted,
-    marginTop: 4,
-  },
-  malaStatus: {
-    fontSize: 13,
-    color: COLORS.cream,
-    marginTop: 8,
-  },
-  beadsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 4,
-    marginBottom: SPACING.lg,
-  },
-  bead: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: COLORS.cardBg,
-    borderWidth: 1,
-    borderColor: COLORS.gold,
-  },
-  beadDone: {
-    backgroundColor: COLORS.gold,
-  },
-  sumeru: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: COLORS.gold,
-    borderColor: COLORS.saffron,
-    borderWidth: 2,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginVertical: SPACING.md,
+    paddingHorizontal: SPACING.md,
   },
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    alignItems: 'center',
     marginBottom: SPACING.lg,
+    backgroundColor: 'rgba(26, 31, 58, 0.5)',
+    borderRadius: 12,
+    paddingVertical: SPACING.md,
+    marginHorizontal: SPACING.sm,
+  },
+  statDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: 'rgba(212, 160, 23, 0.2)',
   },
   statCol: {
     alignItems: 'center',

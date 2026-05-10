@@ -1,5 +1,4 @@
-import { FESTIVAL_DB } from './constants';
-import { Festival } from './types';
+import { PANCHANG_FESTIVALS, PanchangFestival } from './festivalsData';
 
 export const todayStr = (): string => {
   return new Date().toISOString().split('T')[0];
@@ -9,18 +8,16 @@ export const getDaysUntil = (dateStr: string): number => {
   return Math.ceil((new Date(dateStr).getTime() - new Date().getTime()) / 86400000);
 };
 
-export const getUpcoming = (): Festival | null => {
-  const festivals = Object.values(FESTIVAL_DB)
-    .flat()
+export const getUpcoming = (): PanchangFestival | null => {
+  const festivals = PANCHANG_FESTIVALS
     .filter(f => getDaysUntil(f.date) >= 0)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   return festivals.length > 0 ? festivals[0] : null;
 };
 
-export const getTodayFest = (): Festival | null => {
+export const getTodayFest = (): PanchangFestival | null => {
   const today = todayStr();
-  const festivals = Object.values(FESTIVAL_DB).flat();
-  return festivals.find(f => f.date === today) || null;
+  return PANCHANG_FESTIVALS.find(f => f.date === today) || null;
 };
 
 export const getGreeting = (): string => {
