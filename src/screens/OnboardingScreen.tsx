@@ -14,7 +14,10 @@ import { DEFAULT_DEITIES, ICONS } from '../constants';
 import { Deity, UserProfile } from '../types';
 import { COLORS, SPACING } from '../theme';
 
-type Step = 'welcome' | 'identity' | 'deities' | 'done';
+type Step = 'welcome' | 'identity' | 'otp' | 'deities' | 'done';
+
+const generateOTP = (): string =>
+  String(Math.floor(100000 + Math.random() * 900000));
 
 const validEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 const validPhone = (s: string) => /^\+?\d[\d\s-]{6,}$/.test(s.trim());
@@ -25,6 +28,9 @@ export const OnboardingScreen = () => {
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
   const [contactType, setContactType] = useState<'email' | 'phone'>('email');
+  const [otp, setOtp] = useState('');
+  const [enteredOtp, setEnteredOtp] = useState('');
+  const [otpSentAt, setOtpSentAt] = useState<number>(0);
 
   // Pre-selected default deities the user can toggle
   const [pickedIds, setPickedIds] = useState<Set<string>>(
@@ -80,6 +86,33 @@ export const OnboardingScreen = () => {
       showToast('Please enter a valid phone number');
       return;
     }
+    // Generate OTP (demo: shown on screen; real app would send via email/SMS backend)
+    const code = generateOTP();
+    setOtp(code);
+    setEnteredOtp('');
+    setOtpSentAt(Date.now());
+    setStep('otp');
+    showToast(`Demo OTP: ${code}`);
+  };
+
+  const resendOtp = () => {
+    const code = generateOTP();
+    setOtp(code);
+    setEnteredOtp('');
+    setOtpSentAt(Date.now());
+    showToast(`New OTP: ${code}`);
+  };
+
+  const verifyOtp = () => {
+    if (enteredOtp.trim() !== otp) {
+      showToast('Wrong OTP — try again');
+      return;
+    }
+    if (Date.now() - otpSentAt > 10 * 60 * 1000) {
+      showToast('OTP expired — please resend');
+      return;
+    }
+    showToast('Verified ✓');
     setStep('deities');
   };
 
@@ -121,6 +154,19 @@ export const OnboardingScreen = () => {
           />
         )}
 
+        {step === 'otp' && (
+          <OtpVerify
+            contact={contact}
+            contactType={contactType}
+            otp={otp}
+            enteredOtp={enteredOtp}
+            onChange={setEnteredOtp}
+            onResend={resendOtp}
+            onVerify={verifyOtp}
+            onBack={() => setStep('identity')}
+          />
+        )}
+
         {step === 'deities' && (
           <DeityPicker
             customs={customs}
@@ -159,6 +205,75 @@ const Welcome = ({ onNext }: { onNext: () => void }) => (
     <TouchableOpacity style={styles.primaryBtn} onPress={onNext}>
       <Text style={styles.primaryBtnText}>Begin →</Text>
     </TouchableOpacity>
+  </View>
+);
+
+const OtpVerify = ({
+  contact,
+  contactType,
+  otp,
+  enteredOtp,
+  onChange,
+  onResend,
+  onVerify,
+  onBack,
+}: {
+  contact: string;
+  contactType: 'email' | 'phone';
+  otp: string;
+  enteredOtp: string;
+  onChange: (v: string) => void;
+  onResend: () => void;
+  onVerify: () => void;
+  onBack: () => void;
+}) => (
+  <View style={styles.stepContent}>
+    <Text style={styles.stepLabel}>Verify your {contactType}</Text>
+    <Text style={styles.title}>Enter the OTP</Text>
+    <Text style={styles.subtitle}>
+      We sent a 6-digit code to {'\n'}
+      <Text style={{ color: COLORS.gold, fontWeight: '700' }}>{contact}</Text>
+    </Text>
+
+    {/* DEMO ONLY — shows the OTP in-app since this build has no email backend */}
+    <View style={styles.demoBanner}>
+      <Text style={styles.demoBannerTitle}>🔓 Demo build</Text>
+      <Text style={styles.demoBannerText}>
+        Real email/SMS sending needs a backend service. For now, your OTP is:
+      </Text>
+      <Text style={styles.demoOtp}>{otp}</Text>
+    </View>
+
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>6-digit OTP</Text>
+      <TextInput
+        style={[styles.input, styles.otpInput]}
+        value={enteredOtp}
+        onChangeText={t => onChange(t.replace(/\D/g, '').slice(0, 6))}
+        placeholder="000000"
+        placeholderTextColor={COLORS.muted}
+        keyboardType="number-pad"
+        maxLength={6}
+        autoFocus
+      />
+    </View>
+
+    <TouchableOpacity onPress={onResend} style={{ alignSelf: 'center', padding: SPACING.sm }}>
+      <Text style={{ color: COLORS.gold, fontSize: 13 }}>Didn't receive? Resend</Text>
+    </TouchableOpacity>
+
+    <View style={styles.btnRow}>
+      <TouchableOpacity style={styles.secondaryBtn} onPress={onBack}>
+        <Text style={styles.secondaryBtnText}>← Back</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.primaryBtn, { flex: 1 }, enteredOtp.length !== 6 && styles.primaryBtnDisabled]}
+        onPress={onVerify}
+        disabled={enteredOtp.length !== 6}
+      >
+        <Text style={styles.primaryBtnText}>Verify →</Text>
+      </TouchableOpacity>
+    </View>
   </View>
 );
 
@@ -435,6 +550,32 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
   },
   hint: { fontSize: 11, color: COLORS.muted, marginTop: 6, fontStyle: 'italic' },
+  demoBanner: {
+    backgroundColor: 'rgba(255, 140, 66, 0.12)',
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.saffron,
+    padding: SPACING.md,
+    borderRadius: 8,
+    marginVertical: SPACING.md,
+  },
+  demoBannerTitle: { fontSize: 12, color: COLORS.saffron, fontWeight: '700', marginBottom: 4 },
+  demoBannerText: { fontSize: 11, color: COLORS.muted, marginBottom: 8, lineHeight: 16 },
+  demoOtp: {
+    fontSize: 28,
+    color: COLORS.gold,
+    fontWeight: '700',
+    letterSpacing: 8,
+    textAlign: 'center',
+    backgroundColor: 'rgba(212, 160, 23, 0.1)',
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  otpInput: {
+    fontSize: 26,
+    letterSpacing: 10,
+    textAlign: 'center',
+    fontWeight: '700',
+  },
   toggleRow: {
     flexDirection: 'row',
     backgroundColor: COLORS.cardBg,
