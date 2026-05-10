@@ -7,104 +7,116 @@ spec = importlib.util.spec_from_file_location("make_icon", "scripts/make-icon.py
 make_icon_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(make_icon_mod)
 
-# Main icon (already generated)
+# Main icon
 make_icon_mod.make_icon("assets/images/icon.png")
 
-# Adaptive icon foreground — smaller, centered, transparent background
 SIZE = 1024
-img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-
-# Render to a smaller temp image, paste centered with safe zone
-tmp_size = 700
-tmp = Image.new("RGBA", (tmp_size, tmp_size), (0, 0, 0, 0))
-draw = ImageDraw.Draw(tmp)
-
-CX = CY = tmp_size // 2
+CX = CY = SIZE // 2
 GOLD = (212, 160, 23, 255)
+GOLD_BRIGHT = (255, 215, 80, 255)
+GOLD_PEAK = (255, 245, 200, 255)
+GOLD_DEEP = (138, 96, 12, 255)
 SAFFRON = (255, 140, 66, 255)
 CREAM = (245, 230, 211, 255)
 
-# Outer ring
-draw.ellipse([CX - 320, CY - 320, CX + 320, CY + 320], outline=GOLD, width=4)
 
-# 16-petal lotus
-for i in range(16):
-    a = (i / 16) * 2 * math.pi
-    x = CX + 280 * math.cos(a)
-    y = CY + 280 * math.sin(a)
-    pr = 50
-    draw.ellipse([x - pr, y - pr, x + pr, y + pr], outline=GOLD, width=4)
+def make_foreground(filename: str) -> None:
+    """Adaptive foreground — symbol on transparent, smaller for safe zone."""
+    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
 
-# Inner ring
-draw.ellipse([CX - 240, CY - 240, CX + 240, CY + 240], outline=GOLD, width=4)
+    # Halo (subtle)
+    halo = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    hd = ImageDraw.Draw(halo)
+    for r in range(330, 80, -4):
+        a = int(50 * (1 - r / 330) ** 1.6)
+        if a > 0:
+            hd.ellipse([CX - r, CY - r, CX + r, CY + r], fill=(*GOLD[:3], a))
+    halo = halo.filter(ImageFilter.GaussianBlur(radius=18))
+    img = Image.alpha_composite(img, halo)
 
-# 8-petal lotus
-for i in range(8):
-    a = (i / 8) * 2 * math.pi + math.pi / 8
-    x = CX + 195 * math.cos(a)
-    y = CY + 195 * math.sin(a)
-    pr = 55
-    draw.ellipse([x - pr, y - pr, x + pr, y + pr], outline=GOLD, width=4)
+    # Outer ring
+    rl = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    rd = ImageDraw.Draw(rl)
+    for r, w, color in [
+        (290, 14, (*GOLD_DEEP[:3], 255)),
+        (290, 6, (*GOLD[:3], 255)),
+        (290, 3, (*GOLD_BRIGHT[:3], 255)),
+        (262, 3, (*GOLD[:3], 255)),
+    ]:
+        rd.ellipse([CX - r, CY - r, CX + r, CY + r], outline=color, width=w)
+    img = Image.alpha_composite(img, rl)
 
-# Inner ring 2
-draw.ellipse([CX - 175, CY - 175, CX + 175, CY + 175], outline=GOLD, width=4)
-
-
-def equi(cx, cy, r, rotate):
+    # Triangle
+    tri_r = 220
     pts = []
     for i in range(3):
-        a = math.radians(-90 + rotate + i * 120)
-        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
-    return pts
+        a = math.radians(-90 + i * 120)
+        pts.append((CX + tri_r * math.cos(a), CY + tri_r * math.sin(a)))
+
+    tri = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    td = ImageDraw.Draw(tri)
+    for shrink in range(0, 160, 5):
+        scale = 1 - shrink / tri_r
+        tpts = [(CX + (p[0] - CX) * scale, CY + (p[1] - CY) * scale) for p in pts]
+        t = shrink / 160
+        r = int(GOLD_DEEP[0] * t + GOLD_PEAK[0] * (1 - t))
+        g = int(GOLD_DEEP[1] * t + GOLD_PEAK[1] * (1 - t))
+        b = int(GOLD_DEEP[2] * t + GOLD_PEAK[2] * (1 - t))
+        a_val = max(0, 245 - shrink * 1)
+        td.polygon(tpts, fill=(r, g, b, a_val))
+    tri_glow = tri.filter(ImageFilter.GaussianBlur(radius=12))
+    img = Image.alpha_composite(img, tri_glow)
+    img = Image.alpha_composite(img, tri)
+
+    d = ImageDraw.Draw(img)
+    d.polygon(pts, outline=GOLD_BRIGHT, width=8)
+    inner_pts = [(CX + (p[0] - CX) * 0.93, CY + (p[1] - CY) * 0.93) for p in pts]
+    d.polygon(inner_pts, outline=GOLD_PEAK, width=2)
+
+    # Bindu
+    bg_l = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    bg_d = ImageDraw.Draw(bg_l)
+    for r in range(60, 4, -3):
+        a = int(160 * (1 - r / 60) ** 1.5)
+        bg_d.ellipse([CX - r, CY - r, CX + r, CY + r], fill=(*SAFFRON[:3], a))
+    bg_l = bg_l.filter(ImageFilter.GaussianBlur(radius=10))
+    img = Image.alpha_composite(img, bg_l)
+
+    d = ImageDraw.Draw(img)
+    d.ellipse([CX - 22, CY - 22, CX + 22, CY + 22], fill=SAFFRON)
+    d.ellipse([CX - 14, CY - 14, CX + 14, CY + 14], fill=GOLD_BRIGHT)
+    d.ellipse([CX - 6, CY - 6, CX + 6, CY + 6], fill=CREAM)
+
+    img.save(filename, "PNG", optimize=True)
+    print(f"Saved: {filename}")
 
 
-# 9 triangles
-for r in (165, 140, 115, 85):
-    draw.polygon(equi(CX, CY, r, 0), outline=GOLD, width=4)
-for r in (165, 145, 120, 95, 70):
-    draw.polygon(equi(CX, CY, r, 180), outline=GOLD, width=4)
+def make_background(filename: str) -> None:
+    """Adaptive background — solid velvet."""
+    img = Image.new("RGBA", (SIZE, SIZE), (8, 11, 32, 255))
+    glow = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    for r in range(SIZE // 2, 50, -10):
+        a = int(28 * (1 - r / (SIZE / 2)))
+        if a > 0:
+            gd.ellipse(
+                [SIZE // 2 - r, SIZE // 2 - r, SIZE // 2 + r, SIZE // 2 + r],
+                fill=(212, 160, 23, a),
+            )
+    glow = glow.filter(ImageFilter.GaussianBlur(radius=22))
+    img = Image.alpha_composite(img, glow)
+    img.save(filename, "PNG", optimize=True)
+    print(f"Saved: {filename}")
 
-# Bindu
-glow = Image.new("RGBA", (tmp_size, tmp_size), (0, 0, 0, 0))
-gd = ImageDraw.Draw(glow)
-for r in range(40, 4, -2):
-    alpha = int(150 * (1 - r / 40))
-    gd.ellipse([CX - r, CY - r, CX + r, CY + r], fill=(255, 140, 66, alpha))
-glow = glow.filter(ImageFilter.GaussianBlur(radius=6))
-tmp = Image.alpha_composite(tmp, glow)
-draw = ImageDraw.Draw(tmp)
-draw.ellipse([CX - 10, CY - 10, CX + 10, CY + 10], fill=SAFFRON)
-draw.ellipse([CX - 4, CY - 4, CX + 4, CY + 4], fill=CREAM)
 
-# Paste into 1024x1024 transparent
-offset = (SIZE - tmp_size) // 2
-img.paste(tmp, (offset, offset), tmp)
-img.save("assets/images/android-icon-foreground.png", "PNG", optimize=True)
-print("Saved: android-icon-foreground.png")
+make_foreground("assets/images/android-icon-foreground.png")
+make_background("assets/images/android-icon-background.png")
 
-# Background — solid deep blue
-bg = Image.new("RGBA", (SIZE, SIZE), (10, 14, 39, 255))
-# Subtle radial glow
-glow = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-gd = ImageDraw.Draw(glow)
-for r in range(SIZE // 2, 50, -10):
-    alpha = int(20 * (1 - r / (SIZE / 2)))
-    if alpha > 0:
-        gd.ellipse(
-            [SIZE // 2 - r, SIZE // 2 - r, SIZE // 2 + r, SIZE // 2 + r],
-            fill=(212, 160, 23, alpha),
-        )
-glow = glow.filter(ImageFilter.GaussianBlur(radius=20))
-bg = Image.alpha_composite(bg, glow)
-bg.save("assets/images/android-icon-background.png", "PNG", optimize=True)
-print("Saved: android-icon-background.png")
-
-# Splash icon — same as main, scaled down a bit
+# Splash and favicon = main icon
 splash = Image.open("assets/images/icon.png")
 splash.save("assets/images/splash-icon.png", "PNG", optimize=True)
 print("Saved: splash-icon.png")
 
-# Favicon
 fav = Image.open("assets/images/icon.png").resize((48, 48), Image.LANCZOS)
 fav.save("assets/images/favicon.png", "PNG", optimize=True)
 print("Saved: favicon.png")

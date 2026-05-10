@@ -9,6 +9,7 @@ import {
 import { SadhanaProvider, useSadhana } from './context';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { JapaScreen } from './screens/JapaScreen';
+import { SandhyaScreen } from './screens/SandhyaScreen';
 import { DeityScreen } from './screens/DeityScreen';
 import { FestivalScreen } from './screens/FestivalScreen';
 import { HistoryScreen } from './screens/HistoryScreen';
@@ -33,7 +34,7 @@ const TabNavigator = () => {
         tabBarActiveTintColor: COLORS.gold,
         tabBarInactiveTintColor: COLORS.muted,
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 10,
           marginTop: 2,
         },
         sceneStyle: {
@@ -56,6 +57,14 @@ const TabNavigator = () => {
         options={{
           tabBarLabel: 'Japa',
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📿</Text>,
+        }}
+      />
+      <Tab.Screen
+        name="Sandhya"
+        component={SandhyaScreen}
+        options={{
+          tabBarLabel: 'Sandhya',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🌅</Text>,
         }}
       />
       <Tab.Screen

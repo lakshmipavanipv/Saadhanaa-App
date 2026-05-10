@@ -1,163 +1,129 @@
-"""Generate a richer Sri Yantra app icon using PIL."""
+"""Generate a bold, simple, shiny icon: triangle inside circle on velvet."""
 from PIL import Image, ImageDraw, ImageFilter
 import math
 
 SIZE = 1024
 CX = CY = SIZE // 2
 
-DEEP = (10, 14, 39, 255)
-DEEP_TOP = (18, 22, 56, 255)
+VELVET_DARK = (8, 11, 32, 255)
+VELVET_MID = (16, 20, 50, 255)
+VELVET_HIGH = (24, 30, 70, 255)
+GOLD_DEEP = (138, 96, 12, 255)
 GOLD = (212, 160, 23, 255)
 GOLD_BRIGHT = (255, 215, 80, 255)
-GOLD_DIM = (140, 100, 18, 255)
+GOLD_PEAK = (255, 245, 200, 255)
 SAFFRON = (255, 140, 66, 255)
 CREAM = (245, 230, 211, 255)
 
 
-def make_icon(filename: str) -> None:
-    # Vertical gradient background
-    img = Image.new("RGBA", (SIZE, SIZE), DEEP)
+def velvet_background(img: Image.Image) -> Image.Image:
+    """Radial velvet — darker edges, lifted center."""
+    w, h = img.size
     px = img.load()
-    for y in range(SIZE):
-        t = y / SIZE
-        r = int(DEEP_TOP[0] * (1 - t) + DEEP[0] * t)
-        g = int(DEEP_TOP[1] * (1 - t) + DEEP[1] * t)
-        b = int(DEEP_TOP[2] * (1 - t) + DEEP[2] * t)
-        for x in range(SIZE):
+    for y in range(h):
+        for x in range(w):
+            dx, dy = x - CX, y - CY
+            d = math.hypot(dx, dy) / (SIZE / 2)
+            t = min(1.0, d)
+            r = int(VELVET_HIGH[0] * (1 - t) + VELVET_DARK[0] * t)
+            g = int(VELVET_HIGH[1] * (1 - t) + VELVET_DARK[1] * t)
+            b = int(VELVET_HIGH[2] * (1 - t) + VELVET_DARK[2] * t)
             px[x, y] = (r, g, b, 255)
+    return img
 
-    # Big radial glow behind everything
-    glow = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(glow)
-    for r in range(SIZE // 2, 100, -6):
-        a = int(55 * (1 - r / (SIZE / 2)) ** 1.4)
+
+def make_icon(filename: str) -> None:
+    img = Image.new("RGBA", (SIZE, SIZE), VELVET_DARK)
+    img = velvet_background(img)
+
+    # Big radial gold halo behind the symbol
+    halo = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    hd = ImageDraw.Draw(halo)
+    for r in range(420, 100, -4):
+        a = int(70 * (1 - r / 420) ** 1.6)
         if a > 0:
-            gd.ellipse([CX - r, CY - r, CX + r, CY + r], fill=(212, 160, 23, a))
-    glow = glow.filter(ImageFilter.GaussianBlur(radius=24))
-    img = Image.alpha_composite(img, glow)
+            hd.ellipse([CX - r, CY - r, CX + r, CY + r], fill=(*GOLD[:3], a))
+    halo = halo.filter(ImageFilter.GaussianBlur(radius=20))
+    img = Image.alpha_composite(img, halo)
 
-    # Build the yantra on a high-res transparent layer (then composite)
-    yantra = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    d = ImageDraw.Draw(yantra)
-
-    # Outer triple square frame
-    sq = 870
-    sq_l, sq_t = CX - sq // 2, CY - sq // 2
-    sq_r, sq_b = sq_l + sq, sq_t + sq
-
-    for off, w in ((0, 5), (16, 4), (32, 3)):
-        d.rectangle(
-            [sq_l - off, sq_t - off, sq_r + off, sq_b + off],
-            outline=GOLD,
-            width=w,
-        )
-
-    # 4 T-shape gates
-    gw, gd_ = 160, 70
-    for x1, y1, x2, y2 in [
-        (CX - gw // 2, sq_t - 32 - gd_, CX + gw // 2, sq_t - 32),  # top
-        (CX - gw // 2, sq_b + 32, CX + gw // 2, sq_b + 32 + gd_),  # bottom
-        (sq_l - 32 - gd_, CY - gw // 2, sq_l - 32, CY + gw // 2),  # left
-        (sq_r + 32, CY - gw // 2, sq_r + 32 + gd_, CY + gw // 2),  # right
+    # Outer glowing ring (made of stacked rings of varying brightness)
+    ring_layer = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    rd = ImageDraw.Draw(ring_layer)
+    for r, w, color in [
+        (370, 18, (*GOLD_DEEP[:3], 255)),
+        (370, 8, (*GOLD[:3], 255)),
+        (370, 3, (*GOLD_BRIGHT[:3], 255)),
+        (336, 4, (*GOLD[:3], 255)),
+        (336, 2, (*GOLD_BRIGHT[:3], 255)),
     ]:
-        d.rectangle([x1, y1, x2, y2], outline=GOLD, width=4)
-        # Inner T-line
-        if x2 - x1 > y2 - y1:  # horizontal gate
-            mid_y = (y1 + y2) // 2
-            d.line([x1, mid_y, x2, mid_y], fill=GOLD_DIM, width=2)
-        else:
-            mid_x = (x1 + x2) // 2
-            d.line([mid_x, y1, mid_x, y2], fill=GOLD_DIM, width=2)
+        rd.ellipse([CX - r, CY - r, CX + r, CY + r], outline=color, width=w)
+    img = Image.alpha_composite(img, ring_layer)
 
-    # Outer 16-petal lotus — stylized teardrop petals
-    outer_petal_r = 380
-    for i in range(16):
-        a = (i / 16) * 2 * math.pi
-        cx_p = CX + outer_petal_r * math.cos(a)
-        cy_p = CY + outer_petal_r * math.sin(a)
-        # Teardrop petal: ellipse oriented radially
-        petal_l, petal_w = 80, 48
-        # Compute corner points of bounding box
-        d.ellipse(
-            [cx_p - petal_l, cy_p - petal_w, cx_p + petal_l, cy_p + petal_w],
-            outline=GOLD,
-            width=4,
-        )
-        d.ellipse(
-            [cx_p - petal_l + 6, cy_p - petal_w + 6,
-             cx_p + petal_l - 6, cy_p + petal_w - 6],
-            outline=GOLD_DIM,
-            width=2,
-        )
+    # Triangle pointing up — bold, glowing, gradient-filled
+    tri_r = 280
+    pts = []
+    for i in range(3):
+        a = math.radians(-90 + i * 120)
+        pts.append((CX + tri_r * math.cos(a), CY + tri_r * math.sin(a)))
 
-    # Two outer rings
-    d.ellipse([CX - 360, CY - 360, CX + 360, CY + 360], outline=GOLD, width=4)
-    d.ellipse([CX - 348, CY - 348, CX + 348, CY + 348], outline=GOLD_DIM, width=2)
+    # Triangle gradient fill: bottom dark, top bright
+    tri_layer = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    tri_d = ImageDraw.Draw(tri_layer)
+    # Subtle inner gradient via stacked smaller triangles
+    for shrink in range(0, 200, 6):
+        scale = 1 - shrink / tri_r
+        tpts = [(CX + (p[0] - CX) * scale, CY + (p[1] - CY) * scale) for p in pts]
+        # Position-dependent shade — base of the original triangle was at apex y, so shade by shrink
+        t = shrink / 200
+        r = int(GOLD_DEEP[0] * t + GOLD_PEAK[0] * (1 - t))
+        g = int(GOLD_DEEP[1] * t + GOLD_PEAK[1] * (1 - t))
+        b = int(GOLD_DEEP[2] * t + GOLD_PEAK[2] * (1 - t))
+        a_val = max(0, 245 - shrink * 1)
+        tri_d.polygon(tpts, fill=(r, g, b, a_val))
 
-    # Inner 8-petal lotus
-    inner_petal_r = 285
-    for i in range(8):
-        a = (i / 8) * 2 * math.pi + math.pi / 8
-        cx_p = CX + inner_petal_r * math.cos(a)
-        cy_p = CY + inner_petal_r * math.sin(a)
-        petal_l, petal_w = 75, 55
-        d.ellipse(
-            [cx_p - petal_l, cy_p - petal_w, cx_p + petal_l, cy_p + petal_w],
-            outline=GOLD,
-            width=4,
-        )
+    # Soft glow around triangle
+    tri_glow = tri_layer.filter(ImageFilter.GaussianBlur(radius=14))
+    img = Image.alpha_composite(img, tri_glow)
+    img = Image.alpha_composite(img, tri_layer)
 
-    # Inner ring
-    d.ellipse([CX - 252, CY - 252, CX + 252, CY + 252], outline=GOLD, width=4)
-    d.ellipse([CX - 240, CY - 240, CX + 240, CY + 240], outline=GOLD_DIM, width=2)
+    # Bold gold outline on triangle
+    d = ImageDraw.Draw(img)
+    d.polygon(pts, outline=GOLD_BRIGHT, width=10)
+    # Inner outline highlight
+    inner_pts = [(CX + (p[0] - CX) * 0.93, CY + (p[1] - CY) * 0.93) for p in pts]
+    d.polygon(inner_pts, outline=GOLD_PEAK, width=3)
 
-    # Sri Yantra core: 9 interlocking triangles (4 up, 5 down)
-    # Sized progressively
-    up_radii = [235, 195, 155, 115]
-    down_radii = [240, 205, 170, 135, 100]
-    for r in up_radii:
-        d.polygon(
-            _equi_triangle(CX, CY, r, 0),
-            outline=GOLD_BRIGHT,
-            width=5,
-        )
-    for r in down_radii:
-        d.polygon(
-            _equi_triangle(CX, CY, r, 180),
-            outline=GOLD_BRIGHT,
-            width=5,
-        )
-
-    # Gentle glow on the triangles
-    triangle_glow = yantra.filter(ImageFilter.GaussianBlur(radius=4))
-    yantra = Image.alpha_composite(triangle_glow, yantra)
-
-    img = Image.alpha_composite(img, yantra)
-
-    # Central bindu with bright glow
+    # Central bindu (Om-like point) with glow
     bindu_glow = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     bg = ImageDraw.Draw(bindu_glow)
-    for r in range(75, 4, -3):
-        a = int(155 * (1 - r / 75) ** 1.5)
-        bg.ellipse([CX - r, CY - r, CX + r, CY + r], fill=(255, 140, 66, a))
-    bindu_glow = bindu_glow.filter(ImageFilter.GaussianBlur(radius=10))
+    for r in range(80, 4, -3):
+        a = int(180 * (1 - r / 80) ** 1.5)
+        bg.ellipse([CX - r, CY - r, CX + r, CY + r], fill=(*SAFFRON[:3], a))
+    bindu_glow = bindu_glow.filter(ImageFilter.GaussianBlur(radius=12))
     img = Image.alpha_composite(img, bindu_glow)
 
-    d2 = ImageDraw.Draw(img)
-    d2.ellipse([CX - 18, CY - 18, CX + 18, CY + 18], fill=SAFFRON)
-    d2.ellipse([CX - 10, CY - 10, CX + 10, CY + 10], fill=GOLD_BRIGHT)
-    d2.ellipse([CX - 4, CY - 4, CX + 4, CY + 4], fill=CREAM)
+    d = ImageDraw.Draw(img)
+    d.ellipse([CX - 28, CY - 28, CX + 28, CY + 28], fill=SAFFRON)
+    d.ellipse([CX - 18, CY - 18, CX + 18, CY + 18], fill=GOLD_BRIGHT)
+    d.ellipse([CX - 8, CY - 8, CX + 8, CY + 8], fill=CREAM)
+
+    # Specular highlight on the triangle (top-left edge shine)
+    spec = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(spec)
+    # Highlight along the upper-left edge
+    p1 = pts[0]  # top
+    p2 = pts[2]  # bottom-left
+    for off, alpha in [(0, 90), (-3, 60), (-6, 40)]:
+        sd.line(
+            [(p1[0] + off, p1[1] + off), (p2[0] + off, p2[1] + off)],
+            fill=(*GOLD_PEAK[:3], alpha),
+            width=4,
+        )
+    spec = spec.filter(ImageFilter.GaussianBlur(radius=4))
+    img = Image.alpha_composite(img, spec)
 
     img.save(filename, "PNG", optimize=True)
     print(f"Saved: {filename}")
-
-
-def _equi_triangle(cx: float, cy: float, r: float, rotate_deg: float) -> list:
-    pts = []
-    for i in range(3):
-        a = math.radians(-90 + rotate_deg + i * 120)
-        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
-    return pts
 
 
 if __name__ == "__main__":
