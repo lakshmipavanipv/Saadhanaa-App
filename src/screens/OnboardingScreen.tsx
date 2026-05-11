@@ -10,9 +10,10 @@ import {
   Platform,
 } from 'react-native';
 import { useSadhana } from '../context';
-import { DEFAULT_DEITIES, ICONS } from '../constants';
 import { Deity, UserProfile } from '../types';
 import { COLORS, SPACING } from '../theme';
+import { DeityCatalogPicker } from '../components/DeityCatalogPicker';
+import { CatalogDeity, ALL_CATALOG_DEITIES } from '../deityCatalog';
 
 type Step = 'welcome' | 'identity' | 'otp' | 'deities' | 'done';
 
@@ -32,41 +33,33 @@ export const OnboardingScreen = () => {
   const [enteredOtp, setEnteredOtp] = useState('');
   const [otpSentAt, setOtpSentAt] = useState<number>(0);
 
-  // Pre-selected default deities the user can toggle
+  // Pre-selected: Ganesha + Krishna + Lakshmi from catalog
   const [pickedIds, setPickedIds] = useState<Set<string>>(
-    new Set(DEFAULT_DEITIES.map(d => d.id))
+    new Set(['ganesha', 'krishna', 'lakshmi'])
   );
-  const [customName, setCustomName] = useState('');
-  const [customMantra, setCustomMantra] = useState('');
-  const [customIcon, setCustomIcon] = useState('🙏');
   const [customs, setCustoms] = useState<Deity[]>([]);
 
-  const togglePick = (id: string) =>
+  const togglePick = (d: CatalogDeity) =>
     setPickedIds(prev => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      next.has(d.id) ? next.delete(d.id) : next.add(d.id);
       return next;
     });
 
-  const addCustom = () => {
-    if (!customName.trim()) {
-      showToast('Enter the deity name first');
-      return;
-    }
+  const addCustom = (name: string, icon: string, mantra: string) => {
+    const id = `custom-${Date.now()}`;
     const d: Deity = {
-      id: `c-${Date.now()}`,
-      name: customName.trim(),
-      icon: customIcon,
-      mantra: customMantra.trim() || 'Om Namah',
+      id,
+      name,
+      icon,
+      mantra,
       prayerAlarm: '06:00',
       alarmOn: false,
       totalMalas: 0,
     };
     setCustoms(prev => [...prev, d]);
-    setPickedIds(prev => new Set(prev).add(d.id));
-    setCustomName('');
-    setCustomMantra('');
-    setCustomIcon('🙏');
+    setPickedIds(prev => new Set(prev).add(id));
+    showToast(`${icon} ${name} added`);
   };
 
   const submitIdentity = () => {
@@ -117,8 +110,20 @@ export const OnboardingScreen = () => {
   };
 
   const finish = () => {
-    const allCandidates = [...DEFAULT_DEITIES, ...customs];
-    const finalDeities = allCandidates.filter(d => pickedIds.has(d.id));
+    // Map catalog deities (no totalMalas / alarms yet) into real Deity records
+    const fromCatalog: Deity[] = ALL_CATALOG_DEITIES
+      .filter(c => pickedIds.has(c.id))
+      .map(c => ({
+        id: c.id,
+        name: c.name,
+        icon: c.icon,
+        mantra: c.mantra,
+        prayerAlarm: '06:00',
+        alarmOn: false,
+        totalMalas: 0,
+      }));
+    const fromCustom = customs.filter(c => pickedIds.has(c.id));
+    const finalDeities = [...fromCatalog, ...fromCustom];
     setDeities(finalDeities);
 
     const profile: UserProfile = {
@@ -168,20 +173,35 @@ export const OnboardingScreen = () => {
         )}
 
         {step === 'deities' && (
-          <DeityPicker
-            customs={customs}
-            picked={pickedIds}
-            onToggle={togglePick}
-            customName={customName}
-            customMantra={customMantra}
-            customIcon={customIcon}
-            onCustomName={setCustomName}
-            onCustomMantra={setCustomMantra}
-            onCustomIcon={setCustomIcon}
-            onAddCustom={addCustom}
-            onBack={() => setStep('identity')}
-            onFinish={finish}
-          />
+          <View style={styles.stepContent}>
+            <Text style={styles.stepLabel}>Step 2 of 2</Text>
+            <Text style={styles.title}>Choose your deities</Text>
+            <Text style={styles.subtitle}>
+              Tap deities to add to your sadhana. Includes the Trinity, Dashavatara,
+              Devi, Dasha Mahavidya, Ashta Bhairava and more.
+            </Text>
+
+            <DeityCatalogPicker
+              pickedIds={pickedIds}
+              onTogglePick={togglePick}
+              onAddCustom={addCustom}
+            />
+
+            <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('otp')}>
+                <Text style={styles.secondaryBtnText}>← Back</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.primaryBtn, { flex: 1 }, pickedIds.size === 0 && styles.primaryBtnDisabled]}
+                onPress={finish}
+                disabled={pickedIds.size === 0}
+              >
+                <Text style={styles.primaryBtnText}>
+                  Finish ({pickedIds.size})
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
       </ScrollView>
     </KeyboardAvoidingView>
@@ -378,116 +398,6 @@ const Identity = ({
   </View>
 );
 
-const DeityPicker = ({
-  customs,
-  picked,
-  onToggle,
-  customName,
-  customMantra,
-  customIcon,
-  onCustomName,
-  onCustomMantra,
-  onCustomIcon,
-  onAddCustom,
-  onBack,
-  onFinish,
-}: {
-  customs: Deity[];
-  picked: Set<string>;
-  onToggle: (id: string) => void;
-  customName: string;
-  customMantra: string;
-  customIcon: string;
-  onCustomName: (s: string) => void;
-  onCustomMantra: (s: string) => void;
-  onCustomIcon: (s: string) => void;
-  onAddCustom: () => void;
-  onBack: () => void;
-  onFinish: () => void;
-}) => {
-  const all = [...DEFAULT_DEITIES, ...customs];
-  return (
-    <View style={styles.stepContent}>
-      <Text style={styles.stepLabel}>Step 2 of 2</Text>
-      <Text style={styles.title}>Pick your deities</Text>
-      <Text style={styles.subtitle}>
-        These appear in your Japa, Dashboard and reminders. You can change anytime.
-      </Text>
-
-      <View style={styles.deityGrid}>
-        {all.map(d => {
-          const isPicked = picked.has(d.id);
-          return (
-            <TouchableOpacity
-              key={d.id}
-              style={[styles.deityChip, isPicked && styles.deityChipActive]}
-              onPress={() => onToggle(d.id)}
-            >
-              <Text style={styles.deityChipIcon}>{d.icon}</Text>
-              <Text style={[styles.deityChipName, isPicked && styles.deityChipNameActive]}>
-                {d.name}
-              </Text>
-              <Text style={styles.deityChipMantra}>{d.mantra}</Text>
-              {isPicked && <View style={styles.deityChipCheck}><Text style={{color: COLORS.deep, fontSize: 11, fontWeight: '700'}}>✓</Text></View>}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      <View style={styles.divider} />
-
-      <Text style={styles.subSection}>Add your own deity</Text>
-
-      <View style={styles.field}>
-        <TextInput
-          style={styles.input}
-          value={customName}
-          onChangeText={onCustomName}
-          placeholder="Deity name (e.g. Lord Hanuman)"
-          placeholderTextColor={COLORS.muted}
-        />
-      </View>
-      <View style={styles.field}>
-        <TextInput
-          style={styles.input}
-          value={customMantra}
-          onChangeText={onCustomMantra}
-          placeholder="Mantra (e.g. Om Hanumate Namah)"
-          placeholderTextColor={COLORS.muted}
-        />
-      </View>
-      <View style={styles.iconGrid}>
-        {ICONS.slice(0, 12).map(ic => (
-          <TouchableOpacity
-            key={ic}
-            style={[styles.iconBtn, customIcon === ic && styles.iconBtnActive]}
-            onPress={() => onCustomIcon(ic)}
-          >
-            <Text style={{ fontSize: 22 }}>{ic}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      <TouchableOpacity style={styles.addCustomBtn} onPress={onAddCustom}>
-        <Text style={styles.addCustomBtnText}>+ Add this deity</Text>
-      </TouchableOpacity>
-
-      <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
-        <TouchableOpacity style={styles.secondaryBtn} onPress={onBack}>
-          <Text style={styles.secondaryBtnText}>← Back</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.primaryBtn, { flex: 1 }, picked.size === 0 && styles.primaryBtnDisabled]}
-          onPress={onFinish}
-          disabled={picked.size === 0}
-        >
-          <Text style={styles.primaryBtnText}>
-            Finish ({picked.size} picked)
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-};
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.deep },

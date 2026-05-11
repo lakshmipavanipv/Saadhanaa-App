@@ -11,9 +11,10 @@ import {
   Switch,
 } from 'react-native';
 import { useSadhana } from '../context';
-import { ICONS } from '../constants';
 import { COLORS, SPACING } from '../theme';
 import { Deity } from '../types';
+import { DeityCatalogPicker } from '../components/DeityCatalogPicker';
+import { CatalogDeity, ALL_CATALOG_DEITIES } from '../deityCatalog';
 
 export const DeityScreen = () => {
   const { deities, setDeities, showToast, notifGranted, requestNotif } = useSadhana();
@@ -129,96 +130,59 @@ export const DeityScreen = () => {
         <Text style={styles.addBtnText}>+ Add New Deity</Text>
       </TouchableOpacity>
 
-      {/* Add Deity Modal */}
-      <Modal visible={showAdd} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Add Deity to Sadhana</Text>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Deity Name *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Lord Hanuman"
-                placeholderTextColor={COLORS.muted}
-                value={name}
-                onChangeText={setName}
-                autoFocus
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Mantra / Prayer</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Om Hanumate Namah"
-                placeholderTextColor={COLORS.muted}
-                value={mantra}
-                onChangeText={setMantra}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Icon</Text>
-              <View style={styles.iconGrid}>
-                {ICONS.map(ic => (
-                  <TouchableOpacity
-                    key={ic}
-                    style={[
-                      styles.iconBtn,
-                      icon === ic && styles.iconBtnSelected,
-                    ]}
-                    onPress={() => setIcon(ic)}
-                  >
-                    <Text style={{ fontSize: 22 }}>{ic}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Daily Target (malas)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. 1, 3, 11, 108"
-                placeholderTextColor={COLORS.muted}
-                value={target}
-                onChangeText={setTarget}
-                keyboardType="number-pad"
-              />
-              <Text style={{ fontSize: 11, color: COLORS.muted, marginTop: 4 }}>
-                Optional. Each mala = 108 japas. Progress shows on the deity card.
-              </Text>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Daily Prayer Alarm</Text>
-              <View style={styles.timeRow}>
-                <TextInput
-                  style={styles.timeInput}
-                  placeholder="HH:MM"
-                  placeholderTextColor={COLORS.muted}
-                  value={time}
-                  onChangeText={setTime}
-                />
-                <Switch
-                  value={alarmOn}
-                  onValueChange={setAlarmOn}
-                  trackColor={{ false: COLORS.border, true: COLORS.gold }}
-                  thumbColor={alarmOn ? COLORS.cream : COLORS.muted}
-                />
-                <Text style={styles.alarmLabel}>Daily reminder</Text>
-              </View>
-            </View>
-
-            <TouchableOpacity style={styles.submitBtn} onPress={add}>
-              <Text style={styles.submitBtnText}>Add to My Sadhana</Text>
+      {/* Add Deity Modal — full catalog picker */}
+      <Modal visible={showAdd} animationType="slide" onRequestClose={() => setShowAdd(false)}>
+        <View style={[styles.container, { paddingTop: 50 }]}>
+          <View style={styles.fullModalHeader}>
+            <TouchableOpacity onPress={() => setShowAdd(false)} style={styles.fullCloseBtn}>
+              <Text style={styles.fullCloseText}>✕</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowAdd(false)}>
-              <Text style={styles.cancelBtnText}>Cancel</Text>
-            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.fullModalTitle}>Add deity</Text>
+              <Text style={styles.fullModalSub}>Browse the catalog or add your own</Text>
+            </View>
           </View>
+          <ScrollView
+            contentContainerStyle={{ padding: SPACING.md }}
+            showsVerticalScrollIndicator={false}
+          >
+            <DeityCatalogPicker
+              pickedIds={new Set(deities.map(d => d.id))}
+              onTogglePick={catalogDeity => {
+                if (deities.some(d => d.id === catalogDeity.id)) {
+                  // Already added — remove
+                  setDeities(p => p.filter(d => d.id !== catalogDeity.id));
+                  showToast(`Removed ${catalogDeity.name}`);
+                } else {
+                  // Add it
+                  const newDeity: Deity = {
+                    id: catalogDeity.id,
+                    name: catalogDeity.name,
+                    icon: catalogDeity.icon,
+                    mantra: catalogDeity.mantra,
+                    prayerAlarm: '06:00',
+                    alarmOn: false,
+                    totalMalas: 0,
+                  };
+                  setDeities(p => [...p, newDeity]);
+                  showToast(`${catalogDeity.icon} ${catalogDeity.name} added`);
+                }
+              }}
+              onAddCustom={(customN, customI, customM) => {
+                const newDeity: Deity = {
+                  id: `custom-${Date.now()}`,
+                  name: customN,
+                  icon: customI,
+                  mantra: customM,
+                  prayerAlarm: '06:00',
+                  alarmOn: false,
+                  totalMalas: 0,
+                };
+                setDeities(p => [...p, newDeity]);
+                showToast(`${customI} ${customN} added`);
+              }}
+            />
+          </ScrollView>
         </View>
       </Modal>
 
@@ -378,6 +342,26 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     marginTop: 2,
   },
+  fullModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingBottom: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  fullCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
+  },
+  fullCloseText: { color: COLORS.cream, fontSize: 16 },
+  fullModalTitle: { fontSize: 18, color: COLORS.cream, fontWeight: '700' },
+  fullModalSub: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
   targetRow: {
     flexDirection: 'row',
     alignItems: 'center',
