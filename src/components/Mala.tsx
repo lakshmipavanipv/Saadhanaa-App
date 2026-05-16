@@ -5,9 +5,11 @@ import { COLORS } from '../theme';
 const BEADS = 108;
 const SIZE = 340;
 const CENTER = SIZE / 2;
-const OUTER_R = 152;
-const INNER_R = 110;
+const OUTER_R = 158;
+const INNER_R = 122;
 const HALF = BEADS / 2; // 54
+const BEAD_SIZE = 15;
+const CENTER_SIZE = 168;
 
 interface MalaProps {
   count: number;
@@ -88,8 +90,8 @@ export const Mala: React.FC<MalaProps> = ({
             style={[
               styles.bead,
               {
-                left: b.x - 7,
-                top: b.y - 7,
+                left: b.x - BEAD_SIZE / 2,
+                top: b.y - BEAD_SIZE / 2,
               },
               b.isDone && [
                 styles.beadDone,
@@ -104,7 +106,16 @@ export const Mala: React.FC<MalaProps> = ({
                 { backgroundColor: doneBorder, borderColor: doneColor },
               ],
             ]}
-          />
+          >
+            {b.isDone && (
+              <View
+                style={[
+                  styles.beadShine,
+                  { backgroundColor: doneBorder },
+                ]}
+              />
+            )}
+          </View>
         ))}
 
         {/* Meru / Sumeru bead — distinct, slightly larger, never lit */}
@@ -171,12 +182,12 @@ const styles = StyleSheet.create({
   },
   bead: {
     position: 'absolute',
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: 'rgba(80, 60, 30, 0.85)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(212, 160, 23, 0.45)',
+    width: BEAD_SIZE,
+    height: BEAD_SIZE,
+    borderRadius: BEAD_SIZE / 2,
+    backgroundColor: 'rgba(60, 45, 22, 0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 160, 23, 0.35)',
   },
   beadDone: {
     backgroundColor: COLORS.gold,
@@ -186,10 +197,19 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     elevation: 5,
   },
+  beadShine: {
+    position: 'absolute',
+    width: 5,
+    height: 4,
+    borderRadius: 3,
+    top: 2,
+    left: 3,
+    opacity: 0.85,
+  },
   beadPop: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: BEAD_SIZE + 6,
+    height: BEAD_SIZE + 6,
+    borderRadius: (BEAD_SIZE + 6) / 2,
     backgroundColor: COLORS.saffron,
     borderColor: '#ffd6a8',
   },
@@ -227,68 +247,69 @@ const styles = StyleSheet.create({
   // ── BIG center japa bead — sphere-like 3D feel via stacked ovals ──
   center: {
     position: 'absolute',
-    left: CENTER - 95,
-    top: CENTER - 95,
-    width: 190,
-    height: 190,
+    left: CENTER - CENTER_SIZE / 2,
+    top: CENTER - CENTER_SIZE / 2,
+    width: CENTER_SIZE,
+    height: CENTER_SIZE,
     justifyContent: 'center',
     alignItems: 'center',
   },
   beadShadow: {
     position: 'absolute',
-    width: 190,
-    height: 190,
-    borderRadius: 95,
+    width: CENTER_SIZE,
+    height: CENTER_SIZE,
+    borderRadius: CENTER_SIZE / 2,
     backgroundColor: 'rgba(0, 0, 0, 0.55)',
-    top: 8,
+    top: 6,
     left: 0,
   },
   beadBody: {
-    width: 190,
-    height: 190,
-    borderRadius: 95,
+    width: CENTER_SIZE,
+    height: CENTER_SIZE,
+    borderRadius: CENTER_SIZE / 2,
     overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
   },
   beadFaceDark: {
     position: 'absolute',
-    width: 190,
-    height: 190,
-    borderRadius: 95,
+    width: CENTER_SIZE,
+    height: CENTER_SIZE,
+    borderRadius: CENTER_SIZE / 2,
     backgroundColor: '#3d2a08',
     borderWidth: 3,
     borderColor: COLORS.gold,
   },
   beadFaceMid: {
     position: 'absolute',
-    width: 168,
-    height: 168,
-    borderRadius: 84,
+    width: CENTER_SIZE - 20,
+    height: CENTER_SIZE - 20,
+    borderRadius: (CENTER_SIZE - 20) / 2,
     backgroundColor: '#5e3f10',
-    top: 11,
-    left: 11,
+    top: 10,
+    left: 10,
   },
   beadFaceLight: {
     position: 'absolute',
-    width: 148,
-    height: 148,
-    borderRadius: 74,
+    width: CENTER_SIZE - 36,
+    height: CENTER_SIZE - 36,
+    borderRadius: (CENTER_SIZE - 36) / 2,
     backgroundColor: '#1a1f3a',
-    top: 21,
-    left: 21,
+    top: 18,
+    left: 18,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1.5,
     borderColor: 'rgba(212, 160, 23, 0.6)',
+    paddingHorizontal: 8,
   },
   beadHaloRing: {
     position: 'absolute',
-    width: 210,
-    height: 210,
-    borderRadius: 105,
-    top: -10,
-    left: -10,
+    width: CENTER_SIZE + 16,
+    height: CENTER_SIZE + 16,
+    borderRadius: (CENTER_SIZE + 16) / 2,
+    top: -8,
+    left: -8,
     borderWidth: 2,
     borderColor: 'rgba(212, 160, 23, 0.35)',
     borderStyle: 'dashed',
@@ -308,32 +329,32 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   malaCount: {
-    fontSize: 50,
+    fontSize: 38,
     fontWeight: '700',
     color: COLORS.gold,
-    lineHeight: 56,
+    lineHeight: 42,
   },
   malaLabel: {
-    fontSize: 10,
+    fontSize: 9,
     color: COLORS.muted,
-    letterSpacing: 3,
+    letterSpacing: 2.5,
     marginTop: 1,
   },
   divider: {
-    width: 44,
+    width: 38,
     height: 1,
     backgroundColor: 'rgba(212, 160, 23, 0.35)',
-    marginVertical: 6,
+    marginVertical: 4,
   },
   beadCount: {
-    fontSize: 26,
+    fontSize: 22,
     color: COLORS.cream,
     fontWeight: '600',
+    lineHeight: 24,
   },
   beadLabelSmall: {
-    fontSize: 9,
+    fontSize: 8,
     color: COLORS.muted,
-    letterSpacing: 1,
-    marginTop: 1,
+    letterSpacing: 0.8,
   },
 });
