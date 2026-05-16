@@ -2506,4 +2506,60 @@ PANCHANG_FESTIVALS.push(
   }
 );
 
+// ── SAUBHAGYA GAURI VRATAM (Every Shukla Tritiya) ──
+// Observed monthly by married women for marital bliss, longevity of husband,
+// well-being of family. Worship of Maa Gauri (Parvati). Akshaya Tritiya is the
+// most auspicious one of these.
+const SAUBHAGYA_TRITIYAS_2026 = [
+  { date: '2026-01-21', month: 'Pausha', vara: 'Wednesday', nakshatra: 'Revati' },
+  { date: '2026-02-20', month: 'Magha', vara: 'Friday', nakshatra: 'Krittika' },
+  { date: '2026-03-22', month: 'Phalguna', vara: 'Sunday', nakshatra: 'Mrigashira' },
+  { date: '2026-05-19', month: 'Vaisakha', vara: 'Tuesday', nakshatra: 'Ardra' },
+  { date: '2026-06-17', month: 'Jyeshtha', vara: 'Wednesday', nakshatra: 'Pushya' },
+  { date: '2026-07-16', month: 'Ashadha', vara: 'Thursday', nakshatra: 'Magha' },
+  { date: '2026-10-13', month: 'Ashwin', vara: 'Tuesday', nakshatra: 'Anuradha' },
+  { date: '2026-11-12', month: 'Kartik', vara: 'Thursday', nakshatra: 'Shravana' },
+  { date: '2026-12-11', month: 'Margashirsha', vara: 'Friday', nakshatra: 'Uttara Bhadrapada' },
+];
+
+SAUBHAGYA_TRITIYAS_2026.forEach((t, i) => {
+  PANCHANG_FESTIVALS.push({
+    id: `saubhagya-tritiya-${t.date}`,
+    name: 'Saubhagya Gauri Vratam',
+    date: t.date,
+    region: 'Hindu',
+    deity: 'Maa Gauri (Parvati)',
+    deityIcon: '🌺',
+    tithi: 'Tritiya',
+    paksha: 'Shukla',
+    vara: t.vara,
+    nakshatra: t.nakshatra,
+    month: t.month,
+    significance:
+      'Monthly Shukla Tritiya — Maa Gauri (Parvati) is worshipped for saubhagya (marital bliss), longevity of husband, harmony in family. Unmarried girls fast for a good husband. Akshaya Tritiya is the most powerful of these. Each month\'s Tritiya carries its own boon.',
+    whatToDo: [
+      'Wake before sunrise; bath',
+      'Wear red or green saree, full shringar',
+      'Worship Maa Gauri with kumkum, haldi, mehndi',
+      'Offer 16 items (shodashopachara)',
+      'Listen to Saubhagya Gauri katha',
+      'Eat phalahar only till sunset',
+    ],
+    timing: 'Pratahkaal — sunrise to 12:00; Madhyahna best',
+    poojaTimings: [{ label: 'Madhyahna Puja', from: '11:00', to: '13:30' }],
+    vrataInfo: 'Phalahar vrat — fruits, milk, no grains',
+    wish: 'May Maa Gauri grant you saubhagya & a blessed life!',
+    wishSub: 'Shubh Saubhagya Gauri Vratam 🌺',
+    checklist: [
+      { id: 1, text: 'Kumkum, haldi, sindoor', tag: '🔴' },
+      { id: 2, text: 'Mehndi cone', tag: '💚' },
+      { id: 3, text: '16 shringar items', tag: '💄' },
+      { id: 4, text: 'Red / green saree', tag: '👗' },
+      { id: 5, text: 'Red flowers (hibiscus)', tag: '🌺' },
+      { id: 6, text: 'Coconut & supari', tag: '🥥' },
+      { id: 7, text: 'Phalahar (fruits, milk)', tag: '🍎' },
+    ],
+  });
+});
+
 export const REGIONS = ['All', 'Hindu', 'Sikh', 'Muslim', 'Christian'] as const;
