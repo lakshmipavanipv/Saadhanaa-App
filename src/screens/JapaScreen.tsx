@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -17,11 +17,23 @@ import { Mala } from '../components/Mala';
 const BEADS = 108;
 
 export const JapaScreen = () => {
-  const { selectedDeity, setSelectedDeity, deities, saveSession, showToast } = useSadhana();
+  const { selectedDeity, setSelectedDeity, deities, saveSession, showToast, deityProgress, updateProgress } = useSadhana();
   const [count, setCount] = useState(0);
   const [malas, setMalas] = useState(0);
   const [showPicker, setShowPicker] = useState(false);
   const [popBead, setPopBead] = useState(-1);
+
+  // When deity changes, load that deity's saved progress
+  useEffect(() => {
+    if (!selectedDeity) {
+      setCount(0);
+      setMalas(0);
+      return;
+    }
+    const saved = deityProgress[selectedDeity.id];
+    setCount(saved?.count ?? 0);
+    setMalas(saved?.malas ?? 0);
+  }, [selectedDeity?.id]);
   const [showManual, setShowManual] = useState(false);
   const [manualMalas, setManualMalas] = useState('');
   const [manualJapas, setManualJapas] = useState('');
@@ -58,30 +70,33 @@ export const JapaScreen = () => {
       showToast('Please select a deity first!');
       return;
     }
-    setCount(c => {
-      setPopBead(c);
-      setTimeout(() => setPopBead(-1), 280);
-      const next = c + 1;
-      if (next >= BEADS) {
-        // Auto-save on mala completion
-        saveSession({
-          deity: selectedDeity.name,
-          deityId: selectedDeity.id,
-          malas: 1,
-          japas: 108,
-          date: todayStr(),
-        });
-        setMalas(m => m + 1);
-        showToast(`🪷 1 mala saved for ${selectedDeity.name}`);
-        return 0;
-      }
-      return next;
-    });
-  }, [selectedDeity, saveSession, showToast]);
+    setPopBead(count);
+    setTimeout(() => setPopBead(-1), 280);
+    const next = count + 1;
+    if (next >= BEADS) {
+      // Auto-save on mala completion
+      saveSession({
+        deity: selectedDeity.name,
+        deityId: selectedDeity.id,
+        malas: 1,
+        japas: 108,
+        date: todayStr(),
+      });
+      const newMalas = malas + 1;
+      setMalas(newMalas);
+      setCount(0);
+      updateProgress(selectedDeity.id, 0, newMalas);
+      showToast(`🪷 1 mala saved for ${selectedDeity.name}`);
+    } else {
+      setCount(next);
+      updateProgress(selectedDeity.id, next, malas);
+    }
+  }, [selectedDeity, saveSession, showToast, count, malas, updateProgress]);
 
   const reset = () => {
     setCount(0);
     setMalas(0);
+    if (selectedDeity) updateProgress(selectedDeity.id, 0, 0);
   };
 
   return (

@@ -103,9 +103,10 @@ export const Mala: React.FC<MalaProps> = ({ count, malas, onTap, popBead }) => {
           onPress={onTap}
           style={({ pressed }) => [
             styles.center,
-            pressed && { transform: [{ scale: 0.97 }] },
+            pressed && { transform: [{ scale: 0.94 }] },
           ]}
         >
+          <View style={styles.beadHaloRing} />
           <View style={styles.beadShadow} />
           <View style={styles.beadBody}>
             <View style={styles.beadFaceDark} />
@@ -116,9 +117,8 @@ export const Mala: React.FC<MalaProps> = ({ count, malas, onTap, popBead }) => {
               <View style={styles.divider} />
               <Text style={styles.beadCount}>{count}</Text>
               <Text style={styles.beadLabelSmall}>of 108</Text>
+              <Text style={styles.tapHint}>👆 TAP TO COUNT</Text>
             </View>
-            {/* Specular highlight (top-left) */}
-            <View style={styles.specular} />
           </View>
         </Pressable>
       </View>
@@ -256,15 +256,23 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: 'rgba(212, 160, 23, 0.6)',
   },
-  specular: {
+  beadHaloRing: {
     position: 'absolute',
-    width: 38,
-    height: 22,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 245, 220, 0.55)',
-    top: 26,
-    left: 42,
-    transform: [{ rotate: '-25deg' }],
+    width: 210,
+    height: 210,
+    borderRadius: 105,
+    top: -10,
+    left: -10,
+    borderWidth: 2,
+    borderColor: 'rgba(212, 160, 23, 0.35)',
+    borderStyle: 'dashed',
+  },
+  tapHint: {
+    fontSize: 9,
+    color: COLORS.saffron,
+    fontWeight: '700',
+    letterSpacing: 2,
+    marginTop: 6,
   },
   malaCount: {
     fontSize: 50,

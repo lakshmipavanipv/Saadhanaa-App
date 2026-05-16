@@ -21,6 +21,8 @@ interface SadhanaContextType {
   userProfile: UserProfile | null;
   setUserProfile: (p: UserProfile | null) => void;
   resetAll: () => Promise<void>;
+  deityProgress: Record<string, { count: number; malas: number }>;
+  updateProgress: (deityId: string, count: number, malas: number) => void;
 }
 
 const SadhanaContext = createContext<SadhanaContextType | undefined>(undefined);
@@ -34,6 +36,7 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [toast, setToast] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [deityProgress, setDeityProgress] = useState<Record<string, { count: number; malas: number }>>({});
   const toastRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load data from storage
@@ -52,8 +55,10 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
           'history',
           loadedProfile?.onboarded ? [] : []
         );
+        const loadedProgress = await Storage.get<Record<string, { count: number; malas: number }>>('deityProgress', {});
         setDeities(loadedDeities);
         setHistory(loadedHistory);
+        setDeityProgress(loadedProgress);
         if (loadedDeities.length > 0) {
           setSelectedDeity(loadedDeities[0]);
         }
@@ -76,10 +81,20 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await Storage.remove('festChecked');
     await Storage.remove('festReminders');
     await Storage.remove('sandhyaSettings');
+    await Storage.remove('deityProgress');
     setUserProfile(null);
     setDeities([]);
     setHistory([]);
     setSelectedDeity(null);
+    setDeityProgress({});
+  };
+
+  const updateProgress = (deityId: string, count: number, malas: number) => {
+    setDeityProgress(p => {
+      const next = { ...p, [deityId]: { count, malas } };
+      Storage.set('deityProgress', next);
+      return next;
+    });
   };
 
   // Persist deities
@@ -168,6 +183,8 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     userProfile,
     setUserProfile,
     resetAll,
+    deityProgress,
+    updateProgress,
   };
 
   return <SadhanaContext.Provider value={value}>{children}</SadhanaContext.Provider>;
