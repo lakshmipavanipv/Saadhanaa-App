@@ -14,9 +14,22 @@ interface MalaProps {
   malas: number;
   onTap: () => void;
   popBead: number;
+  beadColor?: string;
+  beadHighlight?: string;
+  materialName?: string;
 }
 
-export const Mala: React.FC<MalaProps> = ({ count, malas, onTap, popBead }) => {
+export const Mala: React.FC<MalaProps> = ({
+  count,
+  malas,
+  onTap,
+  popBead,
+  beadColor,
+  beadHighlight,
+  materialName,
+}) => {
+  const doneColor = beadColor || COLORS.gold;
+  const doneBorder = beadHighlight || '#fff5d6';
   // Beads start at top-right (just clockwise of Meru) and wrap around back to Meru.
   // First 54 = outer ring, next 54 = inner ring. Both go clockwise from 12 o'clock.
   const beads = [];
@@ -78,8 +91,18 @@ export const Mala: React.FC<MalaProps> = ({ count, malas, onTap, popBead }) => {
                 left: b.x - 7,
                 top: b.y - 7,
               },
-              b.isDone && styles.beadDone,
-              b.isPop && styles.beadPop,
+              b.isDone && [
+                styles.beadDone,
+                {
+                  backgroundColor: doneColor,
+                  borderColor: doneBorder,
+                  shadowColor: doneColor,
+                },
+              ],
+              b.isPop && [
+                styles.beadPop,
+                { backgroundColor: doneBorder, borderColor: doneColor },
+              ],
             ]}
           />
         ))}
@@ -117,6 +140,9 @@ export const Mala: React.FC<MalaProps> = ({ count, malas, onTap, popBead }) => {
               <View style={styles.divider} />
               <Text style={styles.beadCount}>{count}</Text>
               <Text style={styles.beadLabelSmall}>of 108</Text>
+              {materialName && (
+                <Text style={styles.materialName}>{materialName}</Text>
+              )}
               <Text style={styles.tapHint}>👆 TAP TO COUNT</Text>
             </View>
           </View>
@@ -273,6 +299,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 2,
     marginTop: 6,
+  },
+  materialName: {
+    fontSize: 9,
+    color: COLORS.muted,
+    fontStyle: 'italic',
+    marginTop: 2,
+    letterSpacing: 0.5,
   },
   malaCount: {
     fontSize: 50,

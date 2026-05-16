@@ -81,6 +81,9 @@ export const FestivalScreen = () => {
           <Text style={styles.subtitle}>Tap any date to view festival details</Text>
         </View>
 
+        <TimezoneNote />
+
+
         {/* View Toggle */}
         <View style={styles.viewToggle}>
           <TouchableOpacity
@@ -439,6 +442,29 @@ const FestivalDetail: React.FC<{
   );
 };
 
+const TimezoneNote: React.FC = () => {
+  const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local';
+  const localOffsetMin = -new Date().getTimezoneOffset(); // device offset
+  const istOffsetMin = 330; // +5:30
+  const diff = localOffsetMin - istOffsetMin;
+  const diffHours = Math.abs(diff) / 60;
+  const direction = diff === 0 ? 'same as' : diff > 0 ? 'ahead of' : 'behind';
+  const sign = diff === 0 ? '' : diff > 0 ? '+' : '-';
+
+  return (
+    <View style={styles.tzNote}>
+      <Text style={styles.tzNoteIcon}>📍</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.tzNoteTitle}>Dates follow Indian Panchang (IST)</Text>
+        <Text style={styles.tzNoteBody}>
+          {tzName} · {sign}{diffHours}h {direction} IST
+          {diff !== 0 && '. Festival tithis are based on Indian astronomical time.'}
+        </Text>
+      </View>
+    </View>
+  );
+};
+
 const PanchangRow: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <View style={styles.panchangRow}>
     <Text style={styles.panchangRowLabel}>{label}</Text>
@@ -452,6 +478,22 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: SPACING.md, marginBottom: SPACING.md },
   title: { fontSize: 24, color: COLORS.cream, fontWeight: '600', marginBottom: 6 },
   subtitle: { fontSize: 12, color: COLORS.muted },
+  tzNote: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255, 140, 66, 0.1)',
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.saffron,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+    borderRadius: 8,
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  tzNoteIcon: { fontSize: 18 },
+  tzNoteTitle: { fontSize: 12, color: COLORS.saffron, fontWeight: '700' },
+  tzNoteBody: { fontSize: 11, color: COLORS.muted, marginTop: 2, lineHeight: 15 },
   viewToggle: {
     flexDirection: 'row',
     paddingHorizontal: SPACING.md,

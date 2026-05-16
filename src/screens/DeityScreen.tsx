@@ -163,6 +163,9 @@ export const DeityScreen = () => {
                     prayerAlarm: '06:00',
                     alarmOn: false,
                     totalMalas: 0,
+                    malaMaterial: catalogDeity.malaMaterial,
+                    malaColor: catalogDeity.malaColor,
+                    malaHighlight: catalogDeity.malaHighlight,
                   };
                   setDeities(p => [...p, newDeity]);
                   showToast(`${catalogDeity.icon} ${catalogDeity.name} added`);

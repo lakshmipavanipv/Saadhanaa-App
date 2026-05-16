@@ -125,7 +125,15 @@ export const JapaScreen = () => {
         </TouchableOpacity>
 
         {/* Circular Mala */}
-        <Mala count={count} malas={malas} onTap={tap} popBead={popBead} />
+        <Mala
+          count={count}
+          malas={malas}
+          onTap={tap}
+          popBead={popBead}
+          beadColor={selectedDeity?.malaColor}
+          beadHighlight={selectedDeity?.malaHighlight}
+          materialName={selectedDeity?.malaMaterial}
+        />
 
         {/* Mantra display */}
         {selectedDeity?.mantra && (

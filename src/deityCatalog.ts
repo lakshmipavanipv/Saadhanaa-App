@@ -4,7 +4,31 @@ export interface CatalogDeity {
   icon: string;
   mantra: string;
   iconography?: string;
+  malaMaterial?: string;
+  malaColor?: string;
+  malaHighlight?: string;
 }
+
+// Default mala styling by deity-group archetype
+const M = {
+  rudraksha: { malaMaterial: 'Rudraksha', malaColor: '#6b3410', malaHighlight: '#a85a1f' },
+  tulsi: { malaMaterial: 'Tulsi', malaColor: '#5b4019', malaHighlight: '#8b6a2e' },
+  kamalgatta: { malaMaterial: 'Kamal Gatta (Lotus seed)', malaColor: '#a08157', malaHighlight: '#d4b783' },
+  sphatik: { malaMaterial: 'Sphatik (Crystal)', malaColor: '#e0e3eb', malaHighlight: '#ffffff' },
+  whitesandal: { malaMaterial: 'White Sandalwood', malaColor: '#e8d8b5', malaHighlight: '#fff2d6' },
+  redsandal: { malaMaterial: 'Red Sandalwood', malaColor: '#a04545', malaHighlight: '#d97070' },
+  coral: { malaMaterial: 'Coral (Moonga)', malaColor: '#ff6b4a', malaHighlight: '#ffaa8a' },
+  citrine: { malaMaterial: 'Yellow Citrine', malaColor: '#f0b830', malaHighlight: '#fff080' },
+  turmeric: { malaMaterial: 'Turmeric (Haldi)', malaColor: '#e6a015', malaHighlight: '#ffd470' },
+  pearl: { malaMaterial: 'Pearl (Moti)', malaColor: '#f3f0e5', malaHighlight: '#ffffff' },
+  ruby: { malaMaterial: 'Ruby (Manik)', malaColor: '#c02040', malaHighlight: '#ff5a7a' },
+  blackhakik: { malaMaterial: 'Black Hakik', malaColor: '#1f1f23', malaHighlight: '#555560' },
+  iron: { malaMaterial: 'Iron (Loha)', malaColor: '#2c2c30', malaHighlight: '#666670' },
+  blacktulsi: { malaMaterial: 'Black Tulsi (Shyama)', malaColor: '#2a1d10', malaHighlight: '#6b4a26' },
+  emerald: { malaMaterial: 'Emerald / Green Hakik', malaColor: '#2f7d50', malaHighlight: '#5fc080' },
+  pinkquartz: { malaMaterial: 'Rose Quartz', malaColor: '#d98090', malaHighlight: '#ffb8c8' },
+  smokyquartz: { malaMaterial: 'Smoky Quartz', malaColor: '#5a5450', malaHighlight: '#8a8480' },
+};
 
 export interface DeityGroup {
   id: string;
@@ -209,6 +233,108 @@ export const DEITY_CATALOG: DeityGroup[] = [
     ],
   },
 ];
+
+// ── Mala material mapping per deity ──
+// Traditional bead-material associations (Yoga / Tantra tradition)
+const MALA_MAP: Record<string, typeof M[keyof typeof M]> = {
+  // Trimurti
+  brahma: M.whitesandal,
+  vishnu: M.tulsi,
+  shiva: M.rudraksha,
+
+  // Most worshipped
+  ganesha: M.redsandal,
+  krishna: M.tulsi,
+  rama: M.tulsi,
+  hanuman: M.coral,
+  kartikeya: M.coral,
+  ayyappa: M.rudraksha,
+
+  // Dashavatara
+  matsya: M.tulsi,
+  kurma: M.tulsi,
+  varaha: M.tulsi,
+  narasimha: M.coral,       // fierce — red
+  vamana: M.tulsi,
+  parashurama: M.rudraksha,
+  'rama-av': M.tulsi,
+  'krishna-av': M.tulsi,
+  'buddha-av': M.sphatik,
+  kalki: M.tulsi,
+
+  // Devi
+  parvati: M.kamalgatta,
+  durga: M.redsandal,
+  lakshmi: M.kamalgatta,
+  saraswati: M.sphatik,
+  sita: M.kamalgatta,
+  radha: M.tulsi,
+  annapurna: M.kamalgatta,
+  gayatri: M.sphatik,
+
+  // Dasha Mahavidya
+  'mv-kali': M.blacktulsi,
+  'mv-tara': M.citrine,
+  'mv-shodashi': M.pinkquartz,
+  'mv-bhuvaneshwari': M.kamalgatta,
+  'mv-bhairavi': M.coral,
+  'mv-chinnamasta': M.coral,
+  'mv-dhumavati': M.smokyquartz,
+  'mv-bagalamukhi': M.turmeric,
+  'mv-matangi': M.emerald,
+  'mv-kamala': M.kamalgatta,
+
+  // Ashta Bhairava
+  'br-asitanga': M.blackhakik,
+  'br-ruru': M.rudraksha,
+  'br-chanda': M.coral,
+  'br-krodha': M.coral,
+  'br-unmatta': M.smokyquartz,
+  'br-kapala': M.blackhakik,
+  'br-bhishana': M.blackhakik,
+  'br-samhara': M.iron,
+
+  // Shiva forms
+  'sh-nataraja': M.rudraksha,
+  'sh-ardha': M.rudraksha,
+  'sh-lingam': M.rudraksha,
+  'sh-rudra': M.rudraksha,
+  'sh-bhairava': M.blackhakik,
+  'sh-dakshinamurti': M.rudraksha,
+
+  // Vishnu forms
+  'vn-balaji': M.tulsi,
+  'vn-jagannath': M.tulsi,
+  'vn-laddugopal': M.tulsi,
+  'vn-narayana': M.tulsi,
+  'vn-panduranga': M.tulsi,
+
+  // Lokapalas
+  'lk-surya': M.ruby,
+  'lk-chandra': M.pearl,
+  'lk-indra': M.sphatik,
+  'lk-agni': M.coral,
+  'lk-vayu': M.sphatik,
+  'lk-varuna': M.pearl,
+  'lk-yama': M.iron,
+  'lk-kubera': M.citrine,
+
+  // Vahanas / Misc
+  'sv-nandi': M.rudraksha,
+  'sv-garuda': M.tulsi,
+  'sv-hanuman-bal': M.coral,
+  'sv-vishwakarma': M.coral,
+  'sv-tulasi': M.tulsi,
+  'sv-ganga': M.pearl,
+};
+
+// Apply materials in-place
+DEITY_CATALOG.forEach(group => {
+  group.deities = group.deities.map(d => ({
+    ...d,
+    ...(MALA_MAP[d.id] || M.rudraksha), // default to rudraksha
+  }));
+});
 
 // Flatten for quick lookup
 export const ALL_CATALOG_DEITIES: CatalogDeity[] = DEITY_CATALOG.flatMap(g => g.deities);

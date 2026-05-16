@@ -7,6 +7,9 @@ export interface Deity {
   alarmOn: boolean;
   totalMalas: number;
   targetMalas?: number;
+  malaMaterial?: string;     // e.g. "Rudraksha", "Yellow Citrine", "Turmeric"
+  malaColor?: string;        // primary bead color (hex)
+  malaHighlight?: string;    // highlight / specular color
 }
 
 export interface UserProfile {

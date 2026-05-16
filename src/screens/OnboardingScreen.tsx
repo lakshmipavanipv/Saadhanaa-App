@@ -121,6 +121,9 @@ export const OnboardingScreen = () => {
         prayerAlarm: '06:00',
         alarmOn: false,
         totalMalas: 0,
+        malaMaterial: c.malaMaterial,
+        malaColor: c.malaColor,
+        malaHighlight: c.malaHighlight,
       }));
     const fromCustom = customs.filter(c => pickedIds.has(c.id));
     const finalDeities = [...fromCatalog, ...fromCustom];
