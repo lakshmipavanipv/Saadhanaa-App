@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -8,11 +8,20 @@ import {
   Modal,
   FlatList,
   TextInput,
+  ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { useSadhana } from '../context';
 import { todayStr } from '../utils';
 import { COLORS, SPACING, FONT_SIZES } from '../theme';
 import { Mala } from '../components/Mala';
+import {
+  requestBlePermissions,
+  scanForDevices,
+  connectAndListen,
+  ScannedDevice,
+  CounterConnection,
+} from '../services/ble';
 
 const BEADS = 108;
 
@@ -22,6 +31,18 @@ export const JapaScreen = () => {
   const [malas, setMalas] = useState(0);
   const [showPicker, setShowPicker] = useState(false);
   const [popBead, setPopBead] = useState(-1);
+
+  // ── BLE state ──
+  const [showBleModal, setShowBleModal] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scannedDevices, setScannedDevices] = useState<ScannedDevice[]>([]);
+  const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [connection, setConnection] = useState<CounterConnection | null>(null);
+  const stopScanRef = useRef<(() => void) | null>(null);
+  const tapRef = useRef<() => void>(() => {});
+
+  // Debounce BLE taps so a single button press doesn't double-count
+  const lastTapAtRef = useRef(0);
 
   // When deity changes, load that deity's saved progress
   useEffect(() => {
@@ -99,6 +120,79 @@ export const JapaScreen = () => {
     if (selectedDeity) updateProgress(selectedDeity.id, 0, 0);
   };
 
+  // Keep tapRef in sync so BLE callbacks always call the latest closure
+  useEffect(() => {
+    tapRef.current = tap;
+  }, [tap]);
+
+  // Cleanup BLE on unmount
+  useEffect(() => {
+    return () => {
+      stopScanRef.current?.();
+      connection?.disconnect();
+    };
+  }, []);
+
+  const handleBlePress = async () => {
+    if (connection) {
+      // Disconnect
+      await connection.disconnect();
+      setConnection(null);
+      showToast('Counter disconnected');
+      return;
+    }
+    if (Platform.OS === 'web') {
+      showToast('BLE only works on the installed Android APK');
+      return;
+    }
+    const granted = await requestBlePermissions();
+    if (!granted) {
+      showToast('Bluetooth permission denied');
+      return;
+    }
+    setScannedDevices([]);
+    setShowBleModal(true);
+    setScanning(true);
+    stopScanRef.current = scanForDevices(
+      d => setScannedDevices(p => [...p, d]),
+      err => {
+        showToast(err);
+        setScanning(false);
+      },
+      15000
+    );
+    setTimeout(() => setScanning(false), 15000);
+  };
+
+  const handleConnect = async (deviceId: string, deviceName: string) => {
+    stopScanRef.current?.();
+    setScanning(false);
+    setConnectingId(deviceId);
+    try {
+      const conn = await connectAndListen(
+        deviceId,
+        () => {
+          // Debounce 300ms — physical button bounce protection
+          const now = Date.now();
+          if (now - lastTapAtRef.current < 300) return;
+          lastTapAtRef.current = now;
+          tapRef.current();
+        },
+        () => {
+          setConnection(null);
+          showToast('Counter disconnected');
+        }
+      );
+      setConnection(conn);
+      setShowBleModal(false);
+      showToast(`✓ Connected to ${deviceName}`);
+    } catch (e: any) {
+      showToast(`Connection failed: ${e?.message || 'unknown'}`);
+    } finally {
+      setConnectingId(null);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -161,7 +255,16 @@ export const JapaScreen = () => {
             <Text style={styles.resetBtnText}>↺ Reset</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.manualBtn} onPress={() => setShowManual(true)}>
-            <Text style={styles.manualBtnText}>+ Log past japas</Text>
+            <Text style={styles.manualBtnText}>+ Log past</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.bleBtn, connection && styles.bleBtnConnected]}
+            onPress={handleBlePress}
+          >
+            <View style={[styles.bleDot, connection && styles.bleDotOn]} />
+            <Text style={[styles.bleBtnText, connection && styles.bleBtnTextOn]}>
+              {connection ? 'BLE on' : 'Pair BLE'}
+            </Text>
           </TouchableOpacity>
         </View>
         <Text style={styles.autoSaveHint}>
@@ -211,6 +314,76 @@ export const JapaScreen = () => {
             >
               <Text style={styles.closeBtnText}>Close</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* BLE Pair Modal */}
+      <Modal visible={showBleModal} transparent animationType="slide" onRequestClose={() => { stopScanRef.current?.(); setShowBleModal(false); }}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHandle} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={styles.modalTitle}>Pair BLE counter</Text>
+              {scanning && <ActivityIndicator color={COLORS.gold} style={{ marginLeft: 12 }} />}
+            </View>
+            <Text style={{ fontSize: 12, color: COLORS.muted, marginBottom: SPACING.md }}>
+              Make sure your finger-counter is powered on and in pairing mode. Each button press will count as 1 japa.
+            </Text>
+            <FlatList
+              data={scannedDevices}
+              keyExtractor={d => d.id}
+              scrollEnabled={false}
+              ListEmptyComponent={
+                <Text style={{ color: COLORS.muted, fontSize: 13, textAlign: 'center', paddingVertical: SPACING.lg, fontStyle: 'italic' }}>
+                  {scanning ? 'Searching for devices…' : 'No devices found. Try again.'}
+                </Text>
+              }
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.deviceRow}
+                  onPress={() => handleConnect(item.id, item.name)}
+                  disabled={connectingId === item.id}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.deviceName}>{item.name}</Text>
+                    <Text style={styles.deviceMeta}>
+                      {item.id.slice(-8)}{item.rssi ? ` · ${item.rssi} dBm` : ''}
+                    </Text>
+                  </View>
+                  {connectingId === item.id ? (
+                    <ActivityIndicator color={COLORS.gold} />
+                  ) : (
+                    <Text style={styles.connectArrow}>Connect →</Text>
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+            <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md }}>
+              {!scanning && (
+                <TouchableOpacity
+                  style={[styles.primaryBtn, { flex: 1 }]}
+                  onPress={() => {
+                    setScannedDevices([]);
+                    setScanning(true);
+                    stopScanRef.current = scanForDevices(
+                      d => setScannedDevices(p => [...p, d]),
+                      err => { showToast(err); setScanning(false); },
+                      15000
+                    );
+                    setTimeout(() => setScanning(false), 15000);
+                  }}
+                >
+                  <Text style={styles.primaryBtnText}>🔄 Rescan</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[styles.cancelBtn, { flex: 1 }]}
+                onPress={() => { stopScanRef.current?.(); setShowBleModal(false); setScanning(false); }}
+              >
+                <Text style={styles.cancelBtnText}>Close</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -400,6 +573,48 @@ const styles = StyleSheet.create({
     color: COLORS.gold,
     fontWeight: '600',
   },
+  bleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: 20,
+    backgroundColor: COLORS.cardBg,
+    borderWidth: 1,
+    borderColor: 'rgba(74, 222, 128, 0.4)',
+  },
+  bleBtnConnected: {
+    backgroundColor: 'rgba(74, 222, 128, 0.15)',
+    borderColor: COLORS.leaf,
+  },
+  bleDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.muted,
+  },
+  bleDotOn: {
+    backgroundColor: COLORS.leaf,
+    shadowColor: COLORS.leaf,
+    shadowOpacity: 1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  bleBtnText: { fontSize: 12, color: COLORS.muted, fontWeight: '600' },
+  bleBtnTextOn: { color: COLORS.leaf },
+  deviceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: SPACING.md,
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 8,
+    marginBottom: 6,
+  },
+  deviceName: { fontSize: 14, color: COLORS.cream, fontWeight: '600' },
+  deviceMeta: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
+  connectArrow: { fontSize: 12, color: COLORS.gold, fontWeight: '600' },
   autoSaveHint: {
     fontSize: 11,
     color: COLORS.muted,
