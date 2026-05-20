@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { Deity, HistoryEntry, JapaSession, UserProfile } from './types';
 import { DEFAULT_DEITIES, SAMPLE_HISTORY } from './constants';
 import { Storage } from './storage';
+import { ALL_CATALOG_DEITIES } from './deityCatalog';
 
 interface SadhanaContextType {
   deities: Deity[];
@@ -56,11 +57,26 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
           loadedProfile?.onboarded ? [] : []
         );
         const loadedProgress = await Storage.get<Record<string, { count: number; malas: number }>>('deityProgress', {});
-        setDeities(loadedDeities);
+
+        // ── Migration: backfill mala material/color from catalog for existing deities ──
+        const migratedDeities = loadedDeities.map(d => {
+          if (d.malaColor && d.malaHighlight) return d;
+          const cat = ALL_CATALOG_DEITIES.find(c => c.id === d.id);
+          if (cat?.malaColor) {
+            return {
+              ...d,
+              malaMaterial: d.malaMaterial || cat.malaMaterial,
+              malaColor: d.malaColor || cat.malaColor,
+              malaHighlight: d.malaHighlight || cat.malaHighlight,
+            };
+          }
+          return d;
+        });
+        setDeities(migratedDeities);
         setHistory(loadedHistory);
         setDeityProgress(loadedProgress);
-        if (loadedDeities.length > 0) {
-          setSelectedDeity(loadedDeities[0]);
+        if (migratedDeities.length > 0) {
+          setSelectedDeity(migratedDeities[0]);
         }
       } finally {
         setIsLoading(false);

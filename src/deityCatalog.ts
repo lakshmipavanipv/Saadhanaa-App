@@ -28,6 +28,7 @@ const M = {
   emerald: { malaMaterial: 'Emerald / Green Hakik', malaColor: '#2f7d50', malaHighlight: '#5fc080' },
   pinkquartz: { malaMaterial: 'Rose Quartz', malaColor: '#d98090', malaHighlight: '#ffb8c8' },
   smokyquartz: { malaMaterial: 'Smoky Quartz', malaColor: '#5a5450', malaHighlight: '#8a8480' },
+  obsidian: { malaMaterial: 'Obsidian', malaColor: '#0a0a14', malaHighlight: '#3a3a50' },
 };
 
 export interface DeityGroup {
@@ -243,11 +244,11 @@ const MALA_MAP: Record<string, typeof M[keyof typeof M]> = {
   shiva: M.rudraksha,
 
   // Most worshipped
-  ganesha: M.redsandal,
-  krishna: M.tulsi,
+  ganesha: M.sphatik,         // user override — sphatik for Vighnaharta
+  krishna: M.blacktulsi,      // Shyama Tulsi for Krishna specifically
   rama: M.tulsi,
-  hanuman: M.coral,
-  kartikeya: M.coral,
+  hanuman: M.redsandal,
+  kartikeya: M.sphatik,       // user override — sphatik for Murugan
   ayyappa: M.rudraksha,
 
   // Dashavatara
@@ -273,7 +274,7 @@ const MALA_MAP: Record<string, typeof M[keyof typeof M]> = {
   gayatri: M.sphatik,
 
   // Dasha Mahavidya
-  'mv-kali': M.blacktulsi,
+  'mv-kali': M.obsidian,      // user override — obsidian for Maa Kali
   'mv-tara': M.citrine,
   'mv-shodashi': M.pinkquartz,
   'mv-bhuvaneshwari': M.kamalgatta,
