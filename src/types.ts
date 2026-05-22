@@ -10,6 +10,12 @@ export interface Deity {
   malaMaterial?: string;     // e.g. "Rudraksha", "Yellow Citrine", "Turmeric"
   malaColor?: string;        // primary bead color (hex)
   malaHighlight?: string;    // highlight / specular color
+  /** Alarm sound preset id ('flute', 'bell', 'tanpura', 'om') or 'custom' */
+  alarmSoundId?: string;
+  /** When alarmSoundId === 'custom', file:// URI of the chosen audio */
+  alarmSoundUri?: string;
+  /** Display name for custom sound */
+  alarmSoundName?: string;
 }
 
 export interface UserProfile {

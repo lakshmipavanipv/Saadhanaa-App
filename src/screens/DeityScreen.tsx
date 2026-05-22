@@ -15,6 +15,7 @@ import { COLORS, SPACING } from '../theme';
 import { Deity } from '../types';
 import { DeityCatalogPicker } from '../components/DeityCatalogPicker';
 import { CatalogDeity, ALL_CATALOG_DEITIES } from '../deityCatalog';
+import { AlarmSoundPicker } from '../components/AlarmSoundPicker';
 
 export const DeityScreen = () => {
   const { deities, setDeities, showToast, notifGranted, requestNotif } = useSadhana();
@@ -52,10 +53,12 @@ export const DeityScreen = () => {
     showToast(`${icon} ${newDeity.name} added!`);
   };
 
-  const updateReminder = (id: string, prayerAlarm: string, alarmOn: boolean) => {
+  const updateReminder = (id: string, patch: Partial<Deity>) => {
     setDeities(p =>
-      p.map(d => (d.id === id ? { ...d, prayerAlarm, alarmOn } : d))
+      p.map(d => (d.id === id ? { ...d, ...patch } : d))
     );
+    const prayerAlarm = patch.prayerAlarm ?? '';
+    const alarmOn = patch.alarmOn ?? false;
     showToast(alarmOn ? `Reminder set for ${prayerAlarm}` : 'Reminder turned off');
     setEditingReminder(null);
   };
@@ -193,7 +196,7 @@ export const DeityScreen = () => {
       {editingReminder && (
         <ReminderEditor
           deity={editingReminder}
-          onSave={(t, on) => updateReminder(editingReminder.id, t, on)}
+          onSave={patch => updateReminder(editingReminder.id, patch)}
           onClose={() => setEditingReminder(null)}
         />
       )}
@@ -203,16 +206,21 @@ export const DeityScreen = () => {
 
 const ReminderEditor: React.FC<{
   deity: Deity;
-  onSave: (time: string, on: boolean) => void;
+  onSave: (patch: Partial<Deity>) => void;
   onClose: () => void;
 }> = ({ deity, onSave, onClose }) => {
   const [time, setTime] = useState(deity.prayerAlarm);
   const [on, setOn] = useState(deity.alarmOn);
+  const [sound, setSound] = useState({
+    id: deity.alarmSoundId || 'flute',
+    customUri: deity.alarmSoundUri,
+    customName: deity.alarmSoundName,
+  });
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
+        <ScrollView style={styles.modalContent} contentContainerStyle={{ paddingBottom: SPACING.lg }}>
           <View style={styles.modalHandle} />
           <Text style={styles.modalTitle}>Edit Reminder</Text>
           <Text style={{ fontSize: 14, color: COLORS.gold, marginBottom: SPACING.md }}>
@@ -246,16 +254,32 @@ const ReminderEditor: React.FC<{
             </View>
           </View>
 
+          {/* Alarm sound picker */}
+          <View style={styles.inputGroup}>
+            <AlarmSoundPicker
+              value={sound}
+              onChange={s => setSound({ id: s.id, customUri: s.customUri, customName: s.customName })}
+            />
+          </View>
+
           <TouchableOpacity
             style={styles.submitBtn}
-            onPress={() => onSave(time, on)}
+            onPress={() =>
+              onSave({
+                prayerAlarm: time,
+                alarmOn: on,
+                alarmSoundId: sound.id,
+                alarmSoundUri: sound.customUri,
+                alarmSoundName: sound.customName,
+              })
+            }
           >
             <Text style={styles.submitBtnText}>Save Reminder</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
             <Text style={styles.cancelBtnText}>Cancel</Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
       </View>
     </Modal>
   );

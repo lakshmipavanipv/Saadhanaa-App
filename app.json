@@ -54,7 +54,8 @@
           "bluetoothAlwaysPermission": "Allow Sadhana to connect to your BLE japa counter"
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-audio"
     ]
   }
 }
