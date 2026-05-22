@@ -36,7 +36,7 @@ interface SandhyaSettings {
 }
 
 export const DashboardScreen = ({ navigation }: any) => {
-  const { deities, history, setSelectedDeity, alarmQueue, dismissAlarm } = useSadhana();
+  const { deities, history, setSelectedDeity, alarmQueue, dismissAlarm, deityProgress } = useSadhana();
   const [festReminders, setFestReminders] = useState<Record<string, FestReminder>>({});
   const [sandhyaSettings, setSandhyaSettings] = useState<SandhyaSettings | null>(null);
   const [_tick, setTick] = useState(0);   // refresh "in X mins" every minute
@@ -49,19 +49,31 @@ export const DashboardScreen = ({ navigation }: any) => {
   }, []);
 
   // ── KPIs ─────────────────────────────────────────────────────────
-  const totalJapas = useMemo(
+  // Include in-progress count from deityProgress so dashboards update
+  // on every single bead tap, not just on full-mala completion.
+  const inProgressJapas = useMemo(
+    () => Object.values(deityProgress).reduce((s, p) => s + (p.count || 0), 0),
+    [deityProgress]
+  );
+  const totalJapasHistorical = useMemo(
     () => history.reduce((s, h) => s + h.japas, 0),
     [history]
   );
+  const totalJapas = totalJapasHistorical + inProgressJapas;
   const totalMalas = useMemo(
     () => history.reduce((s, h) => s + h.malas, 0),
     [history]
   );
   const sadhanaSeconds = japasToSeconds(totalJapas);
   const numDeitiesChanted = useMemo(() => {
-    const set = new Set(history.map(h => h.deityId).filter(Boolean));
+    const set = new Set<string>();
+    history.forEach(h => h.deityId && set.add(h.deityId));
+    // include any deity with in-progress count > 0
+    Object.entries(deityProgress).forEach(([id, p]) => {
+      if ((p.count || 0) > 0 || (p.malas || 0) > 0) set.add(id);
+    });
     return set.size;
-  }, [history]);
+  }, [history, deityProgress]);
   const todayFest = getTodayFest();
   const upcoming = getUpcoming();
   const todayCount = history.filter(h => h.date === todayStr()).reduce((s, h) => s + h.malas, 0);
@@ -84,8 +96,18 @@ export const DashboardScreen = ({ navigation }: any) => {
       m[key].malas += h.malas;
       m[key].japas += h.japas;
     }
-    return Object.values(m).sort((a, b) => b.malas - a.malas);
-  }, [history, deities]);
+    // Add in-progress japas (current bead position) for any active deity
+    for (const [id, p] of Object.entries(deityProgress)) {
+      if ((p.count || 0) === 0) continue;
+      const d = deities.find(d => d.id === id);
+      if (!d) continue;
+      if (!m[id]) {
+        m[id] = { name: d.name, icon: d.icon, malas: 0, japas: 0, color: d.malaColor || COLORS.gold };
+      }
+      m[id].japas += p.count;
+    }
+    return Object.values(m).sort((a, b) => b.japas - a.japas);
+  }, [history, deities, deityProgress]);
   const maxDeityMalas = Math.max(...perDeity.map(d => d.malas), 1);
 
   // ── Reminder feed (sorted chronologically) ───────────────────────

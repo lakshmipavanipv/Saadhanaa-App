@@ -22,7 +22,10 @@ const RANGE_LABELS: Record<TrendRange, string> = {
 };
 
 export const HistoryScreen = () => {
-  const { history, deities } = useSadhana();
+  const { history, deities, deityProgress } = useSadhana();
+  const inProgressJapas = Object.values(deityProgress).reduce(
+    (s, p) => s + (p.count || 0), 0
+  );
   const [range, setRange] = useState<TrendRange>('weekly');
 
   const trendData = useMemo(() => {
@@ -107,7 +110,8 @@ export const HistoryScreen = () => {
   }, [history, deities]);
 
   const totalMalas = history.reduce((s, h) => s + h.malas, 0);
-  const totalJapas = totalMalas * 108;
+  // Total japas = completed-mala japas + currently in-progress bead taps
+  const totalJapas = history.reduce((s, h) => s + h.japas, 0) + inProgressJapas;
 
   return (
     <View style={styles.container}>
