@@ -8,7 +8,9 @@ import {
   Modal,
   Switch,
   TextInput,
+  Platform,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import {
   SANDHYAS,
   PROCEDURE,
@@ -175,6 +177,19 @@ const SandhyaDetail: React.FC<{
   onToggleReminder: () => void;
   onClose: () => void;
 }> = ({ sandhya, time, reminderOn, onTimeChange, onToggleReminder, onClose }) => {
+  const [showTime, setShowTime] = useState(false);
+  const parseT = (s: string): Date => {
+    const [h, m] = s.split(':').map(Number);
+    const d = new Date();
+    d.setHours(h || 0, m || 0, 0, 0);
+    return d;
+  };
+  const fmtT = (d: Date): string =>
+    `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const prettyT = (s: string): string => {
+    const d = parseT(s);
+    return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
+  };
   return (
     <View style={styles.detailContainer}>
       <ScrollView contentContainerStyle={styles.detailContent}>
@@ -192,14 +207,21 @@ const SandhyaDetail: React.FC<{
         <View style={styles.timeCard}>
           <View style={styles.timeRow}>
             <Text style={styles.timeLabel}>Your Time</Text>
-            <TextInput
-              style={styles.timeInput}
-              value={time}
-              onChangeText={onTimeChange}
-              placeholder="HH:MM"
-              placeholderTextColor={COLORS.muted}
-            />
+            <TouchableOpacity style={styles.timePill} onPress={() => setShowTime(true)}>
+              <Text style={styles.timePillText}>⏰ {prettyT(time)}</Text>
+            </TouchableOpacity>
           </View>
+          {showTime && (
+            <DateTimePicker
+              value={parseT(time)}
+              mode="time"
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              onChange={(_, selected) => {
+                setShowTime(false);
+                if (selected) onTimeChange(fmtT(selected));
+              }}
+            />
+          )}
           <View style={styles.reminderRow}>
             <Text style={styles.reminderLabel}>Daily Reminder</Text>
             <Switch
@@ -437,6 +459,19 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.sm,
   },
   timeLabel: { fontSize: 14, color: COLORS.cream, fontWeight: '500' },
+  timePill: {
+    backgroundColor: COLORS.deep,
+    borderRadius: 8,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: COLORS.gold,
+  },
+  timePillText: {
+    fontSize: 15,
+    color: COLORS.gold,
+    fontWeight: '600',
+  },
   timeInput: {
     backgroundColor: COLORS.deep,
     borderRadius: 6,

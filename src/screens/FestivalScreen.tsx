@@ -16,8 +16,10 @@ import { COLORS, SPACING } from '../theme';
 import { Calendar } from '../components/Calendar';
 
 type CheckedState = Record<string, boolean>;
+import { ReminderPicker, ReminderValue } from '../components/ReminderPicker';
+
 type ReminderState = Record<string, {
-  shopping: { enabled: boolean; date: string; time: string };
+  shopping: { enabled: boolean } & ReminderValue;
   morning: { enabled: boolean; time: string };
   pooja: { enabled: boolean };
 }>;
@@ -57,7 +59,7 @@ export const FestivalScreen = () => {
   const updateReminder = (festId: string, updates: Partial<ReminderState[string]>) => {
     setReminders(p => {
       const existing = p[festId] || {
-        shopping: { enabled: false, date: '', time: '10:00' },
+        shopping: { enabled: false, date: '', time: '10:00', recurrence: 'once' as const },
         morning: { enabled: false, time: '06:00' },
         pooja: { enabled: false },
       };
@@ -299,35 +301,20 @@ const FestivalDetail: React.FC<{
               />
             </View>
             {reminder.shopping.enabled && (
-              <View style={styles.reminderInputs}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.inputLabel}>Date</Text>
-                  <TextInput
-                    style={styles.timeInput}
-                    value={reminder.shopping.date}
-                    onChangeText={t =>
-                      onReminderChange({
-                        shopping: { ...reminder.shopping, date: t },
-                      })
-                    }
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor={COLORS.muted}
-                  />
-                </View>
-                <View style={{ width: 90 }}>
-                  <Text style={styles.inputLabel}>Time</Text>
-                  <TextInput
-                    style={styles.timeInput}
-                    value={reminder.shopping.time}
-                    onChangeText={t =>
-                      onReminderChange({
-                        shopping: { ...reminder.shopping, time: t },
-                      })
-                    }
-                    placeholder="HH:MM"
-                    placeholderTextColor={COLORS.muted}
-                  />
-                </View>
+              <View style={{ marginTop: SPACING.sm }}>
+                <ReminderPicker
+                  value={{
+                    date: reminder.shopping.date,
+                    time: reminder.shopping.time,
+                    recurrence: reminder.shopping.recurrence || 'once',
+                    endDate: reminder.shopping.endDate,
+                  }}
+                  onChange={v =>
+                    onReminderChange({
+                      shopping: { ...reminder.shopping, ...v },
+                    })
+                  }
+                />
               </View>
             )}
           </View>
@@ -352,21 +339,19 @@ const FestivalDetail: React.FC<{
               />
             </View>
             {reminder.morning.enabled && (
-              <View style={styles.reminderInputs}>
-                <View style={{ width: 110 }}>
-                  <Text style={styles.inputLabel}>Time</Text>
-                  <TextInput
-                    style={styles.timeInput}
-                    value={reminder.morning.time}
-                    onChangeText={t =>
-                      onReminderChange({
-                        morning: { ...reminder.morning, time: t },
-                      })
-                    }
-                    placeholder="HH:MM"
-                    placeholderTextColor={COLORS.muted}
-                  />
-                </View>
+              <View style={{ marginTop: SPACING.sm }}>
+                <ReminderPicker
+                  value={{
+                    date: fest.date,
+                    time: reminder.morning.time,
+                    recurrence: 'once',
+                  }}
+                  onChange={v =>
+                    onReminderChange({
+                      morning: { ...reminder.morning, time: v.time },
+                    })
+                  }
+                />
               </View>
             )}
           </View>

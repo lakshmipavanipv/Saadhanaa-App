@@ -39,6 +39,9 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [deityProgress, setDeityProgress] = useState<Record<string, { count: number; malas: number }>>({});
   const toastRef = useRef<NodeJS.Timeout | null>(null);
+  // Prevents the empty-initial-state useEffect from wiping saved storage
+  // before the load-on-mount completes.
+  const hasLoaded = useRef(false);
 
   // Load data from storage
   useEffect(() => {
@@ -79,6 +82,9 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setSelectedDeity(migratedDeities[0]);
         }
       } finally {
+        // Mark loaded BEFORE clearing isLoading so persistence effects
+        // can save subsequent changes but won't run during initial mount.
+        hasLoaded.current = true;
         setIsLoading(false);
       }
     };
@@ -87,6 +93,7 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Persist user profile
   useEffect(() => {
+    if (!hasLoaded.current) return;
     if (userProfile) Storage.set('userProfile', userProfile);
   }, [userProfile]);
 
@@ -113,13 +120,15 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   };
 
-  // Persist deities
+  // Persist deities — only after initial load completes
   useEffect(() => {
+    if (!hasLoaded.current) return;
     Storage.set('deities', deities);
   }, [deities]);
 
-  // Persist history
+  // Persist history — only after initial load completes
   useEffect(() => {
+    if (!hasLoaded.current) return;
     Storage.set('history', history);
   }, [history]);
 

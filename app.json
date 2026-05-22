@@ -47,10 +47,14 @@
         "react-native-ble-plx",
         {
           "isBackgroundEnabled": false,
-          "modes": ["peripheral", "central"],
+          "modes": [
+            "peripheral",
+            "central"
+          ],
           "bluetoothAlwaysPermission": "Allow Sadhana to connect to your BLE japa counter"
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ]
   }
 }
