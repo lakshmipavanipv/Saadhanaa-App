@@ -156,7 +156,12 @@ export const OnboardingScreen = () => {
             contactType={contactType}
             onName={setName}
             onContact={setContact}
-            onTypeChange={setContactType}
+            onTypeChange={t => {
+              // T2: reset input on toggle to avoid stale data (e.g. email
+              // text left when switching to Phone)
+              setContactType(t);
+              setContact('');
+            }}
             onBack={() => setStep('welcome')}
             onNext={submitIdentity}
           />
@@ -409,7 +414,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingBottom: SPACING.xl,
   },
-  center: { alignItems: 'center', paddingTop: 30 },
+  center: { alignItems: 'stretch', paddingTop: 30, paddingHorizontal: SPACING.md },
   bigEmoji: { fontSize: 80, marginBottom: SPACING.md },
   title: {
     fontSize: 32,
@@ -509,8 +514,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.gold,
     borderRadius: 10,
     paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
     alignItems: 'center',
+    justifyContent: 'center',
     marginTop: SPACING.md,
+    alignSelf: 'stretch',          // T1: full-width via stretch instead of fixed positioning
+    minHeight: 52,
   },
   primaryBtnDisabled: { opacity: 0.4 },
   primaryBtnText: { color: COLORS.deep, fontWeight: '700', fontSize: 15 },
@@ -522,9 +531,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+    minWidth: 90,
   },
   secondaryBtnText: { color: COLORS.cream, fontSize: 14, fontWeight: '500' },
-  btnRow: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'center', marginTop: SPACING.md },
+  btnRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    alignItems: 'stretch',
+    marginTop: SPACING.md,
+  },
   deityGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

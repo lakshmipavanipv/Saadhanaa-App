@@ -21,6 +21,16 @@ interface MalaProps {
   materialName?: string;
 }
 
+// ─── Universal Citron color scheme ─────────────────────────────────
+// Vibrant yellow-green, high-contrast against dark theme.
+// Per-deity colors are intentionally IGNORED — single bright scheme
+// for legibility (T7).
+const CITRON_BEAD = '#d6e040';        // vibrant citron yellow-green
+const CITRON_BORDER = '#fbff7a';      // bright lemon edge
+const CITRON_SHINE = '#ffffe0';       // near-white highlight ellipse
+const CITRON_DIM_FILL = 'rgba(85, 95, 25, 0.85)';   // unlit bead body
+const CITRON_DIM_BORDER = 'rgba(214, 224, 64, 0.45)';
+
 export const Mala: React.FC<MalaProps> = ({
   count,
   malas,
@@ -30,8 +40,9 @@ export const Mala: React.FC<MalaProps> = ({
   beadHighlight,
   materialName,
 }) => {
-  const doneColor = beadColor || COLORS.gold;
-  const doneBorder = beadHighlight || '#fff5d6';
+  // T7: ignore per-deity color, use Universal Citron for high contrast.
+  const doneColor = CITRON_BEAD;
+  const doneBorder = CITRON_BORDER;
   // Beads start at top-right (just clockwise of Meru) and wrap around back to Meru.
   // First 54 = outer ring, next 54 = inner ring. Both go clockwise from 12 o'clock.
   const beads = [];
@@ -185,14 +196,14 @@ const styles = StyleSheet.create({
     width: BEAD_SIZE,
     height: BEAD_SIZE,
     borderRadius: BEAD_SIZE / 2,
-    backgroundColor: 'rgba(60, 45, 22, 0.85)',
+    backgroundColor: CITRON_DIM_FILL,
     borderWidth: 1,
-    borderColor: 'rgba(212, 160, 23, 0.35)',
+    borderColor: CITRON_DIM_BORDER,
   },
   beadDone: {
-    backgroundColor: COLORS.gold,
-    borderColor: '#fff5d6',
-    shadowColor: COLORS.gold,
+    backgroundColor: CITRON_BEAD,
+    borderColor: CITRON_BORDER,
+    shadowColor: CITRON_BORDER,
     shadowOpacity: 1,
     shadowRadius: 5,
     elevation: 5,
@@ -276,16 +287,16 @@ const styles = StyleSheet.create({
     width: CENTER_SIZE,
     height: CENTER_SIZE,
     borderRadius: CENTER_SIZE / 2,
-    backgroundColor: '#3d2a08',
+    backgroundColor: '#3d4408',
     borderWidth: 3,
-    borderColor: COLORS.gold,
+    borderColor: CITRON_BEAD,
   },
   beadFaceMid: {
     position: 'absolute',
     width: CENTER_SIZE - 20,
     height: CENTER_SIZE - 20,
     borderRadius: (CENTER_SIZE - 20) / 2,
-    backgroundColor: '#5e3f10',
+    backgroundColor: '#6b7a14',
     top: 10,
     left: 10,
   },
@@ -311,7 +322,7 @@ const styles = StyleSheet.create({
     top: -8,
     left: -8,
     borderWidth: 2,
-    borderColor: 'rgba(212, 160, 23, 0.35)',
+    borderColor: CITRON_DIM_BORDER,
     borderStyle: 'dashed',
   },
   tapHint: {
@@ -331,7 +342,7 @@ const styles = StyleSheet.create({
   malaCount: {
     fontSize: 38,
     fontWeight: '700',
-    color: COLORS.gold,
+    color: CITRON_BEAD,
     lineHeight: 42,
   },
   malaLabel: {

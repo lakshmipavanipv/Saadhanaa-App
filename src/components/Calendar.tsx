@@ -154,14 +154,13 @@ const styles = StyleSheet.create({
   },
   weekRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
     marginBottom: SPACING.sm,
   },
   weekDay: {
     fontSize: 11,
     color: COLORS.muted,
     fontWeight: '600',
-    width: CELL_SIZE,
+    flex: 1,            // equal share, matches cell '${100/7}%' width
     textAlign: 'center',
   },
   grid: {

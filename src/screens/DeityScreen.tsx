@@ -16,41 +16,111 @@ import { Deity } from '../types';
 import { DeityCatalogPicker } from '../components/DeityCatalogPicker';
 import { CatalogDeity, ALL_CATALOG_DEITIES } from '../deityCatalog';
 import { AlarmSoundPicker } from '../components/AlarmSoundPicker';
+import { DeityIcon } from '../components/DeityIcon';
 
-export const DeityScreen = () => {
-  const { deities, setDeities, showToast, notifGranted, requestNotif } = useSadhana();
+export const DeityScreen = ({ navigation, route }: any) => {
+  const { deities, setDeities, setSelectedDeity, showToast, notifGranted, requestNotif } = useSadhana();
   const [showAdd, setShowAdd] = useState(false);
   const [editingReminder, setEditingReminder] = useState<Deity | null>(null);
-  const [name, setName] = useState('');
-  const [mantra, setMantra] = useState('');
-  const [icon, setIcon] = useState('🙏');
-  const [time, setTime] = useState('06:00');
-  const [alarmOn, setAlarmOn] = useState(true);
-  const [target, setTarget] = useState('');
+  // ── T4: two-step selection — pending state held until "Add Deity" tapped
+  const [pendingPicked, setPendingPicked] = useState<Set<string>>(new Set());
+  const [pendingCustoms, setPendingCustoms] = useState<Deity[]>([]);
+  // ── T6: separate modal for "+ Other Deity" custom entry
+  const [showCustomModal, setShowCustomModal] = useState(false);
+  const [customNameInput, setCustomNameInput] = useState('');
+  const [customMantraInput, setCustomMantraInput] = useState('');
+  // ── T5: origin tracking for Japa loop
+  const originRef = React.useRef<string | undefined>(undefined);
 
-  const add = () => {
-    if (!name.trim()) {
-      showToast('Please enter a deity name');
+  // Auto-open add modal when navigated with openAdd param (from Japa tab)
+  React.useEffect(() => {
+    if (route?.params?.openAdd) {
+      originRef.current = route.params.origin;
+      openAddModal();
+      // clear param so it doesn't re-trigger
+      navigation?.setParams?.({ openAdd: undefined, origin: undefined });
+    }
+  }, [route?.params?.openAdd]);
+
+  const openAddModal = () => {
+    setPendingPicked(new Set(deities.map(d => d.id)));
+    setPendingCustoms([]);
+    setShowAdd(true);
+  };
+
+  const commitSelection = () => {
+    // Build new deities list from pending selection
+    const fromCatalog: Deity[] = ALL_CATALOG_DEITIES
+      .filter(c => pendingPicked.has(c.id))
+      .map(c => {
+        const existing = deities.find(d => d.id === c.id);
+        if (existing) return existing;
+        return {
+          id: c.id,
+          name: c.name,
+          icon: c.icon,
+          mantra: c.mantra,
+          prayerAlarm: '06:00',
+          alarmOn: false,
+          totalMalas: 0,
+          malaMaterial: c.malaMaterial,
+          malaColor: c.malaColor,
+          malaHighlight: c.malaHighlight,
+        };
+      });
+    const fromCustom = pendingCustoms.filter(c => pendingPicked.has(c.id));
+    // Keep any locally-edited deities that aren't in the catalog (custom-id'd ones)
+    const keptCustom = deities.filter(
+      d => !ALL_CATALOG_DEITIES.some(c => c.id === d.id) && pendingPicked.has(d.id)
+    );
+    const finalDeities = [...fromCatalog, ...keptCustom, ...fromCustom];
+
+    setDeities(finalDeities);
+    setShowAdd(false);
+
+    // Show toast
+    const added = finalDeities.length - deities.length;
+    if (added > 0) showToast(`${added} deit${added === 1 ? 'y' : 'ies'} added`);
+
+    // T5: route back to Japa tab if origin was Japa, with newest deity selected
+    const justAdded =
+      finalDeities.find(d => !deities.some(old => old.id === d.id)) ||
+      finalDeities[0];
+    if (originRef.current === 'japa' && justAdded) {
+      setSelectedDeity(justAdded);
+      navigation?.navigate?.('Japa');
+      originRef.current = undefined;
+    }
+  };
+
+  const togglePending = (catalogDeity: CatalogDeity) => {
+    setPendingPicked(prev => {
+      const next = new Set(prev);
+      next.has(catalogDeity.id) ? next.delete(catalogDeity.id) : next.add(catalogDeity.id);
+      return next;
+    });
+  };
+
+  const saveCustomDeity = () => {
+    if (!customNameInput.trim()) {
+      showToast('Enter a deity name first');
       return;
     }
-    const targetNum = parseInt(target, 10);
-    const newDeity: Deity = {
-      id: Date.now().toString(),
-      name: name.trim(),
-      icon,
-      mantra: mantra.trim() || 'Om Namah',
-      prayerAlarm: time,
-      alarmOn,
+    const d: Deity = {
+      id: `custom-${Date.now()}`,
+      name: customNameInput.trim(),
+      icon: '🙏',
+      mantra: customMantraInput.trim() || 'Om Namah',
+      prayerAlarm: '06:00',
+      alarmOn: false,
       totalMalas: 0,
-      ...(targetNum > 0 ? { targetMalas: targetNum } : {}),
     };
-    setDeities(p => [...p, newDeity]);
-    setName('');
-    setMantra('');
-    setIcon('🙏');
-    setTarget('');
-    setShowAdd(false);
-    showToast(`${icon} ${newDeity.name} added!`);
+    setPendingCustoms(prev => [...prev, d]);
+    setPendingPicked(prev => new Set(prev).add(d.id));
+    setCustomNameInput('');
+    setCustomMantraInput('');
+    setShowCustomModal(false);
+    showToast(`Added ${d.name} to selection`);
   };
 
   const updateReminder = (id: string, patch: Partial<Deity>) => {
@@ -96,7 +166,9 @@ export const DeityScreen = () => {
           const todayPct = target > 0 ? Math.min(100, (d.totalMalas / target) * 100) : 0;
           return (
             <View key={d.id} style={styles.deityItem}>
-              <Text style={styles.deityIcon}>{d.icon}</Text>
+              <View style={styles.deityIconWrap}>
+                <DeityIcon deityId={d.id} icon={d.icon} size={28} color={COLORS.gold} />
+              </View>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.deityName}>{d.name}</Text>
                 <Text style={styles.deityMantra}>{d.mantra}</Text>
@@ -129,11 +201,11 @@ export const DeityScreen = () => {
       </ScrollView>
 
       {/* Add Button */}
-      <TouchableOpacity style={styles.addBtn} onPress={() => setShowAdd(true)}>
+      <TouchableOpacity style={styles.addBtn} onPress={openAddModal}>
         <Text style={styles.addBtnText}>+ Add New Deity</Text>
       </TouchableOpacity>
 
-      {/* Add Deity Modal — full catalog picker */}
+      {/* Add Deity Modal — T4 two-step: tap for tick, commit on Add button */}
       <Modal visible={showAdd} animationType="slide" onRequestClose={() => setShowAdd(false)}>
         <View style={[styles.container, { paddingTop: 50 }]}>
           <View style={styles.fullModalHeader}>
@@ -141,54 +213,101 @@ export const DeityScreen = () => {
               <Text style={styles.fullCloseText}>✕</Text>
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
-              <Text style={styles.fullModalTitle}>Add deity</Text>
-              <Text style={styles.fullModalSub}>Browse the catalog or add your own</Text>
+              <Text style={styles.fullModalTitle}>Choose deities</Text>
+              <Text style={styles.fullModalSub}>Tap to select, then commit at the bottom</Text>
             </View>
           </View>
           <ScrollView
-            contentContainerStyle={{ padding: SPACING.md }}
+            contentContainerStyle={{ padding: SPACING.md, paddingBottom: 120 }}
             showsVerticalScrollIndicator={false}
           >
             <DeityCatalogPicker
-              pickedIds={new Set(deities.map(d => d.id))}
-              onTogglePick={catalogDeity => {
-                if (deities.some(d => d.id === catalogDeity.id)) {
-                  // Already added — remove
-                  setDeities(p => p.filter(d => d.id !== catalogDeity.id));
-                  showToast(`Removed ${catalogDeity.name}`);
-                } else {
-                  // Add it
-                  const newDeity: Deity = {
-                    id: catalogDeity.id,
-                    name: catalogDeity.name,
-                    icon: catalogDeity.icon,
-                    mantra: catalogDeity.mantra,
-                    prayerAlarm: '06:00',
-                    alarmOn: false,
-                    totalMalas: 0,
-                    malaMaterial: catalogDeity.malaMaterial,
-                    malaColor: catalogDeity.malaColor,
-                    malaHighlight: catalogDeity.malaHighlight,
-                  };
-                  setDeities(p => [...p, newDeity]);
-                  showToast(`${catalogDeity.icon} ${catalogDeity.name} added`);
-                }
-              }}
-              onAddCustom={(customN, customI, customM) => {
-                const newDeity: Deity = {
-                  id: `custom-${Date.now()}`,
-                  name: customN,
-                  icon: customI,
-                  mantra: customM,
-                  prayerAlarm: '06:00',
-                  alarmOn: false,
-                  totalMalas: 0,
-                };
-                setDeities(p => [...p, newDeity]);
-                showToast(`${customI} ${customN} added`);
-              }}
+              pickedIds={pendingPicked}
+              onTogglePick={togglePending}
+              showCustom={false}
             />
+            {/* Show pending customs */}
+            {pendingCustoms.length > 0 && (
+              <View style={{ marginTop: SPACING.md }}>
+                <Text style={{ fontSize: 11, color: COLORS.gold, fontWeight: '700', letterSpacing: 1, marginBottom: 6 }}>
+                  YOUR CUSTOM DEITIES
+                </Text>
+                {pendingCustoms.map(d => (
+                  <View key={d.id} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.cardBg, padding: SPACING.sm, borderRadius: 8, marginBottom: 6 }}>
+                    <Text style={{ fontSize: 22 }}>🙏</Text>
+                    <View style={{ flex: 1, marginLeft: SPACING.sm }}>
+                      <Text style={{ fontSize: 14, color: COLORS.cream, fontWeight: '600' }}>{d.name}</Text>
+                      <Text style={{ fontSize: 11, color: COLORS.muted, fontStyle: 'italic' }}>{d.mantra}</Text>
+                    </View>
+                    <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center' }}>
+                      <Text style={{ color: COLORS.deep, fontSize: 11, fontWeight: '700' }}>✓</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+            {/* T6: + Other Deity button at the bottom */}
+            <TouchableOpacity
+              style={styles.otherDeityBtn}
+              onPress={() => setShowCustomModal(true)}
+            >
+              <Text style={styles.otherDeityBtnText}>+ Other Deity</Text>
+            </TouchableOpacity>
           </ScrollView>
+          {/* Sticky commit bar at the bottom */}
+          <View style={styles.commitBar}>
+            <Text style={styles.commitCount}>{pendingPicked.size} selected</Text>
+            <TouchableOpacity
+              style={[styles.commitBtn, pendingPicked.size === 0 && { opacity: 0.4 }]}
+              onPress={commitSelection}
+              disabled={pendingPicked.size === 0}
+            >
+              <Text style={styles.commitBtnText}>Add Deity</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* T6: "Other Deity" sub-modal — clean 2-field form */}
+      <Modal visible={showCustomModal} transparent animationType="slide" onRequestClose={() => setShowCustomModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Add a custom deity</Text>
+            <Text style={{ fontSize: 12, color: COLORS.muted, marginBottom: SPACING.md }}>
+              Family ishta devata, regional form, or any mantra not in the catalog.
+            </Text>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Deity Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Sri Banke Bihari"
+                placeholderTextColor={COLORS.muted}
+                value={customNameInput}
+                onChangeText={setCustomNameInput}
+                autoFocus
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Maha-Mantra</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Om Namo Bhagavate Vasudevaaya"
+                placeholderTextColor={COLORS.muted}
+                value={customMantraInput}
+                onChangeText={setCustomMantraInput}
+              />
+            </View>
+
+            <TouchableOpacity style={styles.submitBtn} onPress={saveCustomDeity}>
+              <Text style={styles.submitBtnText}>Save</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowCustomModal(false)}>
+              <Text style={styles.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
 
@@ -349,6 +468,17 @@ const styles = StyleSheet.create({
     fontSize: 28,
     marginRight: SPACING.md,
     marginTop: 2,
+  },
+  deityIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(212, 160, 23, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 160, 23, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
   },
   deityName: {
     fontSize: 15,
@@ -558,5 +688,56 @@ const styles = StyleSheet.create({
     color: COLORS.cream,
     fontWeight: '500',
     fontSize: 14,
+  },
+  // T6: "+ Other Deity" button (large pill at the bottom of the picker)
+  otherDeityBtn: {
+    marginTop: SPACING.lg,
+    backgroundColor: 'rgba(212, 160, 23, 0.12)',
+    borderRadius: 12,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: COLORS.gold,
+    borderStyle: 'dashed',
+  },
+  otherDeityBtnText: {
+    color: COLORS.gold,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  // T4: sticky commit bar at the bottom of the Add Deity modal
+  commitBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+    backgroundColor: COLORS.darkBg,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  commitCount: {
+    color: COLORS.muted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  commitBtn: {
+    backgroundColor: COLORS.gold,
+    borderRadius: 8,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.xl,
+    alignItems: 'center',
+  },
+  commitBtnText: {
+    color: COLORS.deep,
+    fontWeight: '700',
+    fontSize: 14,
+    letterSpacing: 0.5,
   },
 });

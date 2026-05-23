@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { DEITY_CATALOG, CatalogDeity } from '../deityCatalog';
 import { COLORS, SPACING } from '../theme';
+import { DeityIcon } from './DeityIcon';
 
 interface DeityCatalogPickerProps {
   pickedIds: Set<string>;
@@ -112,7 +113,12 @@ export const DeityCatalogPicker: React.FC<DeityCatalogPickerProps> = ({
                       activeOpacity={0.85}
                     >
                       <View style={[styles.iconCircle, isPicked && styles.iconCirclePicked]}>
-                        <Text style={styles.deityIcon}>{d.icon}</Text>
+                        <DeityIcon
+                          deityId={d.id}
+                          icon={d.icon}
+                          size={30}
+                          color={isPicked ? COLORS.gold : COLORS.cream}
+                        />
                         {isPicked && (
                           <View style={styles.tickBadge}>
                             <Text style={styles.tickText}>✓</Text>
@@ -128,11 +134,6 @@ export const DeityCatalogPicker: React.FC<DeityCatalogPickerProps> = ({
                       <Text style={styles.deityMantra} numberOfLines={1}>
                         {d.mantra}
                       </Text>
-                      {d.iconography && (
-                        <Text style={styles.deityIconography} numberOfLines={2}>
-                          {d.iconography}
-                        </Text>
-                      )}
                     </TouchableOpacity>
                   );
                 })}

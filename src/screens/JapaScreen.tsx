@@ -15,6 +15,7 @@ import { useSadhana } from '../context';
 import { todayStr } from '../utils';
 import { COLORS, SPACING, FONT_SIZES } from '../theme';
 import { Mala } from '../components/Mala';
+import { DeityIcon } from '../components/DeityIcon';
 import {
   requestBlePermissions,
   scanForDevices,
@@ -25,7 +26,7 @@ import {
 
 const BEADS = 108;
 
-export const JapaScreen = () => {
+export const JapaScreen = ({ navigation }: any) => {
   const { selectedDeity, setSelectedDeity, deities, saveSession, showToast, deityProgress, updateProgress } = useSadhana();
   const [count, setCount] = useState(0);
   const [malas, setMalas] = useState(0);
@@ -207,13 +208,23 @@ export const JapaScreen = () => {
           style={styles.deitySelector}
           onPress={() => setShowPicker(true)}
         >
-          <View>
-            <Text style={styles.deityLabel}>Deity</Text>
-            <Text style={styles.deityName}>
-              {selectedDeity
-                ? `${selectedDeity.icon} ${selectedDeity.name}`
-                : 'Tap to select deity ▾'}
-            </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            {selectedDeity && (
+              <View style={styles.selectorIconWrap}>
+                <DeityIcon
+                  deityId={selectedDeity.id}
+                  icon={selectedDeity.icon}
+                  size={22}
+                  color={COLORS.gold}
+                />
+              </View>
+            )}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.deityLabel}>Deity</Text>
+              <Text style={styles.deityName}>
+                {selectedDeity ? selectedDeity.name : 'Tap to select deity ▾'}
+              </Text>
+            </View>
           </View>
           <Text style={styles.chevron}>▾</Text>
         </TouchableOpacity>
@@ -280,7 +291,7 @@ export const JapaScreen = () => {
             <Text style={styles.modalTitle}>Choose Deity</Text>
             {deities.length === 0 ? (
               <Text style={styles.emptyText}>
-                No deities yet. Go to the Deities tab to add some.
+                No deities yet. Tap below to add some.
               </Text>
             ) : (
               <FlatList
@@ -298,7 +309,9 @@ export const JapaScreen = () => {
                       setShowPicker(false);
                     }}
                   >
-                    <Text style={styles.deityPickerIcon}>{d.icon}</Text>
+                    <View style={styles.deityPickerIconWrap}>
+                      <DeityIcon deityId={d.id} icon={d.icon} size={22} color={COLORS.gold} />
+                    </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.deityPickerName}>{d.name}</Text>
                       <Text style={styles.deityPickerMantra}>{d.mantra}</Text>
@@ -308,6 +321,25 @@ export const JapaScreen = () => {
                 )}
               />
             )}
+
+            {/* T5: + Add Deity — routes to Deities tab with auto-open + origin marker */}
+            <TouchableOpacity
+              style={styles.addDeityRow}
+              onPress={() => {
+                setShowPicker(false);
+                navigation?.navigate?.('Deities', { openAdd: true, origin: 'japa' });
+              }}
+            >
+              <View style={styles.addDeityIcon}>
+                <Text style={styles.addDeityPlus}>+</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.addDeityName}>Add Deity</Text>
+                <Text style={styles.addDeityHint}>Browse catalog or add your own</Text>
+              </View>
+              <Text style={styles.addDeityArrow}>›</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.closeBtn}
               onPress={() => setShowPicker(false)}
@@ -714,6 +746,28 @@ const styles = StyleSheet.create({
     fontSize: 24,
     marginRight: SPACING.md,
   },
+  deityPickerIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(212, 160, 23, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 160, 23, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
+  },
+  selectorIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(212, 160, 23, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 160, 23, 0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
+  },
   deityPickerName: {
     fontSize: 15,
     color: COLORS.cream,
@@ -728,6 +782,50 @@ const styles = StyleSheet.create({
   checkmark: {
     fontSize: 18,
     color: COLORS.gold,
+  },
+  // T5: + Add Deity row inside picker
+  addDeityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.sm,
+    marginTop: SPACING.sm,
+    borderRadius: 10,
+    backgroundColor: 'rgba(212, 160, 23, 0.10)',
+    borderWidth: 1.5,
+    borderColor: COLORS.gold,
+    borderStyle: 'dashed',
+  },
+  addDeityIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(212, 160, 23, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
+  },
+  addDeityPlus: {
+    fontSize: 22,
+    color: COLORS.gold,
+    fontWeight: '700',
+    lineHeight: 24,
+  },
+  addDeityName: {
+    fontSize: 15,
+    color: COLORS.gold,
+    fontWeight: '700',
+  },
+  addDeityHint: {
+    fontSize: 11,
+    color: COLORS.muted,
+    marginTop: 2,
+    fontStyle: 'italic',
+  },
+  addDeityArrow: {
+    fontSize: 22,
+    color: COLORS.gold,
+    fontWeight: '600',
   },
   closeBtn: {
     marginTop: SPACING.md,
