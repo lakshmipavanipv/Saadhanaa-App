@@ -29,6 +29,7 @@ import { HealthDashboardCard } from '../soulsync/components/HealthDashboardCard'
 import { AIInsightsCard } from '../soulsync/components/AIInsightsCard';
 import { SolutionMatrixCard } from '../soulsync/components/SolutionMatrixCard';
 import { MicroSadhanaCard } from '../soulsync/components/MicroSadhanaCard';
+import { BodySoulLogo } from '../soulsync/components/BodySoulLogo';
 import { useEmotionalState } from '../soulsync/hooks/useEmotionalState';
 import { DeityIcon } from '../components/DeityIcon';
 
@@ -210,9 +211,9 @@ export const DashboardScreen = ({ navigation }: any) => {
   return (
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        {/* Header */}
+        {/* Header — animated BODY & SOUL logo replaces the static greeting */}
         <View style={styles.header}>
-          <Text style={styles.greeting}>{getGreeting()}</Text>
+          <BodySoulLogo width={240} />
           <Text style={styles.personalLine}>{getPersonalLine(userProfile?.name)}</Text>
           <Text style={styles.date}>{formatDate(todayStr())}</Text>
         </View>
