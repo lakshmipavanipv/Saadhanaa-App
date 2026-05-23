@@ -192,8 +192,11 @@ export const OnboardingScreen = () => {
             <DeityCatalogPicker
               pickedIds={pickedIds}
               onTogglePick={togglePick}
-              onAddCustom={addCustom}
+              showCustom={false}
             />
+            <Text style={styles.customHint}>
+              Want a custom deity? You can add one later from the Deities tab.
+            </Text>
 
             <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
               <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('otp')}>
@@ -442,6 +445,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     marginBottom: SPACING.sm,
+  },
+  customHint: {
+    fontSize: 11,
+    color: COLORS.muted,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: SPACING.md,
+    paddingHorizontal: SPACING.md,
   },
   stepContent: { paddingTop: SPACING.lg },
   featureList: { marginVertical: SPACING.lg, alignSelf: 'stretch' },

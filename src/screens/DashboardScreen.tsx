@@ -24,6 +24,7 @@ import {
 } from '../utils';
 import { COLORS, SPACING } from '../theme';
 import { CalmDivergenceCard } from '../soulsync/components/CalmDivergenceCard';
+import { DeityIcon } from '../components/DeityIcon';
 
 interface FestReminder {
   shopping?: { enabled: boolean; date: string; time: string; recurrence?: string };
@@ -81,12 +82,13 @@ export const DashboardScreen = ({ navigation }: any) => {
 
   // ── Per-deity breakdown ──────────────────────────────────────────
   const perDeity = useMemo(() => {
-    const m: Record<string, { name: string; icon: string; malas: number; japas: number; color: string }> = {};
+    const m: Record<string, { id?: string; name: string; icon: string; malas: number; japas: number; color: string }> = {};
     for (const h of history) {
       const d = deities.find(d => d.id === h.deityId);
       const key = h.deityId || h.deity;
       if (!m[key]) {
         m[key] = {
+          id: h.deityId,
           name: h.deity,
           icon: d?.icon || '🙏',
           malas: 0,
@@ -103,7 +105,7 @@ export const DashboardScreen = ({ navigation }: any) => {
       const d = deities.find(d => d.id === id);
       if (!d) continue;
       if (!m[id]) {
-        m[id] = { name: d.name, icon: d.icon, malas: 0, japas: 0, color: d.malaColor || COLORS.gold };
+        m[id] = { id, name: d.name, icon: d.icon, malas: 0, japas: 0, color: d.malaColor || COLORS.gold };
       }
       m[id].japas += p.count;
     }
@@ -278,7 +280,9 @@ export const DashboardScreen = ({ navigation }: any) => {
             <Text style={styles.sectionTitle}>Per-deity Breakdown</Text>
             {perDeity.map((d, i) => (
               <View key={i} style={styles.deityRow}>
-                <Text style={styles.deityRowIcon}>{d.icon}</Text>
+                <View style={styles.deityRowIconWrap}>
+                  <DeityIcon deityId={d.id} icon={d.icon} size={22} color={COLORS.gold} />
+                </View>
                 <View style={{ flex: 1, marginLeft: SPACING.sm }}>
                   <View style={styles.deityRowHeader}>
                     <Text style={styles.deityRowName} numberOfLines={1}>
@@ -339,7 +343,9 @@ export const DashboardScreen = ({ navigation }: any) => {
                     navigation?.navigate('Japa');
                   }}
                 >
-                  <Text style={styles.deityCardIcon}>{d.icon}</Text>
+                  <View style={styles.deityCardIconWrap}>
+                    <DeityIcon deityId={d.id} icon={d.icon} size={26} color={COLORS.gold} />
+                  </View>
                   <Text style={styles.deityCardName} numberOfLines={1}>
                     {d.name.split(' ').slice(-1)[0]}
                   </Text>
@@ -503,6 +509,12 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   deityRowIcon: { fontSize: 26 },
+  deityRowIconWrap: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(212, 160, 23, 0.12)',
+    borderWidth: 1, borderColor: 'rgba(212, 160, 23, 0.3)',
+    justifyContent: 'center', alignItems: 'center',
+  },
   deityRowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   deityRowName: { flex: 1, fontSize: 13, color: COLORS.cream, fontWeight: '600' },
   deityRowMalas: { fontSize: 12, color: COLORS.gold, fontWeight: '600' },
@@ -537,6 +549,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   deityCardIcon: { fontSize: 26, marginBottom: 4 },
+  deityCardIconWrap: {
+    width: 42, height: 42, borderRadius: 21,
+    backgroundColor: 'rgba(212, 160, 23, 0.12)',
+    borderWidth: 1, borderColor: 'rgba(212, 160, 23, 0.3)',
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 6,
+  },
   deityCardName: { fontSize: 12, color: COLORS.cream, fontWeight: '500' },
   deityCardMalas: { fontSize: 10, color: COLORS.muted, marginTop: 2 },
 
