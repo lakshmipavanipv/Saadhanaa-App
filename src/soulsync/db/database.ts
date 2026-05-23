@@ -82,6 +82,39 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       ALTER TABLE session_spiritual ADD COLUMN depth_score REAL;
     `,
   },
+  {
+    version: 3,
+    sql: `
+      -- v3: Emotional remediation pipeline
+      CREATE TABLE IF NOT EXISTS emotional_event (
+        id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+        trigger_type                TEXT NOT NULL,             -- 'anxiety' | 'lethargy' | 'aggression'
+        severity                    TEXT NOT NULL,             -- 'mild' | 'moderate' | 'acute'
+        detected_at                 TEXT NOT NULL,
+        bpm_at_detection            INTEGER,
+        rmssd_at_detection          REAL,
+        baseline_bpm                INTEGER,
+        baseline_rmssd              REAL,
+        context_json                TEXT,                      -- arbitrary JSON metadata
+        intervention_id             TEXT,                      -- 'grounding_japa' | 'micro_sadhana' | 'cooling_workspace'
+        intervention_started_at     TEXT,
+        intervention_completed_at   TEXT,
+        pre_intervention_rmssd      REAL,
+        post_intervention_rmssd     REAL,
+        hrv_improvement_pct         REAL,
+        resolved                    INTEGER NOT NULL DEFAULT 0  -- 1 = body returned to baseline
+      );
+      CREATE INDEX IF NOT EXISTS idx_emo_when    ON emotional_event(detected_at);
+      CREATE INDEX IF NOT EXISTS idx_emo_trigger ON emotional_event(trigger_type);
+
+      -- Activity log — for the Vitality Spark (lethargy) detector
+      CREATE TABLE IF NOT EXISTS daily_activity (
+        activity_date  TEXT PRIMARY KEY,        -- YYYY-MM-DD
+        step_count     INTEGER NOT NULL DEFAULT 0,
+        active_minutes INTEGER NOT NULL DEFAULT 0
+      );
+    `,
+  },
 ];
 
 const runMigrations = async (db: SQLite.SQLiteDatabase) => {

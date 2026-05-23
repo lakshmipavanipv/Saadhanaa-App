@@ -11,6 +11,7 @@ import { Storage } from '../storage';
 import {
   todayStr,
   getGreeting,
+  getPersonalLine,
   formatDate,
   getUpcoming,
   getUpcomingFestivals,
@@ -26,6 +27,9 @@ import { COLORS, SPACING } from '../theme';
 import { CalmDivergenceCard } from '../soulsync/components/CalmDivergenceCard';
 import { HealthDashboardCard } from '../soulsync/components/HealthDashboardCard';
 import { AIInsightsCard } from '../soulsync/components/AIInsightsCard';
+import { SolutionMatrixCard } from '../soulsync/components/SolutionMatrixCard';
+import { MicroSadhanaCard } from '../soulsync/components/MicroSadhanaCard';
+import { useEmotionalState } from '../soulsync/hooks/useEmotionalState';
 import { DeityIcon } from '../components/DeityIcon';
 
 interface FestReminder {
@@ -41,6 +45,9 @@ interface SandhyaSettings {
 
 export const DashboardScreen = ({ navigation }: any) => {
   const { deities, history, setSelectedDeity, alarmQueue, dismissAlarm, deityProgress, userProfile } = useSadhana();
+  // Subscribe to emotional events — used to suppress 108-goal pressure when lethargy is flagged
+  const { activeEvent, dismiss: dismissEmotional } = useEmotionalState();
+  const lethargyEvent = activeEvent?.trigger === 'lethargy' ? activeEvent : null;
   const [festReminders, setFestReminders] = useState<Record<string, FestReminder>>({});
   const [sandhyaSettings, setSandhyaSettings] = useState<SandhyaSettings | null>(null);
   const [_tick, setTick] = useState(0);   // refresh "in X mins" every minute
@@ -206,7 +213,7 @@ export const DashboardScreen = ({ navigation }: any) => {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.greeting}>{getGreeting()}</Text>
-          <Text style={styles.tagline}>May your sadhana bring peace</Text>
+          <Text style={styles.personalLine}>{getPersonalLine(userProfile?.name)}</Text>
           <Text style={styles.date}>{formatDate(todayStr())}</Text>
         </View>
 
@@ -225,6 +232,14 @@ export const DashboardScreen = ({ navigation }: any) => {
             </TouchableOpacity>
           </View>
         )}
+
+        {/* Vitality Spark — replaces 108-goal pressure when 3-day lethargy detected */}
+        {lethargyEvent && (
+          <MicroSadhanaCard event={lethargyEvent} onComplete={dismissEmotional} />
+        )}
+
+        {/* Bio-Spiritual Solution Matrix — today's imbalances + body-setting convergence */}
+        <SolutionMatrixCard />
 
         {/* Soulsync — health metrics + Calm Divergence + Sleep correlation */}
         <HealthDashboardCard />
@@ -414,6 +429,16 @@ const styles = StyleSheet.create({
   },
   greeting: { fontSize: 26, color: COLORS.cream, fontWeight: '600', marginBottom: 4 },
   tagline: { fontSize: 13, color: COLORS.muted, marginBottom: 6 },
+  // Caretaker line — personal, body+soul-sync promise, rotates with time-of-day
+  personalLine: {
+    fontSize: 13,
+    color: '#d6e040',                 // citron — matches the Soulsync theme
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginBottom: 8,
+    paddingHorizontal: SPACING.md,
+    lineHeight: 18,
+  },
   date: { fontSize: 12, color: COLORS.gold, fontWeight: '500' },
 
   alarmBanner: {

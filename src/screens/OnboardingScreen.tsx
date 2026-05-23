@@ -14,6 +14,7 @@ import { Deity, UserProfile } from '../types';
 import { COLORS, SPACING } from '../theme';
 import { DeityCatalogPicker } from '../components/DeityCatalogPicker';
 import { CatalogDeity, ALL_CATALOG_DEITIES } from '../deityCatalog';
+import { otpClient } from '../soulsync/auth/otpClient';
 
 type Step = 'welcome' | 'identity' | 'otp' | 'deities' | 'done';
 
@@ -62,7 +63,7 @@ export const OnboardingScreen = () => {
     showToast(`${icon} ${name} added`);
   };
 
-  const submitIdentity = () => {
+  const submitIdentity = async () => {
     if (!name.trim()) {
       showToast('Please enter your name');
       return;
@@ -79,30 +80,42 @@ export const OnboardingScreen = () => {
       showToast('Please enter a valid phone number');
       return;
     }
-    // Generate OTP (demo: shown on screen; real app would send via email/SMS backend)
-    const code = generateOTP();
-    setOtp(code);
+    // Try backend send; falls back to demo mode if no backend is configured
+    const res = await otpClient.send(contact, contactType);
+    if (!res.sent) {
+      showToast(`Could not send OTP: ${res.error}`);
+      return;
+    }
+    // In mock/demo mode the backend (and thus otpClient) returns the OTP so we
+    // can show it on-screen for development. In production it's sent only via
+    // email/SMS and demoOtp is undefined.
+    setOtp(res.demoOtp ?? '');     // empty when real backend is in use
     setEnteredOtp('');
     setOtpSentAt(Date.now());
     setStep('otp');
-    showToast(`Demo OTP: ${code}`);
+    showToast(res.demoOtp ? `Demo OTP: ${res.demoOtp}` : 'OTP sent — check your email/phone');
   };
 
-  const resendOtp = () => {
-    const code = generateOTP();
-    setOtp(code);
-    setEnteredOtp('');
-    setOtpSentAt(Date.now());
-    showToast(`New OTP: ${code}`);
-  };
-
-  const verifyOtp = () => {
-    if (enteredOtp.trim() !== otp) {
-      showToast('Wrong OTP — try again');
+  const resendOtp = async () => {
+    const res = await otpClient.send(contact, contactType);
+    if (!res.sent) {
+      showToast(`Resend failed: ${res.error}`);
       return;
     }
+    setOtp(res.demoOtp ?? '');
+    setEnteredOtp('');
+    setOtpSentAt(Date.now());
+    showToast(res.demoOtp ? `New OTP: ${res.demoOtp}` : 'New OTP sent');
+  };
+
+  const verifyOtp = async () => {
     if (Date.now() - otpSentAt > 10 * 60 * 1000) {
       showToast('OTP expired — please resend');
+      return;
+    }
+    const res = await otpClient.verify(contact, enteredOtp, otp || undefined);
+    if (!res.verified) {
+      showToast(res.reason === 'mismatch' ? 'Wrong OTP — try again' : `Verify failed: ${res.reason}`);
       return;
     }
     showToast('Verified ✓');
@@ -266,14 +279,18 @@ const OtpVerify = ({
       <Text style={{ color: COLORS.gold, fontWeight: '700' }}>{contact}</Text>
     </Text>
 
-    {/* DEMO ONLY — shows the OTP in-app since this build has no email backend */}
-    <View style={styles.demoBanner}>
-      <Text style={styles.demoBannerTitle}>🔓 Demo build</Text>
-      <Text style={styles.demoBannerText}>
-        Real email/SMS sending needs a backend service. For now, your OTP is:
-      </Text>
-      <Text style={styles.demoOtp}>{otp}</Text>
-    </View>
+    {/* Shown only when no OTP backend is configured (mock/demo mode). When the
+        Cloudflare Worker is wired up, `otp` is empty and this banner hides. */}
+    {otp ? (
+      <View style={styles.demoBanner}>
+        <Text style={styles.demoBannerTitle}>🔓 Demo build</Text>
+        <Text style={styles.demoBannerText}>
+          No OTP backend configured. Configure one in Settings to send via email/SMS.
+          For now, your OTP is:
+        </Text>
+        <Text style={styles.demoOtp}>{otp}</Text>
+      </View>
+    ) : null}
 
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>6-digit OTP</Text>

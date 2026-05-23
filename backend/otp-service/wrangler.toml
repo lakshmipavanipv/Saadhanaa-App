@@ -1,0 +1,20 @@
+name = "soulsync-otp"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+# Cloudflare KV namespace — create with:
+#   wrangler kv:namespace create OTP_KV
+# Then paste the returned id below.
+[[kv_namespaces]]
+binding = "OTP_KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# Non-secret config goes here. Secrets are set via:
+#   wrangler secret put RESEND_API_KEY
+#   wrangler secret put TWILIO_ACCOUNT_SID
+#   wrangler secret put TWILIO_AUTH_TOKEN
+#   wrangler secret put HMAC_SECRET
+[vars]
+ALLOWED_ORIGIN = "*"
+RESEND_FROM = "Soulsync <onboarding@resend.dev>"
+TWILIO_FROM = ""

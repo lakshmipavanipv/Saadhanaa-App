@@ -1,6 +1,7 @@
 import { MockRingService, RingSample } from './RingTelemetryService';
 import { RMSSDCalculator } from '../hrv/RMSSDCalculator';
 import { ambientBaselineRepo, ActivityState } from '../db/ambientBaselineRepo';
+import { EmotionalEngine, setEmotionalEngine, getEmotionalEngine } from '../emotional/EmotionalEngine';
 
 /**
  * AmbientIngestionService — captures passive ring telemetry during
@@ -25,12 +26,25 @@ export class AmbientIngestionService {
     if (this.running) return;
     this.running = true;
 
+    // Lazily provision the EmotionalEngine singleton
+    if (!getEmotionalEngine()) setEmotionalEngine(new EmotionalEngine(this.ring));
+    const engine = getEmotionalEngine();
+
+    // Daily depressive-cycle check on boot
+    void engine?.dailyCheck();
+
     await this.ring.start((s: RingSample) => {
       if (this.paused) return;
       this.lastBpm = s.bpm;
       this.lastSpo2 = s.spo2;
       this.lastSkinTempC = s.skinTempC;
-      for (const rr of s.rrMs) this.rmssd.addRR(rr, s.receivedAt);
+      // Feed RMSSD calc
+      for (const rr of s.rrMs) {
+        const snap = this.rmssd.addRR(rr, s.receivedAt);
+        engine?.updateRmssd(snap.rmssd);
+      }
+      // Feed real-time emotional detectors
+      void engine?.ingest(s);
     }, 'ambient');
 
     // Flush one row per minute

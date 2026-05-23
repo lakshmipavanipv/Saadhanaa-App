@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { getDB } from './soulsync/db/database';
 import { ambientIngestion } from './soulsync/services/AmbientIngestion';
+import { useEmotionalState } from './soulsync/hooks/useEmotionalState';
+import { GroundingOverlay } from './soulsync/components/GroundingOverlay';
+import { CoolingOverlay } from './soulsync/components/CoolingOverlay';
 import { StyleSheet, View, ActivityIndicator, Text, StatusBar, TouchableOpacity, Modal } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -111,6 +114,8 @@ const Toast = ({ message }: { message: string }) => {
 const AppContent = () => {
   const { isLoading, toast, userProfile } = useSadhana();
   const [showSettings, setShowSettings] = useState(false);
+  // Listen for emotional events — routes to the right overlay
+  const { activeEvent, dismiss } = useEmotionalState();
 
   if (isLoading) {
     return (
@@ -141,6 +146,15 @@ const AppContent = () => {
         <SettingsScreen onClose={() => setShowSettings(false)} />
       </Modal>
       {toast && <Toast message={toast} />}
+
+      {/* Emotional intervention overlays — global, above all tabs */}
+      {activeEvent?.trigger === 'anxiety' && (
+        <GroundingOverlay event={activeEvent} onDismiss={dismiss} />
+      )}
+      {activeEvent?.trigger === 'aggression' && (
+        <CoolingOverlay event={activeEvent} onDismiss={dismiss} />
+      )}
+      {/* Lethargy (Micro-Sādhanā) renders inline on the Home tab — no overlay */}
     </View>
   );
 };
