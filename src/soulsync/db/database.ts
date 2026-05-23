@@ -69,6 +69,19 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       );
     `,
   },
+  {
+    version: 2,
+    sql: `
+      -- v2: ring biometric channels (Samsung-Ring-style)
+      ALTER TABLE ambient_baseline ADD COLUMN spo2 REAL;
+      ALTER TABLE ambient_baseline ADD COLUMN skin_temp_c REAL;
+      ALTER TABLE session_telemetry ADD COLUMN spo2 REAL;
+      ALTER TABLE session_telemetry ADD COLUMN skin_temp_c REAL;
+      ALTER TABLE session_spiritual ADD COLUMN avg_spo2 REAL;
+      ALTER TABLE session_spiritual ADD COLUMN avg_skin_temp_c REAL;
+      ALTER TABLE session_spiritual ADD COLUMN depth_score REAL;
+    `,
+  },
 ];
 
 const runMigrations = async (db: SQLite.SQLiteDatabase) => {

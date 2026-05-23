@@ -20,6 +20,9 @@ export interface SoulsyncSessionState {
   improvementPct: number | null;
   isBaselineEstablished: boolean;
   peaksRegistered: number;
+  liveBpm: number | null;
+  liveSpo2: number | null;
+  liveSkinTempC: number | null;
 }
 
 /**
@@ -39,6 +42,9 @@ export const useSoulsyncSession = () => {
     improvementPct: null,
     isBaselineEstablished: false,
     peaksRegistered: 0,
+    liveBpm: null,
+    liveSpo2: null,
+    liveSkinTempC: null,
   });
 
   const ringRef = useRef<RingService | null>(null);
@@ -48,6 +54,9 @@ export const useSoulsyncSession = () => {
   const bpmBufferRef = useRef<number[]>([]);
   const peakIdxBufferRef = useRef<number[]>([]);
   const peakCountRef = useRef(0);
+  const lastSpo2Ref = useRef<number | null>(null);
+  const lastTempRef = useRef<number | null>(null);
+  const lastBpmRef = useRef<number | null>(null);
   const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleSample = useCallback(async (s: RingSample) => {
@@ -74,6 +83,9 @@ export const useSoulsyncSession = () => {
       }
     }
 
+    lastBpmRef.current = s.bpm;
+    lastSpo2Ref.current = s.spo2;
+    lastTempRef.current = s.skinTempC;
     bpmBufferRef.current.push(s.bpm);
     if (bpmBufferRef.current.length > MAX_WAVE_SAMPLES) {
       const overflow = bpmBufferRef.current.length - MAX_WAVE_SAMPLES;
@@ -90,6 +102,8 @@ export const useSoulsyncSession = () => {
         timestamp: new Date(s.receivedAt).toISOString(),
         bpm: s.bpm,
         rmssd_ms: snap?.rmssd ?? null,
+        spo2: s.spo2,
+        skin_temp_c: s.skinTempC,
       });
     } catch { /* drop */ }
   }, []);
@@ -98,12 +112,14 @@ export const useSoulsyncSession = () => {
   useEffect(() => {
     if (!state.active) return;
     const flush = () => {
-      const calc = calcRef.current;
       setState(prev => ({
         ...prev,
         bpmSeries: [...bpmBufferRef.current],
         peakIndices: [...peakIdxBufferRef.current],
         peaksRegistered: peakCountRef.current,
+        liveBpm: lastBpmRef.current,
+        liveSpo2: lastSpo2Ref.current,
+        liveSkinTempC: lastTempRef.current,
       }));
     };
     flushTimerRef.current = setInterval(flush, 250);
@@ -162,6 +178,9 @@ export const useSoulsyncSession = () => {
       improvementPct: null,
       isBaselineEstablished: false,
       peaksRegistered: 0,
+      liveBpm: null,
+      liveSpo2: null,
+      liveSkinTempC: null,
     });
   }, [state.active, handleSample]);
 
@@ -191,6 +210,9 @@ export const useSoulsyncSession = () => {
       improvementPct: null,
       isBaselineEstablished: false,
       peaksRegistered: 0,
+      liveBpm: null,
+      liveSpo2: null,
+      liveSkinTempC: null,
     });
   }, [state.active]);
 

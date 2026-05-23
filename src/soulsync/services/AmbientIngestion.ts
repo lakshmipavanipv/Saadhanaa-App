@@ -15,6 +15,8 @@ export class AmbientIngestionService {
   private running = false;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private lastBpm = 72;
+  private lastSpo2 = 97.5;
+  private lastSkinTempC = 36.5;
   private currentActivity: ActivityState = 'idle';
   // Single-flight guard: don't run both ambient + session at the same time
   private paused = false;
@@ -26,6 +28,8 @@ export class AmbientIngestionService {
     await this.ring.start((s: RingSample) => {
       if (this.paused) return;
       this.lastBpm = s.bpm;
+      this.lastSpo2 = s.spo2;
+      this.lastSkinTempC = s.skinTempC;
       for (const rr of s.rrMs) this.rmssd.addRR(rr, s.receivedAt);
     }, 'ambient');
 
@@ -38,6 +42,8 @@ export class AmbientIngestionService {
         ambient_bpm: this.lastBpm,
         ambient_rmssd: snap.rmssd ?? 0,
         activity_state: this.currentActivity,
+        spo2: this.lastSpo2,
+        skin_temp_c: this.lastSkinTempC,
       });
     }, 60_000);
   }

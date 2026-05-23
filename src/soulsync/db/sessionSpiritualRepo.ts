@@ -7,6 +7,9 @@ export interface SessionSpiritualRow {
   mala_count: number;
   session_avg_bpm: number | null;
   hrv_peaks_registered: number;
+  avg_spo2?: number | null;
+  avg_skin_temp_c?: number | null;
+  depth_score?: number | null;
 }
 
 export const sessionSpiritualRepo = {

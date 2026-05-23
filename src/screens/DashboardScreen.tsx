@@ -24,6 +24,7 @@ import {
 } from '../utils';
 import { COLORS, SPACING } from '../theme';
 import { CalmDivergenceCard } from '../soulsync/components/CalmDivergenceCard';
+import { HealthDashboardCard } from '../soulsync/components/HealthDashboardCard';
 import { DeityIcon } from '../components/DeityIcon';
 
 interface FestReminder {
@@ -224,8 +225,8 @@ export const DashboardScreen = ({ navigation }: any) => {
           </View>
         )}
 
-        {/* Soulsync — Calm Divergence + Sleep correlation */}
-        <CalmDivergenceCard />
+        {/* Soulsync — health metrics + Calm Divergence + Sleep correlation */}
+        <HealthDashboardCard />
 
         {/* Today's festival banner */}
         {todayFest && (

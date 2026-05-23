@@ -12,6 +12,8 @@
 export interface RingSample {
   bpm: number;
   rrMs: number[];      // 0..N RR-intervals in ms per packet (typically 1)
+  spo2: number;        // 0..100 % blood oxygen
+  skinTempC: number;   // °C
   receivedAt: number;  // epoch ms
 }
 
@@ -37,18 +39,40 @@ const MS_PER_MIN = 60_000;
  *
  * Jitter is what creates RMSSD — bigger jitter = higher RMSSD = "relaxation".
  */
-const bpmCurve = (elapsedMs: number, mode: 'ambient' | 'session'): { bpm: number; jitter: number } => {
+interface BiometricCurve {
+  bpm: number;
+  jitter: number;       // controls HRV — bigger jitter → higher RMSSD
+  spo2: number;         // 95-100 %
+  skinTempC: number;    // 36.0-37.2 °C
+}
+
+const bpmCurve = (elapsedMs: number, mode: 'ambient' | 'session'): BiometricCurve => {
   if (mode === 'ambient') {
     // Slow drift around 72 bpm — simulates a normal day
     const t = elapsedMs / MS_PER_MIN;
     const bpm = 72 + Math.sin(t / 8) * 4 + (Math.random() - 0.5) * 2;
-    return { bpm, jitter: 18 };  // moderate HRV when resting
+    // SpO2 stable around 97-98% during rest, occasional dips
+    const spo2 = 97.5 + Math.sin(t / 12) * 0.6 + (Math.random() - 0.5) * 0.4;
+    // Skin temp slow circadian drift around 36.5 °C
+    const skinTempC = 36.5 + Math.sin(t / 30) * 0.3 + (Math.random() - 0.5) * 0.1;
+    return { bpm, jitter: 18, spo2, skinTempC };
   }
   // session mode — arc from stress to calm
   const t = elapsedMs / 1000;
-  if (t < 30)       return { bpm: 78 - t * 0.05, jitter: 12 };
-  else if (t < 90)  return { bpm: 78 - (t - 30) * 0.18, jitter: 12 + (t - 30) * 0.35 };
-  else              return { bpm: 64 + Math.sin(t / 15) * 2, jitter: 35 + Math.sin(t / 20) * 6 };
+  // BPM + HRV jitter arc
+  let bpm: number;
+  let jitter: number;
+  if (t < 30)       { bpm = 78 - t * 0.05;                jitter = 12; }
+  else if (t < 90)  { bpm = 78 - (t - 30) * 0.18;         jitter = 12 + (t - 30) * 0.35; }
+  else              { bpm = 64 + Math.sin(t / 15) * 2;    jitter = 35 + Math.sin(t / 20) * 6; }
+
+  // SpO2 — deep diaphragmatic breathing nudges it slightly higher
+  const spo2 = 97 + Math.min(1.5, t / 120) + (Math.random() - 0.5) * 0.3;
+  // Skin temp — drops slightly during sustained meditation (vasodilation in
+  // extremities, peripheral cooling). Mirrors the relaxation response.
+  const skinTempC = 36.6 - Math.min(0.35, t / 300) + (Math.random() - 0.5) * 0.08;
+
+  return { bpm, jitter, spo2, skinTempC };
 };
 
 export class MockRingService implements RingService {
@@ -61,13 +85,15 @@ export class MockRingService implements RingService {
 
     const tick = () => {
       const elapsed = Date.now() - this.startedAt;
-      const { bpm, jitter } = bpmCurve(elapsed, mode);
+      const { bpm, jitter, spo2, skinTempC } = bpmCurve(elapsed, mode);
       const meanRR = MS_PER_MIN / bpm;
       // Gaussian-ish jitter around the mean RR — produces HRV in RMSSD
       const rr = Math.max(300, Math.min(2000, meanRR + (Math.random() - 0.5) * jitter * 2));
       const sample: RingSample = {
         bpm: Math.round(bpm),
         rrMs: [rr],
+        spo2: Math.max(90, Math.min(100, Math.round(spo2 * 10) / 10)),
+        skinTempC: Math.max(35, Math.min(38, Math.round(skinTempC * 10) / 10)),
         receivedAt: Date.now(),
       };
       onSample(sample);
@@ -109,7 +135,11 @@ const parseHRPacket = (b64: string): RingSample => {
       off += 2;
     }
   }
-  return { bpm, rrMs, receivedAt: Date.now() };
+  // SpO2 + skin-temp arrive on separate GATT services (0x1822 and 0x1809).
+  // For the HR-only packet we default to physiologically benign values;
+  // the real BleRingService will subscribe to those services in parallel
+  // and merge by timestamp.
+  return { bpm, rrMs, spo2: 98, skinTempC: 36.5, receivedAt: Date.now() };
 };
 
 export class BleRingService implements RingService {

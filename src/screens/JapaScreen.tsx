@@ -18,6 +18,7 @@ import { Mala } from '../components/Mala';
 import { DeityIcon } from '../components/DeityIcon';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
 import { HRVWaveGraph } from '../soulsync/components/HRVWaveGraph';
+import { BpmJourneyChart } from '../soulsync/components/BpmJourneyChart';
 import {
   requestBlePermissions,
   scanForDevices,
@@ -270,7 +271,7 @@ export const JapaScreen = ({ navigation }: any) => {
           )}
         </View>
 
-        {/* Live HRV wave + glowing peak markers */}
+        {/* Live HRV wave + glowing peak markers (only during an active session) */}
         {soulsync.state.active && (
           <HRVWaveGraph
             bpmSeries={soulsync.state.bpmSeries}
@@ -280,6 +281,9 @@ export const JapaScreen = ({ navigation }: any) => {
             isBaselineEstablished={soulsync.state.isBaselineEstablished}
           />
         )}
+
+        {/* 3-phase BPM Journey — Pre / During / Post Japa */}
+        <BpmJourneyChart />
 
         {/* Stats */}
         <View style={styles.statsContainer}>

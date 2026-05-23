@@ -233,7 +233,7 @@ const Welcome = ({ onNext }: { onNext: () => void }) => (
       <Feature icon="📊" text="Track your progress over time" />
     </View>
 
-    <TouchableOpacity style={styles.primaryBtn} onPress={onNext}>
+    <TouchableOpacity style={[styles.primaryBtn, { marginTop: SPACING.lg }]} onPress={onNext}>
       <Text style={styles.primaryBtnText}>Begin →</Text>
     </TouchableOpacity>
   </View>
@@ -528,9 +528,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: SPACING.md,
     alignSelf: 'stretch',          // T1: full-width via stretch instead of fixed positioning
     minHeight: 52,
+    // NOTE: marginTop is applied per-site (standalone Begin button uses
+    // marginTop; inside btnRow we rely on the row's own marginTop instead so
+    // primary + secondary buttons share a baseline)
   },
   primaryBtnDisabled: { opacity: 0.4 },
   primaryBtnText: { color: COLORS.deep, fontWeight: '700', fontSize: 15 },
