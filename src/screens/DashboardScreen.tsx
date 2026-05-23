@@ -25,6 +25,7 @@ import {
 import { COLORS, SPACING } from '../theme';
 import { CalmDivergenceCard } from '../soulsync/components/CalmDivergenceCard';
 import { HealthDashboardCard } from '../soulsync/components/HealthDashboardCard';
+import { AIInsightsCard } from '../soulsync/components/AIInsightsCard';
 import { DeityIcon } from '../components/DeityIcon';
 
 interface FestReminder {
@@ -39,7 +40,7 @@ interface SandhyaSettings {
 }
 
 export const DashboardScreen = ({ navigation }: any) => {
-  const { deities, history, setSelectedDeity, alarmQueue, dismissAlarm, deityProgress } = useSadhana();
+  const { deities, history, setSelectedDeity, alarmQueue, dismissAlarm, deityProgress, userProfile } = useSadhana();
   const [festReminders, setFestReminders] = useState<Record<string, FestReminder>>({});
   const [sandhyaSettings, setSandhyaSettings] = useState<SandhyaSettings | null>(null);
   const [_tick, setTick] = useState(0);   // refresh "in X mins" every minute
@@ -227,6 +228,9 @@ export const DashboardScreen = ({ navigation }: any) => {
 
         {/* Soulsync — health metrics + Calm Divergence + Sleep correlation */}
         <HealthDashboardCard />
+
+        {/* AI Insights — Gemini-powered weekly read on body × sadhana */}
+        <AIInsightsCard userName={userProfile?.name} />
 
         {/* Today's festival banner */}
         {todayFest && (
