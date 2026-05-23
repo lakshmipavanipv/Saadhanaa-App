@@ -16,6 +16,8 @@ import { todayStr } from '../utils';
 import { COLORS, SPACING, FONT_SIZES } from '../theme';
 import { Mala } from '../components/Mala';
 import { DeityIcon } from '../components/DeityIcon';
+import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
+import { HRVWaveGraph } from '../soulsync/components/HRVWaveGraph';
 import {
   requestBlePermissions,
   scanForDevices,
@@ -32,6 +34,9 @@ export const JapaScreen = ({ navigation }: any) => {
   const [malas, setMalas] = useState(0);
   const [showPicker, setShowPicker] = useState(false);
   const [popBead, setPopBead] = useState(-1);
+
+  // ── Soulsync ring-telemetry session (mock until hardware arrives) ──
+  const soulsync = useSoulsyncSession();
 
   // ── BLE state ──
   const [showBleModal, setShowBleModal] = useState(false);
@@ -108,6 +113,8 @@ export const JapaScreen = ({ navigation }: any) => {
       setMalas(newMalas);
       setCount(0);
       updateProgress(selectedDeity.id, 0, newMalas);
+      // Soulsync: increment mala count on the active session row
+      if (soulsync.state.active) soulsync.recordMala();
       showToast(`🪷 1 mala saved for ${selectedDeity.name}`);
     } else {
       setCount(next);
@@ -243,6 +250,35 @@ export const JapaScreen = ({ navigation }: any) => {
         {/* Mantra display */}
         {selectedDeity?.mantra && (
           <Text style={styles.mantra}>“{selectedDeity.mantra}”</Text>
+        )}
+
+        {/* Soulsync session toggle */}
+        <View style={styles.soulsyncRow}>
+          <TouchableOpacity
+            style={[styles.soulsyncBtn, soulsync.state.active && styles.soulsyncBtnOn]}
+            onPress={() => soulsync.state.active ? soulsync.stop() : soulsync.start()}
+          >
+            <View style={[styles.soulsyncDot, soulsync.state.active && styles.soulsyncDotOn]} />
+            <Text style={[styles.soulsyncText, soulsync.state.active && styles.soulsyncTextOn]}>
+              {soulsync.state.active ? '◉ Soulsync recording' : 'Start Soulsync session'}
+            </Text>
+          </TouchableOpacity>
+          {soulsync.state.active && (
+            <Text style={styles.peakCount}>
+              ✨ {soulsync.state.peaksRegistered} peak{soulsync.state.peaksRegistered === 1 ? '' : 's'}
+            </Text>
+          )}
+        </View>
+
+        {/* Live HRV wave + glowing peak markers */}
+        {soulsync.state.active && (
+          <HRVWaveGraph
+            bpmSeries={soulsync.state.bpmSeries}
+            peakIndices={soulsync.state.peakIndices}
+            rmssd={soulsync.state.rmssd}
+            improvementPct={soulsync.state.improvementPct}
+            isBaselineEstablished={soulsync.state.isBaselineEstablished}
+          />
         )}
 
         {/* Stats */}
@@ -546,6 +582,43 @@ const styles = StyleSheet.create({
     marginVertical: SPACING.md,
     paddingHorizontal: SPACING.md,
   },
+  // ── Soulsync ──
+  soulsyncRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: SPACING.md,
+    marginTop: SPACING.sm,
+  },
+  soulsyncBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: COLORS.cardBg,
+    borderWidth: 1,
+    borderColor: 'rgba(214, 224, 64, 0.4)',
+  },
+  soulsyncBtnOn: {
+    backgroundColor: 'rgba(214, 224, 64, 0.15)',
+    borderColor: '#d6e040',
+  },
+  soulsyncDot: {
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: COLORS.muted,
+  },
+  soulsyncDotOn: {
+    backgroundColor: '#d6e040',
+    shadowColor: '#d6e040',
+    shadowOpacity: 1,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  soulsyncText: { fontSize: 12, color: COLORS.muted, fontWeight: '600' },
+  soulsyncTextOn: { color: '#d6e040' },
+  peakCount: { fontSize: 12, color: '#fbff7a', fontWeight: '700' },
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',

@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { getDB } from './soulsync/db/database';
+import { ambientIngestion } from './soulsync/services/AmbientIngestion';
 import { StyleSheet, View, ActivityIndicator, Text, StatusBar, TouchableOpacity, Modal } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -157,6 +159,21 @@ const SettingsButton = ({ onPress }: { onPress: () => void }) => {
 };
 
 export default function App() {
+  // ── Soulsync bootstrap — open DB, start ambient ingestion ──
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await getDB();               // runs migrations on first launch
+        if (!cancelled) await ambientIngestion.start();
+      } catch (e) {
+        // Failures here must NEVER block the rest of the app
+        console.warn('[Soulsync] bootstrap failed:', e);
+      }
+    })();
+    return () => { cancelled = true; ambientIngestion.stop(); };
+  }, []);
+
   return (
     <SafeAreaProvider>
       <SadhanaProvider>

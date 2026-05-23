@@ -23,6 +23,7 @@ import {
   formatShortDate,
 } from '../utils';
 import { COLORS, SPACING } from '../theme';
+import { CalmDivergenceCard } from '../soulsync/components/CalmDivergenceCard';
 
 interface FestReminder {
   shopping?: { enabled: boolean; date: string; time: string; recurrence?: string };
@@ -220,6 +221,9 @@ export const DashboardScreen = ({ navigation }: any) => {
             </TouchableOpacity>
           </View>
         )}
+
+        {/* Soulsync — Calm Divergence + Sleep correlation */}
+        <CalmDivergenceCard />
 
         {/* Today's festival banner */}
         {todayFest && (

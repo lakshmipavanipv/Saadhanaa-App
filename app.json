@@ -2,7 +2,7 @@
   "expo": {
     "name": "Sadhana",
     "slug": "sadhana-app",
-    "version": "1.0.26",
+    "version": "1.0.27",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "sadhana",
@@ -55,7 +55,8 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-audio"
+      "expo-audio",
+      "expo-sqlite"
     ]
   }
 }
