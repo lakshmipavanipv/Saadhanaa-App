@@ -2,6 +2,7 @@ import { MockRingService, RingSample } from './RingTelemetryService';
 import { RMSSDCalculator } from '../hrv/RMSSDCalculator';
 import { ambientBaselineRepo, ActivityState } from '../db/ambientBaselineRepo';
 import { EmotionalEngine, setEmotionalEngine, getEmotionalEngine } from '../emotional/EmotionalEngine';
+import { getDB } from '../db/database';
 
 /**
  * AmbientIngestionService — captures passive ring telemetry during
@@ -21,6 +22,11 @@ export class AmbientIngestionService {
   private currentActivity: ActivityState = 'idle';
   // Single-flight guard: don't run both ambient + session at the same time
   private paused = false;
+  // Step counter — accumulates and flushes to daily_activity hourly
+  private stepsToday = 0;
+  private lastStepDate = '';
+  private lastStepFlush = 0;
+  private accelLastValue = 0;
 
   async start(): Promise<void> {
     if (this.running) return;
@@ -43,6 +49,12 @@ export class AmbientIngestionService {
         const snap = this.rmssd.addRR(rr, s.receivedAt);
         engine?.updateRmssd(snap.rmssd);
       }
+      // Step counting — accelMag peaks above a stride threshold count as steps.
+      // Standard wearable algorithm: count "above-then-below" crossings of 1.2 m/s².
+      if (this.accelLastValue < 1.2 && s.accelMag >= 1.2) {
+        this.stepsToday += 1;
+      }
+      this.accelLastValue = s.accelMag;
       // Feed real-time emotional detectors
       void engine?.ingest(s);
     }, 'ambient');
@@ -59,7 +71,32 @@ export class AmbientIngestionService {
         spo2: this.lastSpo2,
         skin_temp_c: this.lastSkinTempC,
       });
+      await this.flushSteps();
     }, 60_000);
+  }
+
+  /** Upsert today's accumulated step count into daily_activity. */
+  private async flushSteps(): Promise<void> {
+    const today = new Date().toISOString().slice(0, 10);
+    // New day → reset counter
+    if (today !== this.lastStepDate) {
+      this.stepsToday = 0;
+      this.lastStepDate = today;
+    }
+    if (Date.now() - this.lastStepFlush < 60_000) return;
+    this.lastStepFlush = Date.now();
+    try {
+      const db = await getDB();
+      // active_minutes = approx minutes since last flush where step rate > 30/min
+      await db.runAsync(
+        `INSERT INTO daily_activity (activity_date, step_count, active_minutes)
+         VALUES (?, ?, ?)
+         ON CONFLICT(activity_date) DO UPDATE SET
+           step_count = excluded.step_count,
+           active_minutes = excluded.active_minutes`,
+        [today, this.stepsToday, Math.round(this.stepsToday / 110)]  // ~110 steps/active-min
+      );
+    } catch { /* soft-fail */ }
   }
 
   /** Pause writes while a Japa session owns the ring stream. */

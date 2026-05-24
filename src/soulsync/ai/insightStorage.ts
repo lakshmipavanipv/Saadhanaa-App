@@ -1,34 +1,33 @@
 /**
- * insightStorage — AsyncStorage-backed cache for Gemini API key + last result.
+ * insightStorage — AsyncStorage-backed cache for AI Insights results.
  *
  * Cache TTL: 12 hours. After that the AI Insights card will offer a
- * "Refresh insights" action. This keeps quota usage bounded for the
- * default Gemini free tier (1500 req/day).
+ * "Refresh insights" action. With Gemma running via Hugging Face's free
+ * Inference API, we don't need to track an API key — it's all developer-side.
+ *
+ * Legacy: previously stored a user-supplied Gemini key. Those entries are
+ * cleared on first load (best-effort) so the new key-less flow takes over.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { InsightResult } from './InsightGenerator';
 
-const KEY_GEMINI_KEY    = 'soulsync.gemini.apiKey';
-const KEY_LAST_INSIGHT  = 'soulsync.gemini.lastInsight';
+const KEY_LAST_INSIGHT  = 'soulsync.gemma.lastInsight';
+/** Legacy keys — cleared on first access. */
+const LEGACY_KEY_GEMINI_KEY    = 'soulsync.gemini.apiKey';
+const LEGACY_KEY_LAST_INSIGHT  = 'soulsync.gemini.lastInsight';
 const TTL_MS = 12 * 60 * 60 * 1000;
 
+/** Fire-and-forget cleanup of legacy Gemini storage entries. */
+const cleanupLegacy = (): void => {
+  AsyncStorage.removeItem(LEGACY_KEY_GEMINI_KEY).catch(() => {});
+  AsyncStorage.removeItem(LEGACY_KEY_LAST_INSIGHT).catch(() => {});
+};
+
 export const insightStorage = {
-  async getApiKey(): Promise<string | null> {
-    return AsyncStorage.getItem(KEY_GEMINI_KEY);
-  },
-
-  async setApiKey(key: string): Promise<void> {
-    if (!key.trim()) return AsyncStorage.removeItem(KEY_GEMINI_KEY);
-    return AsyncStorage.setItem(KEY_GEMINI_KEY, key.trim());
-  },
-
-  async clearApiKey(): Promise<void> {
-    return AsyncStorage.removeItem(KEY_GEMINI_KEY);
-  },
-
   /** Returns cached result if fresh (<12 h). */
   async getCached(): Promise<InsightResult | null> {
+    cleanupLegacy();
     const raw = await AsyncStorage.getItem(KEY_LAST_INSIGHT);
     if (!raw) return null;
     try {

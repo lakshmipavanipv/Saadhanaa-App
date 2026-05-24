@@ -15,8 +15,16 @@ import { COLORS, SPACING } from '../theme';
 import { DeityCatalogPicker } from '../components/DeityCatalogPicker';
 import { CatalogDeity, ALL_CATALOG_DEITIES } from '../deityCatalog';
 import { otpClient } from '../soulsync/auth/otpClient';
+import {
+  requestBlePermissions,
+  scanForDevices,
+  connectAndListen,
+  ScannedDevice,
+  CounterConnection,
+} from '../services/ble';
+import { RingSpinner } from '../components/RingSpinner';
 
-type Step = 'welcome' | 'identity' | 'otp' | 'deities' | 'done';
+type Step = 'welcome' | 'identity' | 'otp' | 'ring' | 'deities' | 'done';
 
 const generateOTP = (): string =>
   String(Math.floor(100000 + Math.random() * 900000));
@@ -34,10 +42,8 @@ export const OnboardingScreen = () => {
   const [enteredOtp, setEnteredOtp] = useState('');
   const [otpSentAt, setOtpSentAt] = useState<number>(0);
 
-  // Pre-selected: Ganesha + Krishna + Lakshmi from catalog
-  const [pickedIds, setPickedIds] = useState<Set<string>>(
-    new Set(['ganesha', 'krishna', 'lakshmi'])
-  );
+  // Start with no deities preselected — user picks their own.
+  const [pickedIds, setPickedIds] = useState<Set<string>>(new Set());
   const [customs, setCustoms] = useState<Deity[]>([]);
 
   const togglePick = (d: CatalogDeity) =>
@@ -119,7 +125,55 @@ export const OnboardingScreen = () => {
       return;
     }
     showToast('Verified ✓');
-    setStep('deities');
+    setStep('ring');
+  };
+
+  // ── Bluetooth pairing (onboarding step) ─────────────────────────
+  const [scanning, setScanning] = useState(false);
+  const [scannedDevices, setScannedDevices] = useState<ScannedDevice[]>([]);
+  const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [pairedDevice, setPairedDevice] = useState<string | null>(null);
+  const stopScanRef = React.useRef<(() => void) | null>(null);
+
+  const startScan = async () => {
+    if (Platform.OS === 'web') {
+      showToast('Bluetooth pairing is available in the Android build');
+      return;
+    }
+    const granted = await requestBlePermissions();
+    if (!granted) {
+      showToast('Bluetooth permission denied');
+      return;
+    }
+    setScannedDevices([]);
+    setScanning(true);
+    stopScanRef.current = scanForDevices(
+      d => setScannedDevices(p => {
+        if (p.some(x => x.id === d.id)) return p;
+        return [...p, d];
+      }),
+      err => {
+        showToast(err);
+        setScanning(false);
+      },
+      15000
+    );
+    setTimeout(() => setScanning(false), 15000);
+  };
+
+  const pairDevice = async (id: string, name: string) => {
+    stopScanRef.current?.();
+    setScanning(false);
+    setConnectingId(id);
+    try {
+      await connectAndListen(id, () => {}, () => setPairedDevice(null));
+      setPairedDevice(name);
+      showToast(`✓ Paired with ${name}`);
+    } catch (e: any) {
+      showToast(`Pairing failed: ${e?.message || 'unknown'}`);
+    } finally {
+      setConnectingId(null);
+    }
   };
 
   const finish = () => {
@@ -193,9 +247,90 @@ export const OnboardingScreen = () => {
           />
         )}
 
+        {step === 'ring' && (
+          <View style={styles.stepContent}>
+            <Text style={styles.stepLabel}>Step 2 of 3</Text>
+            <Text style={styles.title}>Pair your Saadhana Ring</Text>
+            <Text style={styles.subtitle}>
+              The Saadhana Ring tracks your heart rate, HRV and movement so the app
+              can sense your sadhana depth. Pair it now over Bluetooth, or skip if
+              you don't have one yet.
+            </Text>
+
+            {Platform.OS === 'web' ? (
+              <View style={styles.demoBanner}>
+                <Text style={styles.demoBannerTitle}>ℹ️ Bluetooth on Android only</Text>
+                <Text style={styles.demoBannerText}>
+                  Bluetooth pairing works in the installed Android APK. On the web
+                  preview you can skip this step and pair later from the Japa tab.
+                </Text>
+              </View>
+            ) : (
+              <>
+                {pairedDevice ? (
+                  <View style={styles.demoBanner}>
+                    <Text style={styles.demoBannerTitle}>✓ Paired</Text>
+                    <Text style={styles.demoBannerText}>
+                      Connected to <Text style={{ color: COLORS.gold, fontWeight: '700' }}>{pairedDevice}</Text>
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <TouchableOpacity
+                      style={[styles.primaryBtn, { marginVertical: SPACING.md }]}
+                      onPress={startScan}
+                      disabled={scanning}
+                    >
+                      {scanning
+                        ? <RingSpinner size={22} color={COLORS.deep} />
+                        : <Text style={styles.primaryBtnText}>🔍 Scan for devices</Text>}
+                    </TouchableOpacity>
+
+                    {scannedDevices.length > 0 && (
+                      <View style={{ marginBottom: SPACING.md }}>
+                        <Text style={styles.fieldLabel}>Available devices</Text>
+                        {scannedDevices.map(d => (
+                          <TouchableOpacity
+                            key={d.id}
+                            style={styles.deviceRow}
+                            onPress={() => pairDevice(d.id, d.name || 'Unknown')}
+                            disabled={connectingId !== null}
+                          >
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.deviceName}>{d.name || 'Unnamed device'}</Text>
+                              <Text style={styles.deviceMeta}>{d.id} · RSSI {d.rssi ?? '?'}</Text>
+                            </View>
+                            {connectingId === d.id
+                              ? <RingSpinner size={20} />
+                              : <Text style={styles.devicePair}>Pair →</Text>}
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+
+            <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('otp')}>
+                <Text style={styles.secondaryBtnText}>← Back</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.primaryBtn, { flex: 1 }]}
+                onPress={() => setStep('deities')}
+              >
+                <Text style={styles.primaryBtnText}>
+                  {pairedDevice ? 'Next →' : 'Skip for now →'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {step === 'deities' && (
           <View style={styles.stepContent}>
-            <Text style={styles.stepLabel}>Step 2 of 2</Text>
+            <Text style={styles.stepLabel}>Step 3 of 3</Text>
             <Text style={styles.title}>Choose your deities</Text>
             <Text style={styles.subtitle}>
               Tap deities to add to your sadhana. Includes the Trinity, Dashavatara,
@@ -212,7 +347,7 @@ export const OnboardingScreen = () => {
             </Text>
 
             <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
-              <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('otp')}>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('ring')}>
                 <Text style={styles.secondaryBtnText}>← Back</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -648,4 +783,19 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   addCustomBtnText: { color: COLORS.gold, fontSize: 13, fontWeight: '600' },
+
+  // Bluetooth pairing (onboarding step)
+  deviceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SPACING.md,
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginTop: 6,
+  },
+  deviceName: { fontSize: 14, color: COLORS.cream, fontWeight: '600' },
+  deviceMeta: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
+  devicePair: { fontSize: 13, color: COLORS.gold, fontWeight: '700' },
 });

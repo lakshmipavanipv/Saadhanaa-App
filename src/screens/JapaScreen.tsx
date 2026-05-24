@@ -8,13 +8,13 @@ import {
   Modal,
   FlatList,
   TextInput,
-  ActivityIndicator,
   Platform,
 } from 'react-native';
 import { useSadhana } from '../context';
 import { todayStr } from '../utils';
 import { COLORS, SPACING, FONT_SIZES } from '../theme';
 import { Mala } from '../components/Mala';
+import { RingSpinner } from '../components/RingSpinner';
 import { DeityIcon } from '../components/DeityIcon';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
 import { HRVWaveGraph } from '../soulsync/components/HRVWaveGraph';
@@ -314,7 +314,7 @@ export const JapaScreen = ({ navigation }: any) => {
           >
             <View style={[styles.bleDot, connection && styles.bleDotOn]} />
             <Text style={[styles.bleBtnText, connection && styles.bleBtnTextOn]}>
-              {connection ? 'BLE on' : 'Pair BLE'}
+              {connection ? 'Ring connected' : 'Pair Bluetooth'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -396,8 +396,8 @@ export const JapaScreen = ({ navigation }: any) => {
           <View style={styles.modalContent}>
             <View style={styles.modalHandle} />
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-              <Text style={styles.modalTitle}>Pair BLE counter</Text>
-              {scanning && <ActivityIndicator color={COLORS.gold} style={{ marginLeft: 12 }} />}
+              <Text style={styles.modalTitle}>Pair Saadhana Ring</Text>
+              {scanning && <RingSpinner size={20} style={{ marginLeft: 12 }} />}
             </View>
             <Text style={{ fontSize: 12, color: COLORS.muted, marginBottom: SPACING.md }}>
               Make sure your finger-counter is powered on and in pairing mode. Each button press will count as 1 japa.
@@ -424,7 +424,7 @@ export const JapaScreen = ({ navigation }: any) => {
                     </Text>
                   </View>
                   {connectingId === item.id ? (
-                    <ActivityIndicator color={COLORS.gold} />
+                    <RingSpinner size={22} />
                   ) : (
                     <Text style={styles.connectArrow}>Connect →</Text>
                   )}

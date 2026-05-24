@@ -1,20 +1,24 @@
 /**
  * InsightGenerator — gathers a compact snapshot of the user's bio + spiritual
- * data over the past week and asks Gemini for a short, grounded analysis.
+ * data over the past week and asks Gemma (Google's open-source LLM) for a
+ * short, grounded analysis.
  *
- * Output is strictly typed JSON (the model is forced into JSON mode via
- * responseMimeType=application/json).
+ * Output is strictly typed JSON. Since Gemma doesn't have a native JSON mode
+ * (unlike Gemini), we use prompt engineering + defensive parsing to extract
+ * the structured response.
  */
 
 import { computeHealthDashboard } from '../analytics/HealthDashboard';
 import { computeCalmDivergence } from '../analytics/CalmDivergence';
 import { buildSleepCorrelationMatrix } from '../analytics/SleepArchitecture';
+import { buildEmotionalSummary } from '../analytics/EmotionalSummary';
+import { buildMoodTimeline } from '../analytics/MoodTimeline';
 import { getDB } from '../db/database';
-import { GeminiClient, GeminiRequest } from './GeminiClient';
+import { GemmaClient, GemmaRequest } from './GemmaClient';
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
-// ─── Snapshot shape sent to Gemini ─────────────────────────────────
+// ─── Snapshot shape sent to Gemma ──────────────────────────────────
 
 export interface InsightSnapshot {
   userName?: string;
@@ -43,9 +47,17 @@ export interface InsightSnapshot {
     slopeMinPerMala: number;
     hasEnoughData: boolean;
   };
+  emotional: {
+    last7DaysAnxiety: number;
+    last7DaysLethargy: number;
+    last7DaysAggression: number;
+    overallConvergenceRate: number;       // % of events resolved by sadhana
+    todayMoodAvgScore: number | null;     // 0-100 (higher = calmer)
+    todayMoodDominant: string;            // 'calm' | 'neutral' | 'tense' | 'anxious' | 'unknown'
+  };
 }
 
-// ─── Output shape returned by Gemini ───────────────────────────────
+// ─── Output shape returned by Gemma ────────────────────────────────
 
 export interface InsightResult {
   generatedAt: number;                // epoch ms — used by the cache
@@ -66,6 +78,11 @@ export const buildInsightSnapshot = async (userName?: string): Promise<InsightSn
   const health = await computeHealthDashboard();
   const todayDiv = await computeCalmDivergence(today);
   const sleepMat = await buildSleepCorrelationMatrix(30);
+  const emoSummary = await buildEmotionalSummary(7);
+  const todayMood = await buildMoodTimeline(today);
+  const anxietyCount    = emoSummary.byTrigger.find(t => t.trigger === 'anxiety')?.total    ?? 0;
+  const lethargyCount   = emoSummary.byTrigger.find(t => t.trigger === 'lethargy')?.total   ?? 0;
+  const aggressionCount = emoSummary.byTrigger.find(t => t.trigger === 'aggression')?.total ?? 0;
 
   // 7-day Calm Divergence average
   let weeklyPctSum = 0;
@@ -141,33 +158,47 @@ export const buildInsightSnapshot = async (userName?: string): Promise<InsightSn
       slopeMinPerMala:    Math.round(sleepMat.slopeMinPerMala * 10) / 10,
       hasEnoughData:      sleepMat.hasEnoughData,
     },
+    emotional: {
+      last7DaysAnxiety:       anxietyCount,
+      last7DaysLethargy:      lethargyCount,
+      last7DaysAggression:    aggressionCount,
+      overallConvergenceRate: Math.round(emoSummary.overallSuccessRate * 100),
+      todayMoodAvgScore:      todayMood.avgScore != null ? Math.round(todayMood.avgScore) : null,
+      todayMoodDominant:      todayMood.dominantCategory,
+    },
   };
 };
 
-// ─── Prompt + generator ────────────────────────────────────────────
+// ─── Prompts ───────────────────────────────────────────────────────
+
+const JSON_INSTRUCTION = `
+You MUST respond with ONLY a valid JSON object. No markdown, no code fences,
+no explanation. Start your response with { and end with }.
+
+Required JSON shape:
+{
+  "tone": "encouraging" | "celebrating" | "caution" | "neutral",
+  "weeklyHeadline": "string (under 60 chars)",
+  "healthInsight": "string (2-3 sentences)",
+  "spiritualInsight": "string (2-3 sentences)",
+  "integration": "string (1-2 sentences)",
+  "suggestions": ["string", "string", "string"]
+}
+`.trim();
 
 const SYSTEM_INSTRUCTION = `
 You are Soulsync — a kind, grounded bio-spiritual analyst inside a Hindu
 sadhana app. The user wears a smart ring tracking BPM, HRV (RMSSD), SpO₂
 and skin temperature, and practises japa meditation daily.
 
-Given a JSON snapshot of their past week, return ONE JSON object that
-exactly matches this TypeScript shape (do NOT wrap in markdown):
-{
-  "tone": "encouraging" | "celebrating" | "caution" | "neutral",
-  "healthInsight": "2-3 sentences on their physical health trend",
-  "spiritualInsight": "2-3 sentences on their japa progress",
-  "integration": "1-2 sentences on how sadhana is affecting their body",
-  "suggestions": ["3 to 5 short, concrete, kind suggestions (≤90 chars each)"],
-  "weeklyHeadline": "<60 char summary chip"
-}
+You will receive a JSON snapshot of their past week. Analyse it and respond
+with insights formatted as JSON.
 
 RULES
 - Be warm. Use the user's name if provided.
 - NEVER give medical advice or diagnoses. Phrase observations as
   "your data suggests…", not "you have…".
-- Reference SPECIFIC numbers from the snapshot ("your RMSSD jumped from
-  32 to 47 ms").
+- Reference SPECIFIC numbers from the snapshot.
 - If hasNormalcyData=false OR hasEnoughData=false, acknowledge that
   you're still learning their baseline; don't make confident claims.
 - Tone selection:
@@ -175,45 +206,107 @@ RULES
     "encouraging"  → progress + room to grow
     "caution"      → BPM trending up vs baseline, or skipped >3 days
     "neutral"      → not enough data
-- Suggestions: actionable, devotional-flavoured ("Try adding a 5-minute
-  Pranayama before tomorrow's Japa") — not generic wellness fluff.
+- Suggestions: 3-5 actionable, devotional-flavoured items (≤90 chars each),
+  not generic wellness fluff.
+
+${JSON_INSTRUCTION}
 `.trim();
+
+const RETROSPECTIVE_SYSTEM = `
+You are Soulsync — a kind bio-spiritual analyst running a RETROSPECTIVE
+weekly review (not a today read).
+
+You will receive a JSON snapshot of the user's past week. Analyse PATTERNS
+and consistency over the period.
+
+RULES
+- This is a LOOKING-BACK read, not a daily check-in.
+- Reference SPECIFIC counts ("you had 4 anxiety events this week, 3 resolved").
+- Mention the convergence rate explicitly if non-zero.
+- If emotional.* fields are all 0, celebrate the calm stability.
+- The "integration" field should focus specifically on emotional events:
+  anxiety, lethargy, aggression — and how sadhana is/isn't helping.
+- NEVER give medical advice. Warm, grounded, devotional-flavoured language.
+- 3-5 retrospective-flavoured suggestions (≤90 chars each).
+
+${JSON_INSTRUCTION}
+`.trim();
+
+// ─── Parser ────────────────────────────────────────────────────────
+
+const parseInsightJSON = (raw: string): Omit<InsightResult, 'generatedAt'> => {
+  // Gemma sometimes wraps in markdown despite instructions; strip if present.
+  let cleaned = raw.trim();
+
+  // Strip ```json ... ``` or ``` ... ``` fences
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    // Try extracting first {...} block
+    const m = cleaned.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('GEMMA_PARSE: no JSON object found in response');
+    try {
+      parsed = JSON.parse(m[0]);
+    } catch (e) {
+      throw new Error('GEMMA_PARSE: malformed JSON in response');
+    }
+  }
+
+  // Validate required fields
+  if (!parsed.healthInsight || !parsed.spiritualInsight || !Array.isArray(parsed.suggestions)) {
+    throw new Error('GEMMA_SHAPE: required fields missing');
+  }
+
+  // Defensive defaults for optional fields
+  return {
+    tone: parsed.tone ?? 'neutral',
+    weeklyHeadline: parsed.weeklyHeadline ?? 'Your weekly read',
+    healthInsight: parsed.healthInsight,
+    spiritualInsight: parsed.spiritualInsight,
+    integration: parsed.integration ?? '',
+    suggestions: parsed.suggestions.slice(0, 5),
+  };
+};
+
+// ─── Generators ────────────────────────────────────────────────────
 
 export const generateInsights = async (
   snapshot: InsightSnapshot,
-  apiKey: string,
   signal?: AbortSignal
 ): Promise<InsightResult> => {
-  const client = new GeminiClient(apiKey);
-
-  const req: GeminiRequest = {
-    systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-    contents: [
-      { role: 'user', parts: [{ text: JSON.stringify(snapshot, null, 2) }] },
-    ],
-    generationConfig: {
+  const client = new GemmaClient();
+  const req: GemmaRequest = {
+    systemPrompt: SYSTEM_INSTRUCTION,
+    userMessage: `Here is the snapshot:\n${JSON.stringify(snapshot, null, 2)}`,
+    params: {
       temperature: 0.7,
-      maxOutputTokens: 2048,
-      responseMimeType: 'application/json',
+      max_new_tokens: 1024,
+      top_p: 0.95,
     },
   };
-
   const raw = await client.generate(req, signal);
+  const parsed = parseInsightJSON(raw);
+  return { ...parsed, generatedAt: Date.now() };
+};
 
-  let parsed: Omit<InsightResult, 'generatedAt'>;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    // Defensive: try to extract JSON from a possibly-wrapped response
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error('GEMINI_PARSE: not valid JSON');
-    parsed = JSON.parse(m[0]);
-  }
-
-  // Validate the shape
-  if (!parsed.healthInsight || !parsed.spiritualInsight || !Array.isArray(parsed.suggestions)) {
-    throw new Error('GEMINI_SHAPE: required fields missing');
-  }
-
+export const generateRetrospectiveInsights = async (
+  snapshot: InsightSnapshot,
+  signal?: AbortSignal
+): Promise<InsightResult> => {
+  const client = new GemmaClient();
+  const req: GemmaRequest = {
+    systemPrompt: RETROSPECTIVE_SYSTEM,
+    userMessage: `Here is the snapshot:\n${JSON.stringify(snapshot, null, 2)}`,
+    params: {
+      temperature: 0.7,
+      max_new_tokens: 1024,
+      top_p: 0.95,
+    },
+  };
+  const raw = await client.generate(req, signal);
+  const parsed = parseInsightJSON(raw);
   return { ...parsed, generatedAt: Date.now() };
 };

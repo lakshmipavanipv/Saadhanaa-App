@@ -1,37 +1,60 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
-  Modal, TextInput, ScrollView, Platform,
+  View, Text, TouchableOpacity, StyleSheet,
 } from 'react-native';
+import { RingSpinner } from '../../components/RingSpinner';
 import { COLORS, SPACING } from '../../theme';
 import { insightStorage } from '../ai/insightStorage';
-import { buildInsightSnapshot, generateInsights, InsightResult } from '../ai/InsightGenerator';
+import {
+  buildInsightSnapshot, generateInsights, generateRetrospectiveInsights, InsightResult,
+} from '../ai/InsightGenerator';
 
 interface Props {
   /** Optional user name — sent to the model for a personal touch. */
   userName?: string;
+  /** 'today' = the original daily card (Home tab). 'retrospective' = History tab. */
+  mode?: 'today' | 'retrospective';
 }
 
 type State =
   | { kind: 'loading' }
-  | { kind: 'no_key' }
   | { kind: 'ready'; result: InsightResult; stale: boolean }
   | { kind: 'refreshing'; previous: InsightResult | null }
   | { kind: 'error'; message: string };
 
-export const AIInsightsCard: React.FC<Props> = ({ userName }) => {
+export const AIInsightsCard: React.FC<Props> = ({ userName, mode = 'today' }) => {
   const [state, setState] = useState<State>({ kind: 'loading' });
-  const [showSettings, setShowSettings] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [apiKeySaved, setApiKeySaved] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    const previous = (await insightStorage.getCachedAny()) ?? null;
+    setState({ kind: 'refreshing', previous });
+
+    try {
+      const snap = await buildInsightSnapshot(userName);
+      const result = mode === 'retrospective'
+        ? await generateRetrospectiveInsights(snap)
+        : await generateInsights(snap);
+      await insightStorage.setCached(result);
+      setState({ kind: 'ready', result, stale: false });
+    } catch (e: any) {
+      const msg = e?.message ?? 'Unknown error';
+      let friendly: string;
+      if (msg.includes('GEMMA_NO_KEY'))            friendly = 'Setup needed: add EXPO_PUBLIC_OPENROUTER_KEY to .env (free key at openrouter.ai/keys).';
+      else if (msg.includes('GEMMA_HTTP_401'))     friendly = 'OpenRouter key rejected — check your .env value.';
+      else if (msg.includes('GEMMA_HTTP_402'))     friendly = 'Free-tier credit exhausted. Try again tomorrow.';
+      else if (msg.includes('GEMMA_HTTP_429'))     friendly = 'Rate limit reached — try again in a few minutes.';
+      else if (msg.includes('GEMMA_HTTP_503'))     friendly = 'Gemma temporarily unavailable. Try refresh.';
+      else if (msg.includes('GEMMA_PARSE'))        friendly = 'Model returned malformed JSON. Try refresh.';
+      else if (msg.includes('GEMMA_SHAPE'))        friendly = 'Model response missing required fields. Try refresh.';
+      else if (msg.includes('GEMMA_EMPTY'))        friendly = 'Model returned an empty response. Try refresh.';
+      else if (msg.includes('Network request failed') || msg.toLowerCase().includes('fetch'))
+        friendly = 'Network error — check your connection.';
+      else                                          friendly = msg;
+      setState({ kind: 'error', message: friendly });
+    }
+  }, [userName, mode]);
 
   const loadInitial = useCallback(async () => {
-    const key = await insightStorage.getApiKey();
-    setApiKeySaved(key);
-    if (!key) {
-      setState({ kind: 'no_key' });
-      return;
-    }
     const cached = await insightStorage.getCached();
     if (cached) {
       setState({ kind: 'ready', result: cached, stale: false });
@@ -42,49 +65,11 @@ export const AIInsightsCard: React.FC<Props> = ({ userName }) => {
       setState({ kind: 'ready', result: anyCached, stale: true });
       return;
     }
-    // No cache + key present → trigger first generation
-    void refresh(key);
-  }, []);
+    // No cache → trigger first generation automatically
+    void refresh();
+  }, [refresh]);
 
   useEffect(() => { loadInitial(); }, [loadInitial]);
-
-  const refresh = useCallback(async (overrideKey?: string) => {
-    const key = overrideKey ?? (await insightStorage.getApiKey());
-    if (!key) {
-      setState({ kind: 'no_key' });
-      return;
-    }
-    const previous = (await insightStorage.getCachedAny()) ?? null;
-    setState({ kind: 'refreshing', previous });
-
-    try {
-      const snap = await buildInsightSnapshot(userName);
-      const result = await generateInsights(snap, key);
-      await insightStorage.setCached(result);
-      setState({ kind: 'ready', result, stale: false });
-    } catch (e: any) {
-      const msg = e?.message ?? 'Unknown error';
-      let friendly: string;
-      if (msg.includes('GEMINI_NO_KEY'))           friendly = 'No API key configured.';
-      else if (msg.includes('GEMINI_HTTP_400'))    friendly = 'Bad request — your snapshot may be too large.';
-      else if (msg.includes('GEMINI_HTTP_401') || msg.includes('GEMINI_HTTP_403'))
-        friendly = 'API key rejected. Double-check it in Settings.';
-      else if (msg.includes('GEMINI_HTTP_429'))    friendly = 'Quota exhausted — try again later.';
-      else if (msg.includes('GEMINI_PARSE'))       friendly = 'Model returned malformed JSON. Try again.';
-      else                                          friendly = msg;
-      setState({ kind: 'error', message: friendly });
-    }
-  }, [userName]);
-
-  const saveApiKey = useCallback(async () => {
-    const trimmed = apiKeyInput.trim();
-    await insightStorage.setApiKey(trimmed);
-    setApiKeySaved(trimmed || null);
-    setShowSettings(false);
-    setApiKeyInput('');
-    if (trimmed) void refresh(trimmed);
-    else setState({ kind: 'no_key' });
-  }, [apiKeyInput, refresh]);
 
   // ── Render ────────────────────────────────────────────────────────
 
@@ -92,32 +77,17 @@ export const AIInsightsCard: React.FC<Props> = ({ userName }) => {
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text style={styles.title}>AI Insights</Text>
-          <Text style={styles.poweredBy}>· Gemini 2.5</Text>
+          <Text style={styles.title}>
+            {mode === 'retrospective' ? 'AI Retrospective' : 'AI Insights'}
+          </Text>
+          <Text style={styles.poweredBy}>· Gemma 2</Text>
         </View>
-        <TouchableOpacity onPress={() => { setApiKeyInput(apiKeySaved || ''); setShowSettings(true); }}>
-          <Text style={styles.settingsIcon}>⚙</Text>
-        </TouchableOpacity>
       </View>
 
       {state.kind === 'loading' && (
-        <View style={styles.center}><ActivityIndicator color={COLORS.gold} /></View>
-      )}
-
-      {state.kind === 'no_key' && (
-        <View>
-          <Text style={styles.emptyTitle}>Personalised AI analysis is one tap away</Text>
-          <Text style={styles.emptyBody}>
-            Soulsync can send a summary of your Japa sessions + ring biometrics to Gemini
-            and get back a kind, grounded weekly read on how your sadhana is shaping
-            your body. Your data stays on-device; only the summary leaves.
-          </Text>
-          <TouchableOpacity style={styles.primaryBtn} onPress={() => setShowSettings(true)}>
-            <Text style={styles.primaryBtnText}>Add Gemini API key</Text>
-          </TouchableOpacity>
-          <Text style={styles.helpLink}>
-            Get a free key at aistudio.google.com/apikey
-          </Text>
+        <View style={styles.center}>
+          <RingSpinner size={32} />
+          <Text style={styles.refreshHint}>Loading your insights…</Text>
         </View>
       )}
 
@@ -127,8 +97,9 @@ export const AIInsightsCard: React.FC<Props> = ({ userName }) => {
         if (!result) {
           return (
             <View style={styles.center}>
-              <ActivityIndicator color={COLORS.gold} />
-              <Text style={styles.refreshHint}>Generating your first insight…</Text>
+              <RingSpinner size={40} />
+              <Text style={styles.refreshHint}>Generating your first insight via Gemma…</Text>
+              <Text style={styles.subHint}>(may take 20-30s on first run)</Text>
             </View>
           );
         }
@@ -164,7 +135,7 @@ export const AIInsightsCard: React.FC<Props> = ({ userName }) => {
               </Text>
               <TouchableOpacity onPress={() => refresh()} disabled={refreshing}>
                 {refreshing
-                  ? <ActivityIndicator size="small" color={COLORS.gold} />
+                  ? <RingSpinner size={18} />
                   : <Text style={styles.refreshBtn}>↻ Refresh</Text>}
               </TouchableOpacity>
             </View>
@@ -174,63 +145,15 @@ export const AIInsightsCard: React.FC<Props> = ({ userName }) => {
 
       {state.kind === 'error' && (
         <View>
-          <Text style={styles.errorTitle}>Couldn't reach Gemini</Text>
+          <Text style={styles.errorTitle}>Couldn't reach Gemma</Text>
           <Text style={styles.errorBody}>{state.message}</Text>
           <View style={styles.errorBtnRow}>
-            <TouchableOpacity style={styles.secondaryBtn} onPress={() => setShowSettings(true)}>
-              <Text style={styles.secondaryBtnText}>Settings</Text>
-            </TouchableOpacity>
             <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }]} onPress={() => refresh()}>
               <Text style={styles.primaryBtnText}>Try again</Text>
             </TouchableOpacity>
           </View>
         </View>
       )}
-
-      {/* Settings modal */}
-      <Modal visible={showSettings} transparent animationType="slide" onRequestClose={() => setShowSettings(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Gemini API key</Text>
-            <Text style={styles.modalSub}>
-              Paste your Google AI Studio key. Stored on-device only. Get one free at{' '}
-              <Text style={{ color: COLORS.gold }}>aistudio.google.com/apikey</Text>
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="AIzaSy…"
-              placeholderTextColor={COLORS.muted}
-              value={apiKeyInput}
-              onChangeText={setApiKeyInput}
-              autoCapitalize="none"
-              autoCorrect={false}
-              secureTextEntry={Platform.OS !== 'web'}
-            />
-            <TouchableOpacity style={styles.primaryBtn} onPress={saveApiKey}>
-              <Text style={styles.primaryBtnText}>Save</Text>
-            </TouchableOpacity>
-            {apiKeySaved && (
-              <TouchableOpacity
-                style={[styles.secondaryBtn, { marginTop: SPACING.sm }]}
-                onPress={async () => {
-                  await insightStorage.clearApiKey();
-                  await insightStorage.clearCache();
-                  setApiKeySaved(null);
-                  setApiKeyInput('');
-                  setShowSettings(false);
-                  setState({ kind: 'no_key' });
-                }}
-              >
-                <Text style={styles.secondaryBtnText}>Remove saved key</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowSettings(false)}>
-              <Text style={styles.cancelBtnText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 };
@@ -286,14 +209,10 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 15, color: '#d6e040', fontWeight: '700', letterSpacing: 0.5 },
   poweredBy: { fontSize: 10, color: COLORS.muted, fontWeight: '500' },
-  settingsIcon: { fontSize: 18, color: COLORS.muted },
 
   center: { alignItems: 'center', paddingVertical: SPACING.lg },
   refreshHint: { fontSize: 11, color: COLORS.muted, marginTop: SPACING.sm, fontStyle: 'italic' },
-
-  emptyTitle: { fontSize: 14, color: COLORS.cream, fontWeight: '600', marginBottom: 6 },
-  emptyBody: { fontSize: 12, color: COLORS.muted, lineHeight: 17, marginBottom: SPACING.md },
-  helpLink: { fontSize: 10, color: COLORS.muted, marginTop: SPACING.sm, textAlign: 'center', fontStyle: 'italic' },
+  subHint: { fontSize: 10, color: COLORS.muted, marginTop: 4, fontStyle: 'italic', opacity: 0.7 },
 
   toneRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: SPACING.sm },
   toneChip: {
@@ -330,30 +249,4 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   primaryBtnText: { color: COLORS.deep, fontWeight: '700', fontSize: 14 },
-  secondaryBtn: {
-    paddingVertical: 12, paddingHorizontal: SPACING.md, borderRadius: 10,
-    backgroundColor: 'transparent', borderWidth: 1, borderColor: COLORS.border,
-    alignItems: 'center', justifyContent: 'center',
-    minHeight: 44,
-  },
-  secondaryBtnText: { color: COLORS.cream, fontSize: 13, fontWeight: '600' },
-
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' },
-  modalContent: {
-    backgroundColor: COLORS.darkBg,
-    borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    paddingHorizontal: SPACING.md, paddingTop: SPACING.md, paddingBottom: SPACING.xl,
-  },
-  modalHandle: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.md },
-  modalTitle: { fontSize: 18, color: COLORS.cream, fontWeight: '600', marginBottom: 4 },
-  modalSub: { fontSize: 12, color: COLORS.muted, lineHeight: 17, marginBottom: SPACING.md },
-  input: {
-    backgroundColor: COLORS.cardBg, borderRadius: 8,
-    paddingHorizontal: SPACING.md, paddingVertical: SPACING.md,
-    color: COLORS.cream, fontSize: 14,
-    borderWidth: 1, borderColor: COLORS.border,
-    marginBottom: SPACING.md,
-  },
-  cancelBtn: { paddingVertical: SPACING.md, alignItems: 'center', marginTop: SPACING.sm },
-  cancelBtnText: { color: COLORS.muted, fontSize: 13 },
 });

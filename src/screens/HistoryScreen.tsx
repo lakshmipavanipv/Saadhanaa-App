@@ -11,6 +11,11 @@ import { useSadhana } from '../context';
 import { WEEK_DAYS } from '../constants';
 import { formatShortDate } from '../utils';
 import { COLORS, SPACING } from '../theme';
+import { MoodTimelineCard }      from '../soulsync/components/MoodTimelineCard';
+import { MultiMetricTrendCard }  from '../soulsync/components/MultiMetricTrendCard';
+import { StepsJapaCard }         from '../soulsync/components/StepsJapaCard';
+import { EmotionalSummaryCard }  from '../soulsync/components/EmotionalSummaryCard';
+import { AIInsightsCard }        from '../soulsync/components/AIInsightsCard';
 
 type TrendRange = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -22,7 +27,7 @@ const RANGE_LABELS: Record<TrendRange, string> = {
 };
 
 export const HistoryScreen = () => {
-  const { history, deities, deityProgress } = useSadhana();
+  const { history, deities, deityProgress, userProfile } = useSadhana();
   const inProgressJapas = Object.values(deityProgress).reduce(
     (s, p) => s + (p.count || 0), 0
   );
@@ -117,11 +122,18 @@ export const HistoryScreen = () => {
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>Sadhana Dashboard</Text>
+          <Text style={styles.title}>Your Journey</Text>
           <Text style={styles.subtitle}>
             {totalMalas.toLocaleString()} malas · {totalJapas.toLocaleString()} japas
           </Text>
         </View>
+
+        {/* Soulsync — 24h mood timeline + multi-metric trends + emotional summary + AI retrospective */}
+        <MoodTimelineCard />
+        <MultiMetricTrendCard />
+        <StepsJapaCard days={30} />
+        <EmotionalSummaryCard />
+        <AIInsightsCard userName={userProfile?.name} mode="retrospective" />
 
         {/* Lifetime Stats */}
         <View style={styles.lifetimeCard}>

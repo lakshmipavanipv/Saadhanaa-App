@@ -218,7 +218,7 @@ export const PROCEDURE: ProcedureStep[] = [
     index: 14,
     name: 'Gayatri Japa',
     description:
-      'Sit facing east (pratah/madhyahnika) or north (sayam). Use right thumb on middle finger and rotate through joints to count, OR use a tulsi/rudraksha mala. Eyes half-closed, mind focused.',
+      'Sit facing east (pratah/madhyahnika) or north (sayam). Use the Saadhana Ring to count by tapping its button, OR use right thumb on middle finger and rotate through joints. Eyes half-closed, mind focused.',
     mantra:
       'ॐ भूर्भुवः स्वः । तत्सवितुर्वरेण्यं । भर्गो देवस्य धीमहि । धियो यो नः प्रचोदयात् ॥',
     transliteration:
@@ -334,8 +334,8 @@ export const RULES = [
   },
   {
     id: 'mala',
-    title: 'Use any mala you have',
-    text: 'Use the Japa tab in this app to count Gayatri repetitions, OR use a tulsi / rudraksha / sandalwood mala if you have one. Beadless finger-counting (rotating thumb on finger joints) is also valid.',
+    title: 'Use the Saadhana Ring',
+    text: 'Use the Saadhana Ring (paired in the Japa tab) to count Gayatri repetitions with a single button tap — each press advances one bead, vibration confirms 108. The on-screen Japa counter also works as a backup. Beadless finger-counting (rotating thumb on finger joints) remains a valid Vedic option.',
   },
 ];
 
@@ -346,6 +346,6 @@ export const PREREQUISITES = [
   'Tilak / kumkum / vibhuti on forehead if you have it — otherwise simply focus on the Agnya Chakra (forehead center)',
   'A good seat — chair, cushion, yoga mat, or cotton cloth (avoid sitting directly on bare ground)',
   'A small vessel of clean water for achamana and sprinkling',
-  'Use the Japa tab to count, or any mala you already own',
+  'Use the Saadhana Ring (paired in Japa tab) to count hands-free',
   'A quiet space — silence your phone, step away from screens',
 ];

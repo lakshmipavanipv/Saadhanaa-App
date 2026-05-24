@@ -9,7 +9,7 @@ const OUTER_R = 158;
 const INNER_R = 122;
 const HALF = BEADS / 2; // 54
 const BEAD_SIZE = 15;
-const CENTER_SIZE = 168;
+const CENTER_SIZE = 186;   // ↑ from 168 so all stacked text fits cleanly
 
 interface MalaProps {
   count: number;
@@ -21,15 +21,22 @@ interface MalaProps {
   materialName?: string;
 }
 
-// ─── Universal Citron color scheme ─────────────────────────────────
-// Vibrant yellow-green, high-contrast against dark theme.
-// Per-deity colors are intentionally IGNORED — single bright scheme
-// for legibility (T7).
-const CITRON_BEAD = '#d6e040';        // vibrant citron yellow-green
-const CITRON_BORDER = '#fbff7a';      // bright lemon edge
-const CITRON_SHINE = '#ffffe0';       // near-white highlight ellipse
-const CITRON_DIM_FILL = 'rgba(85, 95, 25, 0.85)';   // unlit bead body
-const CITRON_DIM_BORDER = 'rgba(214, 224, 64, 0.45)';
+// ─── Universal Citrine color scheme ────────────────────────────────
+// True citrine gemstone palette — warm amber-gold, like sunlight in honey.
+// Replaces the previous yellow-green "citron". Per-deity colors are
+// intentionally IGNORED — single bright scheme for legibility (T7).
+const CITRINE_BEAD = '#FFB800';        // vivid amber-gold (lit bead)
+const CITRINE_BORDER = '#FFE066';      // bright lemon-amber edge
+const CITRINE_SHINE = '#FFFEF0';       // pale ivory shine highlight
+const CITRINE_DIM_FILL = 'rgba(120, 80, 10, 0.85)';     // dark amber unlit body
+const CITRINE_DIM_BORDER = 'rgba(255, 184, 0, 0.45)';
+
+// Back-compat aliases (other files referenced the old names — keep as alias).
+const CITRON_BEAD = CITRINE_BEAD;
+const CITRON_BORDER = CITRINE_BORDER;
+const CITRON_SHINE = CITRINE_SHINE;
+const CITRON_DIM_FILL = CITRINE_DIM_FILL;
+const CITRON_DIM_BORDER = CITRINE_DIM_BORDER;
 
 export const Mala: React.FC<MalaProps> = ({
   count,
@@ -122,7 +129,7 @@ export const Mala: React.FC<MalaProps> = ({
               <View
                 style={[
                   styles.beadShine,
-                  { backgroundColor: doneBorder },
+                  { backgroundColor: CITRINE_SHINE },
                 ]}
               />
             )}
@@ -201,12 +208,12 @@ const styles = StyleSheet.create({
     borderColor: CITRON_DIM_BORDER,
   },
   beadDone: {
-    backgroundColor: CITRON_BEAD,
-    borderColor: CITRON_BORDER,
-    shadowColor: CITRON_BORDER,
+    backgroundColor: CITRINE_BEAD,
+    borderColor: CITRINE_BORDER,
+    shadowColor: CITRINE_BORDER,
     shadowOpacity: 1,
-    shadowRadius: 5,
-    elevation: 5,
+    shadowRadius: 7,           // ↑ from 5 — brighter halo for true citrine glow
+    elevation: 6,
   },
   beadShine: {
     position: 'absolute',
@@ -215,14 +222,20 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     top: 2,
     left: 3,
-    opacity: 0.85,
+    opacity: 0.95,             // ↑ slightly more visible "wet" highlight
   },
+  // ── Pop: grow in place via scale + lift via zIndex/elevation, do NOT
+  // change width/height (that would push neighbor beads aside and cause
+  // visible overlap). Scale 1.55 ≈ ~23px effective with no layout shift.
   beadPop: {
-    width: BEAD_SIZE + 6,
-    height: BEAD_SIZE + 6,
-    borderRadius: (BEAD_SIZE + 6) / 2,
+    transform: [{ scale: 1.55 }],
     backgroundColor: COLORS.saffron,
     borderColor: '#ffd6a8',
+    shadowColor: COLORS.saffron,
+    shadowOpacity: 1,
+    shadowRadius: 9,
+    zIndex: 10,
+    elevation: 10,
   },
   meru: {
     position: 'absolute',
@@ -312,7 +325,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1.5,
     borderColor: 'rgba(212, 160, 23, 0.6)',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
   },
   beadHaloRing: {
     position: 'absolute',
@@ -326,42 +340,43 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
   tapHint: {
-    fontSize: 9,
+    fontSize: 8.5,
     color: COLORS.saffron,
     fontWeight: '700',
-    letterSpacing: 2,
-    marginTop: 6,
+    letterSpacing: 1.4,
+    marginTop: 4,
+    textAlign: 'center',
   },
   materialName: {
-    fontSize: 9,
+    fontSize: 8.5,
     color: COLORS.muted,
     fontStyle: 'italic',
-    marginTop: 2,
-    letterSpacing: 0.5,
+    marginTop: 1,
+    letterSpacing: 0.4,
   },
   malaCount: {
-    fontSize: 38,
+    fontSize: 34,
     fontWeight: '700',
     color: CITRON_BEAD,
-    lineHeight: 42,
+    lineHeight: 36,
   },
   malaLabel: {
-    fontSize: 9,
+    fontSize: 8.5,
     color: COLORS.muted,
-    letterSpacing: 2.5,
+    letterSpacing: 2,
     marginTop: 1,
   },
   divider: {
-    width: 38,
+    width: 36,
     height: 1,
     backgroundColor: 'rgba(212, 160, 23, 0.35)',
-    marginVertical: 4,
+    marginVertical: 3,
   },
   beadCount: {
-    fontSize: 22,
+    fontSize: 20,
     color: COLORS.cream,
     fontWeight: '600',
-    lineHeight: 24,
+    lineHeight: 22,
   },
   beadLabelSmall: {
     fontSize: 8,

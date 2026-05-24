@@ -4,7 +4,8 @@ import { ambientIngestion } from './soulsync/services/AmbientIngestion';
 import { useEmotionalState } from './soulsync/hooks/useEmotionalState';
 import { GroundingOverlay } from './soulsync/components/GroundingOverlay';
 import { CoolingOverlay } from './soulsync/components/CoolingOverlay';
-import { StyleSheet, View, ActivityIndicator, Text, StatusBar, TouchableOpacity, Modal } from 'react-native';
+import { StyleSheet, View, Text, StatusBar, TouchableOpacity, Modal } from 'react-native';
+import { RingSpinnerLarge } from './components/RingSpinner';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
@@ -55,7 +56,7 @@ const TabNavigator = () => {
         component={DashboardScreen}
         options={{
           tabBarLabel: 'Home',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🕉️</Text>,
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🏠</Text>,
         }}
       />
       <Tab.Screen
@@ -87,7 +88,7 @@ const TabNavigator = () => {
         component={FestivalScreen}
         options={{
           tabBarLabel: 'Festivals',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🪔</Text>,
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🛕</Text>,
         }}
       />
       <Tab.Screen
@@ -95,7 +96,7 @@ const TabNavigator = () => {
         component={HistoryScreen}
         options={{
           tabBarLabel: 'History',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📊</Text>,
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📈</Text>,
         }}
       />
     </Tab.Navigator>
@@ -120,7 +121,7 @@ const AppContent = () => {
   if (isLoading) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={COLORS.gold} />
+        <RingSpinnerLarge label="Awakening your sadhana…" />
       </View>
     );
   }
