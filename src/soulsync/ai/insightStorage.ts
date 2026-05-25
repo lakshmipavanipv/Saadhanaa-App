@@ -16,7 +16,8 @@ const KEY_LAST_INSIGHT  = 'soulsync.gemma.lastInsight';
 /** Legacy keys — cleared on first access. */
 const LEGACY_KEY_GEMINI_KEY    = 'soulsync.gemini.apiKey';
 const LEGACY_KEY_LAST_INSIGHT  = 'soulsync.gemini.lastInsight';
-const TTL_MS = 12 * 60 * 60 * 1000;
+/** 24h TTL — keeps OpenRouter free-tier quota burn under 1 call/day per device. */
+const TTL_MS = 24 * 60 * 60 * 1000;
 
 /** Fire-and-forget cleanup of legacy Gemini storage entries. */
 const cleanupLegacy = (): void => {

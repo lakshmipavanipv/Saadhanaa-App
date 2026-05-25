@@ -7,12 +7,6 @@ import { buildBpmJourney, BpmJourneySnapshot, latestSessionId } from '../analyti
 
 const CHART_W = Dimensions.get('window').width - 32;
 const CHART_H = 200;
-// react-native-chart-kit reserves ~64px on the left for Y-axis labels and
-// ~16px on the right. The phase-band overlay must match the chart's actual
-// plot area, otherwise bands appear shifted left of the line.
-const PAD_LEFT = 64;
-const PAD_RIGHT = 16;
-const PAD_BOTTOM = 32;   // x-axis label area at the bottom
 
 interface Props {
   sessionId?: string | null;        // pin to a specific session; defaults to latest
@@ -49,31 +43,29 @@ export const BpmJourneyChart: React.FC<Props> = ({ sessionId: pinnedId, refreshI
     );
   }
 
-  // X-axis: normalized 0..1 across the point range
+  // X-axis: normalized 0..1 across the point range. The decorator receives
+  // the chart's actual plot dimensions (paddingTop, paddingRight, width,
+  // height) so we compute pixel-x at draw time instead of guessing it.
   const t0 = snap.points[0].t;
   const t1 = snap.points[snap.points.length - 1].t;
   const span = Math.max(1, t1 - t0);
 
-  // Find phase boundaries in pixel-x space
-  const phaseStart = (phase: 'pre' | 'during' | 'post'): number | null => {
+  const phaseStart01 = (phase: 'pre' | 'during' | 'post'): number | null => {
     const p = snap.points.find(p => p.phase === phase);
-    if (!p) return null;
-    return (p.t - t0) / span;
+    return p ? (p.t - t0) / span : null;
   };
-  const phaseEnd = (phase: 'pre' | 'during' | 'post'): number | null => {
+  const phaseEnd01 = (phase: 'pre' | 'during' | 'post'): number | null => {
     const idx = [...snap.points].reverse().findIndex(p => p.phase === phase);
     if (idx === -1) return null;
     const p = snap.points[snap.points.length - 1 - idx];
     return (p.t - t0) / span;
   };
-  const innerW = CHART_W - PAD_LEFT - PAD_RIGHT;
-  const xToPx = (n01: number): number => PAD_LEFT + n01 * innerW;
 
-  const bands = (['pre', 'during', 'post'] as const).map(phase => {
-    const s = phaseStart(phase);
-    const e = phaseEnd(phase);
+  const phases01 = (['pre', 'during', 'post'] as const).map(phase => {
+    const s = phaseStart01(phase);
+    const e = phaseEnd01(phase);
     if (s == null || e == null) return null;
-    return { phase, x1: xToPx(s), x2: xToPx(e) };
+    return { phase, s, e };
   }).filter((b): b is NonNullable<typeof b> => b !== null);
 
   const data = snap.points.map(p => p.bpm);
@@ -108,26 +100,39 @@ export const BpmJourneyChart: React.FC<Props> = ({ sessionId: pinnedId, refreshI
           propsForBackgroundLines: { stroke: 'transparent' },
         }}
         style={{ borderRadius: 12, marginVertical: 4 }}
-        decorator={() => (
-          <G>
-            {bands.map(b => {
-              const fill =
-                b.phase === 'pre'    ? 'rgba(160, 160, 160, 0.10)' :
-                b.phase === 'during' ? 'rgba(214, 224, 64, 0.10)' :
-                                       'rgba(255, 140, 66, 0.08)';
-              return (
-                <Rect
-                  key={b.phase}
-                  x={b.x1}
-                  y={0}
-                  width={Math.max(2, b.x2 - b.x1)}
-                  height={CHART_H - PAD_BOTTOM}
-                  fill={fill}
-                />
-              );
-            })}
-          </G>
-        )}
+        decorator={(props: any) => {
+          // react-native-chart-kit passes the actual plot geometry here.
+          // paddingRight is the left-side padding for y-axis labels (it's
+          // confusingly named — applies to BOTH sides). paddingTop is the
+          // top inset. Compute the true plot area from these.
+          const pTop   = props?.paddingTop   ?? 16;
+          const pRight = props?.paddingRight ?? 64;   // ← actually paddingLeft for labels
+          const plotW  = CHART_W - pRight * 2;        // line spans [pRight, width - pRight]
+          const plotH  = CHART_H - pTop - 30;         // 30 = x-axis label band
+          const xToPx = (n01: number) => pRight + n01 * plotW;
+          return (
+            <G>
+              {phases01.map(b => {
+                const fill =
+                  b.phase === 'pre'    ? 'rgba(160, 160, 160, 0.10)' :
+                  b.phase === 'during' ? 'rgba(214, 224, 64, 0.10)' :
+                                         'rgba(255, 140, 66, 0.08)';
+                const x1 = xToPx(b.s);
+                const x2 = xToPx(b.e);
+                return (
+                  <Rect
+                    key={b.phase}
+                    x={x1}
+                    y={pTop}
+                    width={Math.max(2, x2 - x1)}
+                    height={plotH}
+                    fill={fill}
+                  />
+                );
+              })}
+            </G>
+          );
+        }}
       />
 
       {/* Phase summary row */}

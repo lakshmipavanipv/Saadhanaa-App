@@ -39,17 +39,16 @@ export const AIInsightsCard: React.FC<Props> = ({ userName, mode = 'today' }) =>
     } catch (e: any) {
       const msg = e?.message ?? 'Unknown error';
       let friendly: string;
-      if (msg.includes('GEMMA_NO_KEY'))            friendly = 'Setup needed: add EXPO_PUBLIC_OPENROUTER_KEY to .env (free key at openrouter.ai/keys).';
-      else if (msg.includes('GEMMA_HTTP_401'))     friendly = 'OpenRouter key rejected — check your .env value.';
-      else if (msg.includes('GEMMA_HTTP_402'))     friendly = 'Free-tier credit exhausted. Try again tomorrow.';
-      else if (msg.includes('GEMMA_HTTP_429'))     friendly = 'Rate limit reached — try again in a few minutes.';
-      else if (msg.includes('GEMMA_HTTP_503'))     friendly = 'Gemma temporarily unavailable. Try refresh.';
-      else if (msg.includes('GEMMA_PARSE'))        friendly = 'Model returned malformed JSON. Try refresh.';
-      else if (msg.includes('GEMMA_SHAPE'))        friendly = 'Model response missing required fields. Try refresh.';
-      else if (msg.includes('GEMMA_EMPTY'))        friendly = 'Model returned an empty response. Try refresh.';
+      if (msg.includes('GEMMA_HTTP_401'))                          friendly = 'OpenRouter key rejected — check your .env value.';
+      else if (msg.includes('GEMMA_ALL_PROVIDERS_FAILED'))         friendly = 'Both AI providers failed. Try again in a few minutes.';
+      else if (msg.includes('GEMMA_POLLINATIONS'))                 friendly = 'Fallback AI service unreachable. Try refresh.';
+      else if (msg.includes('GEMMA_HTTP_503'))                     friendly = 'Gemma temporarily unavailable. Try refresh.';
+      else if (msg.includes('GEMMA_PARSE'))                        friendly = 'Model returned malformed JSON. Try refresh.';
+      else if (msg.includes('GEMMA_SHAPE'))                        friendly = 'Model response missing required fields. Try refresh.';
+      else if (msg.includes('GEMMA_EMPTY'))                        friendly = 'Model returned an empty response. Try refresh.';
       else if (msg.includes('Network request failed') || msg.toLowerCase().includes('fetch'))
         friendly = 'Network error — check your connection.';
-      else                                          friendly = msg;
+      else                                                          friendly = msg;
       setState({ kind: 'error', message: friendly });
     }
   }, [userName, mode]);
