@@ -26,7 +26,9 @@
         "android.permission.BLUETOOTH_SCAN",
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION"
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "web": {
@@ -57,6 +59,12 @@
       "@react-native-community/datetimepicker",
       "expo-audio",
       "expo-sqlite"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ddbfda35-d73f-4196-b00a-ed623f1bd1a3"
+      }
+    },
+    "owner": "saadhanaring"
   }
 }

@@ -77,6 +77,11 @@ export const DashboardScreen = ({ navigation }: any) => {
     [history]
   );
   const sadhanaSeconds = japasToSeconds(totalJapas);
+  // Total deities the user has added to their sadhana — shown on the
+  // dashboard. Previously this only counted deities with history or
+  // in-progress beads, so newly-added deities were invisible until first use.
+  const numDeitiesAdded = deities.length;
+
   const numDeitiesChanted = useMemo(() => {
     const set = new Set<string>();
     history.forEach(h => h.deityId && set.add(h.deityId));
@@ -91,8 +96,23 @@ export const DashboardScreen = ({ navigation }: any) => {
   const todayCount = history.filter(h => h.date === todayStr()).reduce((s, h) => s + h.malas, 0);
 
   // ── Per-deity breakdown ──────────────────────────────────────────
+  // Includes ALL added deities (even those with 0 history) so the user
+  // can see every deity in their sadhana from day one.
   const perDeity = useMemo(() => {
     const m: Record<string, { id?: string; name: string; icon: string; malas: number; japas: number; color: string }> = {};
+
+    // Seed with every added deity at zero — guarantees they appear in the list
+    for (const d of deities) {
+      m[d.id] = {
+        id: d.id,
+        name: d.name,
+        icon: d.icon,
+        malas: 0,
+        japas: 0,
+        color: d.malaColor || COLORS.gold,
+      };
+    }
+
     for (const h of history) {
       const d = deities.find(d => d.id === h.deityId);
       const key = h.deityId || h.deity;
@@ -119,7 +139,9 @@ export const DashboardScreen = ({ navigation }: any) => {
       }
       m[id].japas += p.count;
     }
-    return Object.values(m).sort((a, b) => b.japas - a.japas);
+    // Sort by total japas descending; tie-break by name so unused deities
+    // appear in a stable order at the bottom.
+    return Object.values(m).sort((a, b) => b.japas - a.japas || a.name.localeCompare(b.name));
   }, [history, deities, deityProgress]);
   const maxDeityMalas = Math.max(...perDeity.map(d => d.malas), 1);
 
@@ -282,8 +304,8 @@ export const DashboardScreen = ({ navigation }: any) => {
           </View>
           <View style={styles.kpiDivider} />
           <View style={styles.kpiCol}>
-            <Text style={styles.kpiValue}>{numDeitiesChanted}</Text>
-            <Text style={styles.kpiLabel}>Deities</Text>
+            <Text style={styles.kpiValue}>{numDeitiesChanted}<Text style={{ fontSize: 14, color: COLORS.muted }}>/{numDeitiesAdded}</Text></Text>
+            <Text style={styles.kpiLabel}>Deities chanted</Text>
           </View>
         </View>
 

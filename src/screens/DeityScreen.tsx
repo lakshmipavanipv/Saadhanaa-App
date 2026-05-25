@@ -10,6 +10,8 @@ import {
   FlatList,
   Switch,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Platform } from 'react-native';
 import { useSadhana } from '../context';
 import { COLORS, SPACING } from '../theme';
 import { Deity } from '../types';
@@ -17,6 +19,7 @@ import { DeityCatalogPicker } from '../components/DeityCatalogPicker';
 import { CatalogDeity, ALL_CATALOG_DEITIES } from '../deityCatalog';
 import { AlarmSoundPicker } from '../components/AlarmSoundPicker';
 import { DeityIcon } from '../components/DeityIcon';
+import { rescheduleDeityReminders } from '../services/notifications';
 
 export const DeityScreen = ({ navigation, route }: any) => {
   const { deities, setDeities, setSelectedDeity, showToast, notifGranted, requestNotif } = useSadhana();
@@ -123,13 +126,32 @@ export const DeityScreen = ({ navigation, route }: any) => {
     showToast(`Added ${d.name} to selection`);
   };
 
-  const updateReminder = (id: string, patch: Partial<Deity>) => {
+  const updateReminder = async (id: string, patch: Partial<Deity>) => {
+    // 1. Optimistically apply the local patch so the UI updates instantly
+    const updated = deities.find(d => d.id === id);
+    if (!updated) { setEditingReminder(null); return; }
+    const next: Deity = { ...updated, ...patch };
+
+    // 2. Schedule / cancel actual OS notifications. Uses device-local
+    //    timezone via expo-notifications WEEKLY triggers.
+    let notifPatch: Partial<Deity> = {};
+    try {
+      notifPatch = await rescheduleDeityReminders(next);
+    } catch (e) {
+      console.warn('[reminder] schedule failed:', e);
+    }
+
+    // 3. Persist the merged result (patch + notification ids)
     setDeities(p =>
-      p.map(d => (d.id === id ? { ...d, ...patch } : d))
+      p.map(d => (d.id === id ? { ...d, ...patch, ...notifPatch } : d))
     );
-    const prayerAlarm = patch.prayerAlarm ?? '';
-    const alarmOn = patch.alarmOn ?? false;
-    showToast(alarmOn ? `Reminder set for ${prayerAlarm}` : 'Reminder turned off');
+
+    const days = next.repeatDays?.length ?? 7;
+    if (next.alarmOn) {
+      showToast(`⏰ Reminder set for ${next.prayerAlarm} (${days === 7 ? 'every day' : days + ' days/wk'})`);
+    } else {
+      showToast('🔕 Reminder turned off');
+    }
     setEditingReminder(null);
   };
 
@@ -323,18 +345,56 @@ export const DeityScreen = ({ navigation, route }: any) => {
   );
 };
 
+// ─── Day-of-week constants (Sun..Sat per JS Date convention) ────────
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const WEEKDAYS = [1, 2, 3, 4, 5];          // Mon-Fri
+const WEEKEND  = [0, 6];                    // Sun, Sat
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+
+const sameSet = (a: number[], b: number[]) => {
+  if (a.length !== b.length) return false;
+  const sa = new Set(a);
+  return b.every(x => sa.has(x));
+};
+
 const ReminderEditor: React.FC<{
   deity: Deity;
   onSave: (patch: Partial<Deity>) => void;
   onClose: () => void;
 }> = ({ deity, onSave, onClose }) => {
-  const [time, setTime] = useState(deity.prayerAlarm);
+  // Parse the saved HH:MM into a Date for the native time picker
+  const initialDate = React.useMemo(() => {
+    const [h = '6', m = '0'] = (deity.prayerAlarm || '06:00').split(':');
+    const d = new Date();
+    d.setHours(parseInt(h, 10) || 0, parseInt(m, 10) || 0, 0, 0);
+    return d;
+  }, [deity.prayerAlarm]);
+
+  const [timeDate, setTimeDate] = useState<Date>(initialDate);
+  const [showPicker, setShowPicker] = useState(false);
   const [on, setOn] = useState(deity.alarmOn);
+  const [days, setDays] = useState<number[]>(
+    deity.repeatDays && deity.repeatDays.length > 0 ? deity.repeatDays : ALL_DAYS
+  );
   const [sound, setSound] = useState({
     id: deity.alarmSoundId || 'flute',
     customUri: deity.alarmSoundUri,
     customName: deity.alarmSoundName,
   });
+
+  const toggleDay = (d: number) => {
+    setDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort());
+  };
+
+  const formatTime = (d: Date) => {
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  };
+
+  const isWeekdays = sameSet(days, WEEKDAYS);
+  const isWeekend  = sameSet(days, WEEKEND);
+  const isAll      = sameSet(days, ALL_DAYS);
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -346,19 +406,84 @@ const ReminderEditor: React.FC<{
             {deity.icon} {deity.name}
           </Text>
 
+          {/* ─── Prayer time (native picker) ─── */}
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Prayer Time (HH:MM)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="06:00"
-              placeholderTextColor={COLORS.muted}
-              value={time}
-              onChangeText={setTime}
-              keyboardType="numbers-and-punctuation"
-              autoFocus
-            />
+            <Text style={styles.inputLabel}>Prayer Time</Text>
+            <TouchableOpacity
+              style={[styles.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+              onPress={() => setShowPicker(true)}
+            >
+              <Text style={{ color: COLORS.cream, fontSize: 18, fontWeight: '600' }}>
+                {formatTime(timeDate)}
+              </Text>
+              <Text style={{ color: COLORS.gold, fontSize: 11 }}>⏰ Tap to change</Text>
+            </TouchableOpacity>
+            {(showPicker || Platform.OS === 'ios') && (
+              <DateTimePicker
+                value={timeDate}
+                mode="time"
+                is24Hour={true}
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={(_event, selected) => {
+                  if (Platform.OS !== 'ios') setShowPicker(false);
+                  if (selected) setTimeDate(selected);
+                }}
+              />
+            )}
+            <Text style={{ fontSize: 10, color: COLORS.muted, marginTop: 4, fontStyle: 'italic' }}>
+              Uses your phone's timezone — adjusts automatically with DST.
+            </Text>
           </View>
 
+          {/* ─── Repeat days ─── */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Repeat on</Text>
+
+            {/* Day-of-week checkboxes */}
+            <View style={styles.dayRow}>
+              {DAY_LABELS.map((label, i) => {
+                const selected = days.includes(i);
+                return (
+                  <TouchableOpacity
+                    key={label}
+                    style={[styles.dayChip, selected && styles.dayChipActive]}
+                    onPress={() => toggleDay(i)}
+                  >
+                    <Text style={[styles.dayChipText, selected && styles.dayChipTextActive]}>
+                      {label.charAt(0)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Quick presets */}
+            <View style={styles.presetRow}>
+              <TouchableOpacity
+                style={[styles.presetBtn, isWeekdays && styles.presetBtnActive]}
+                onPress={() => setDays([...WEEKDAYS])}
+              >
+                <Text style={[styles.presetText, isWeekdays && styles.presetTextActive]}>Weekdays</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.presetBtn, isWeekend && styles.presetBtnActive]}
+                onPress={() => setDays([...WEEKEND])}
+              >
+                <Text style={[styles.presetText, isWeekend && styles.presetTextActive]}>Weekend</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.presetBtn, isAll && styles.presetBtnActive]}
+                onPress={() => setDays([...ALL_DAYS])}
+              >
+                <Text style={[styles.presetText, isAll && styles.presetTextActive]}>Every day</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 11, color: COLORS.muted, marginTop: 6 }}>
+              {days.length === 0 ? '⚠ No days selected — reminder will not fire' : `${days.length} day${days.length === 1 ? '' : 's'} per week`}
+            </Text>
+          </View>
+
+          {/* ─── On/Off ─── */}
           <View style={styles.inputGroup}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.md }}>
               <Switch
@@ -368,12 +493,12 @@ const ReminderEditor: React.FC<{
                 thumbColor={on ? COLORS.cream : COLORS.muted}
               />
               <Text style={{ flex: 1, fontSize: 14, color: COLORS.cream }}>
-                Daily reminder {on ? 'enabled' : 'disabled'}
+                Reminder {on ? 'enabled' : 'disabled'}
               </Text>
             </View>
           </View>
 
-          {/* Alarm sound picker */}
+          {/* ─── Alarm sound (taps preview the tone) ─── */}
           <View style={styles.inputGroup}>
             <AlarmSoundPicker
               value={sound}
@@ -381,12 +506,15 @@ const ReminderEditor: React.FC<{
             />
           </View>
 
+          {/* ─── Save ─── */}
           <TouchableOpacity
-            style={styles.submitBtn}
+            style={[styles.submitBtn, (on && days.length === 0) && { opacity: 0.5 }]}
+            disabled={on && days.length === 0}
             onPress={() =>
               onSave({
-                prayerAlarm: time,
+                prayerAlarm: formatTime(timeDate),
                 alarmOn: on,
+                repeatDays: days,
                 alarmSoundId: sound.id,
                 alarmSoundUri: sound.customUri,
                 alarmSoundName: sound.customName,
@@ -739,5 +867,60 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 14,
     letterSpacing: 0.5,
+  },
+
+  // ── Day-of-week picker (reminder editor) ──
+  dayRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.sm,
+  },
+  dayChip: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.cardBg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dayChipActive: {
+    backgroundColor: COLORS.gold,
+    borderColor: COLORS.gold,
+  },
+  dayChipText: {
+    fontSize: 13,
+    color: COLORS.muted,
+    fontWeight: '700',
+  },
+  dayChipTextActive: {
+    color: COLORS.deep,
+  },
+  presetRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginTop: SPACING.sm,
+  },
+  presetBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+  },
+  presetBtnActive: {
+    borderColor: COLORS.gold,
+    backgroundColor: 'rgba(212, 160, 23, 0.15)',
+  },
+  presetText: {
+    fontSize: 12,
+    color: COLORS.muted,
+    fontWeight: '600',
+  },
+  presetTextActive: {
+    color: COLORS.gold,
   },
 });

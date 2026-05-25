@@ -7,8 +7,12 @@ import { buildBpmJourney, BpmJourneySnapshot, latestSessionId } from '../analyti
 
 const CHART_W = Dimensions.get('window').width - 32;
 const CHART_H = 200;
-const PAD_LEFT = 30;
-const PAD_RIGHT = 20;
+// react-native-chart-kit reserves ~64px on the left for Y-axis labels and
+// ~16px on the right. The phase-band overlay must match the chart's actual
+// plot area, otherwise bands appear shifted left of the line.
+const PAD_LEFT = 64;
+const PAD_RIGHT = 16;
+const PAD_BOTTOM = 32;   // x-axis label area at the bottom
 
 interface Props {
   sessionId?: string | null;        // pin to a specific session; defaults to latest
@@ -117,7 +121,7 @@ export const BpmJourneyChart: React.FC<Props> = ({ sessionId: pinnedId, refreshI
                   x={b.x1}
                   y={0}
                   width={Math.max(2, b.x2 - b.x1)}
-                  height={CHART_H - 30}
+                  height={CHART_H - PAD_BOTTOM}
                   fill={fill}
                 />
               );

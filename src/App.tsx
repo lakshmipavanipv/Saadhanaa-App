@@ -6,6 +6,7 @@ import { GroundingOverlay } from './soulsync/components/GroundingOverlay';
 import { CoolingOverlay } from './soulsync/components/CoolingOverlay';
 import { StyleSheet, View, Text, StatusBar, TouchableOpacity, Modal } from 'react-native';
 import { RingSpinnerLarge } from './components/RingSpinner';
+import { initNotifications } from './services/notifications';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
@@ -181,6 +182,7 @@ export default function App() {
       try {
         await getDB();               // runs migrations on first launch
         if (!cancelled) await ambientIngestion.start();
+        await initNotifications();   // register Android channel for prayer reminders
       } catch (e) {
         // Failures here must NEVER block the rest of the app
         console.warn('[Soulsync] bootstrap failed:', e);

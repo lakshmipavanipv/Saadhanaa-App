@@ -16,6 +16,10 @@ export interface Deity {
   alarmSoundUri?: string;
   /** Display name for custom sound */
   alarmSoundName?: string;
+  /** Days of week to repeat (0=Sun, 1=Mon, … 6=Sat). Defaults to [0..6] = every day. */
+  repeatDays?: number[];
+  /** Cached expo-notification ids per day-of-week, used to cancel/reschedule. */
+  notificationIds?: Record<number, string>;
 }
 
 export interface UserProfile {
