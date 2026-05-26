@@ -22,6 +22,9 @@ import { FestivalScreen } from './screens/FestivalScreen';
 import { HistoryScreen } from './screens/HistoryScreen';
 import { OnboardingScreen } from './screens/OnboardingScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { YogaScreen } from './screens/YogaScreen';
+import { MeditationScreen } from './screens/MeditationScreen';
+import { AnxietyReliefPopup } from './soulsync/components/AnxietyReliefPopup';
 import { COLORS } from './theme';
 
 const Tab = createBottomTabNavigator();
@@ -77,6 +80,22 @@ const TabNavigator = () => {
         }}
       />
       <Tab.Screen
+        name="Yoga"
+        component={YogaScreen}
+        options={{
+          tabBarLabel: 'Yoga',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🧘‍♀️</Text>,
+        }}
+      />
+      <Tab.Screen
+        name="Meditation"
+        component={MeditationScreen}
+        options={{
+          tabBarLabel: 'Meditate',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🪷</Text>,
+        }}
+      />
+      <Tab.Screen
         name="Deities"
         component={DeityScreen}
         options={{
@@ -118,6 +137,26 @@ const AppContent = () => {
   const [showSettings, setShowSettings] = useState(false);
   // Listen for emotional events — routes to the right overlay
   const { activeEvent, dismiss } = useEmotionalState();
+  // Anxiety relief flow: show the choose-a-technique popup FIRST. If the
+  // user picks one, navigate to Meditation tab; if they pick "I'm fine",
+  // dismiss the event. If they ignore it, fall back to the locked
+  // GroundingOverlay after 15 seconds.
+  const [showAnxietyPopup, setShowAnxietyPopup] = useState(false);
+  const [forceOverlay, setForceOverlay] = useState(false);
+  const navRef = React.useRef<any>(null);
+
+  React.useEffect(() => {
+    if (activeEvent?.trigger === 'anxiety') {
+      setShowAnxietyPopup(true);
+      setForceOverlay(false);
+      // If user ignores the popup for 15 sec, fall back to the locked
+      // GroundingOverlay (more intrusive, gets their attention)
+      const t = setTimeout(() => setForceOverlay(true), 15_000);
+      return () => clearTimeout(t);
+    }
+    setShowAnxietyPopup(false);
+    setForceOverlay(false);
+  }, [activeEvent?.id, activeEvent?.trigger]);
 
   if (isLoading) {
     return (
@@ -140,7 +179,7 @@ const AppContent = () => {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.deep} translucent />
-      <NavigationContainer>
+      <NavigationContainer ref={navRef}>
         <TabNavigator />
       </NavigationContainer>
       <SettingsButton onPress={() => setShowSettings(true)} />
@@ -149,8 +188,25 @@ const AppContent = () => {
       </Modal>
       {toast && <Toast message={toast} />}
 
-      {/* Emotional intervention overlays — global, above all tabs */}
-      {activeEvent?.trigger === 'anxiety' && (
+      {/* ── Anxiety flow:
+            1. Ring buzzes (in AnxietyDetector.fire)
+            2. AnxietyReliefPopup appears — user picks technique OR dismisses
+            3. If chosen → nav to Meditation tab with technique pre-opened
+            4. If ignored 15s → fall back to GroundingOverlay (locked) ── */}
+      {activeEvent?.trigger === 'anxiety' && !forceOverlay && (
+        <AnxietyReliefPopup
+          event={activeEvent}
+          visible={showAnxietyPopup}
+          onChooseTechnique={(techniqueId) => {
+            setShowAnxietyPopup(false);
+            // Navigate to Meditation tab + pass the technique id as a param
+            navRef.current?.navigate?.('Meditation', { openId: techniqueId });
+            dismiss();
+          }}
+          onDismiss={() => { setShowAnxietyPopup(false); dismiss(); }}
+        />
+      )}
+      {activeEvent?.trigger === 'anxiety' && forceOverlay && (
         <GroundingOverlay event={activeEvent} onDismiss={dismiss} />
       )}
       {activeEvent?.trigger === 'aggression' && (

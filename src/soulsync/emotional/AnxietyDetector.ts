@@ -10,7 +10,7 @@
  * same episode doesn't re-fire repeatedly while the user is in the overlay.
  */
 
-import { RingSample } from '../services/RingTelemetryService';
+import { RingSample, RingService } from '../services/RingTelemetryService';
 import { ambientBaselineRepo } from '../db/ambientBaselineRepo';
 import { emotionalEventRepo } from '../db/emotionalEventRepo';
 import { emotionEventBus } from './EmotionEventBus';
@@ -41,13 +41,17 @@ export class AnxietyDetector {
   // Last RMSSD value seen — captured at trigger time
   private lastRmssd: number | null = null;
 
-  constructor(cfg: AnxietyConfig = {}) {
+  /** Ring reference — used to buzz the user privately on event fire. */
+  private ring: RingService | null = null;
+
+  constructor(cfg: AnxietyConfig = {}, ring: RingService | null = null) {
     this.cfg = {
       sustainedMs: cfg.sustainedMs ?? SUSTAINED_MS,
       suppressionMs: cfg.suppressionMs ?? SUPPRESSION_MS,
       sedentaryAccelThreshold: cfg.sedentaryAccelThreshold ?? SEDENTARY_ACCEL,
       bpmSpikePct: cfg.bpmSpikePct ?? BPM_SPIKE_PCT,
     };
+    this.ring = ring;
   }
 
   /** Externally updated by the EmotionalEngine whenever a new RMSSD is computed. */
@@ -164,6 +168,14 @@ export class AnxietyDetector {
       context,
       recommendedIntervention: interventionForTrigger('anxiety'),
     };
+
+    // ── Buzz the Saadhana Ring as a private, gentle alert ──
+    // Triple short pulse (200ms each) at medium intensity = "pay attention,
+    // the app has something for you". Soft-fails on web / no ring.
+    try {
+      await this.ring?.buzz({ pattern: [200, 150, 200, 150, 200], intensity: 'medium' });
+    } catch { /* buzz is optional */ }
+
     emotionEventBus.emit(event);
   }
 

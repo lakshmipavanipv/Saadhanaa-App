@@ -26,7 +26,9 @@ export class EmotionalEngine {
   private suppressed = false;  // pause while user is *in* an intervention
 
   constructor(ring: RingService) {
-    this.anxiety = new AnxietyDetector();
+    // AnxietyDetector now takes the ring too — buzzes it on event fire
+    // so the user gets a private physical alert before the on-screen popup.
+    this.anxiety = new AnxietyDetector({}, ring);
     this.aggression = new AggressionDetector(ring);
     this.lethargy = new LethargyDetector();
   }
