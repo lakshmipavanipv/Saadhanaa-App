@@ -16,6 +16,9 @@ import { MultiMetricTrendCard }  from '../soulsync/components/MultiMetricTrendCa
 import { StepsJapaCard }         from '../soulsync/components/StepsJapaCard';
 import { EmotionalSummaryCard }  from '../soulsync/components/EmotionalSummaryCard';
 import { AIInsightsCard }        from '../soulsync/components/AIInsightsCard';
+import { ScoreTrendsCard }       from '../soulsync/components/ScoreTrendsCard';
+import { SleepScoreCard }        from '../soulsync/components/SleepScoreCard';
+import { HealthDashboardCard }   from '../soulsync/components/HealthDashboardCard';
 
 type TrendRange = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -128,11 +131,29 @@ export const HistoryScreen = () => {
           </Text>
         </View>
 
-        {/* Soulsync — 24h mood timeline + multi-metric trends + emotional summary + AI retrospective */}
-        <MoodTimelineCard />
+        {/* ─── New Insights tab order ─────────────────────────────
+            1. Master score trends (Japa + Calm KPIs + charts)
+            2. Sleep Score (full breakdown + deep-sleep trend) — single source
+            3. Body metrics table (baseline → today)
+            4. Per-metric trend charts
+            5. Steps × Japa
+            6. Mood timeline
+            7. Emotional events
+            8. AI retrospective
+            ───────────────────────────────────────────────────────── */}
+
+        <ScoreTrendsCard />
+
+        <SleepScoreCard variant="full" />
+
+        <HealthDashboardCard />
+
         <MultiMetricTrendCard />
         <StepsJapaCard days={30} />
+
+        <MoodTimelineCard />
         <EmotionalSummaryCard />
+
         <AIInsightsCard userName={userProfile?.name} mode="retrospective" />
 
         {/* Lifetime Stats */}

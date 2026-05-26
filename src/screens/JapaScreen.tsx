@@ -15,6 +15,10 @@ import { todayStr } from '../utils';
 import { COLORS, SPACING, FONT_SIZES } from '../theme';
 import { Mala } from '../components/Mala';
 import { RingSpinner } from '../components/RingSpinner';
+import { PulseHighlight } from '../components/PulseHighlight';
+import { BpmHrvBaselineCard } from '../soulsync/components/BpmHrvBaselineCard';
+import { SessionScorePopup } from '../soulsync/components/SessionScorePopup';
+import { computeJapaEffect, JapaEffectSnapshot } from '../soulsync/analytics/JapaEffect';
 import { DeityIcon } from '../components/DeityIcon';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
 import { HRVWaveGraph } from '../soulsync/components/HRVWaveGraph';
@@ -30,7 +34,18 @@ import {
 const BEADS = 108;
 
 export const JapaScreen = ({ navigation }: any) => {
-  const { selectedDeity, setSelectedDeity, deities, saveSession, showToast, deityProgress, updateProgress } = useSadhana();
+  const { selectedDeity, setSelectedDeity, deities, saveSession, showToast, deityProgress, updateProgress, history } = useSadhana();
+
+  // ── Lifetime totals (across all history + in-progress) ───────────
+  const lifetimeJapas = React.useMemo(() => {
+    const h = history.reduce((s, x) => s + x.japas, 0);
+    const ip = Object.values(deityProgress).reduce((s, p) => s + (p.count || 0), 0);
+    return h + ip;
+  }, [history, deityProgress]);
+  const lifetimeMalas = React.useMemo(
+    () => history.reduce((s, x) => s + x.malas, 0),
+    [history]
+  );
   const [count, setCount] = useState(0);
   const [malas, setMalas] = useState(0);
   const [showPicker, setShowPicker] = useState(false);
@@ -93,6 +108,15 @@ export const JapaScreen = ({ navigation }: any) => {
     showToast(`Logged ${totalMalas} malas / ${totalJapas} japas`);
   };
 
+  // ── Guided hints around the Soulsync button ────────────────────
+  // 'start' shown after first bead tap when Soulsync is OFF
+  // 'stop'  shown after a mala completes while Soulsync is ON
+  const [hintMode, setHintMode] = useState<'none' | 'start' | 'stop'>('none');
+
+  // Post-session score modal state
+  const [showScoreModal, setShowScoreModal] = useState(false);
+  const [sessionSnap, setSessionSnap] = useState<JapaEffectSnapshot | null>(null);
+
   const tap = useCallback(() => {
     if (!selectedDeity) {
       showToast('Please select a deity first!');
@@ -100,6 +124,13 @@ export const JapaScreen = ({ navigation }: any) => {
     }
     setPopBead(count);
     setTimeout(() => setPopBead(-1), 280);
+
+    // ── Hint: first bead of an unrecorded session ──
+    if (count === 0 && !soulsync.state.active) {
+      setHintMode('start');
+      setTimeout(() => setHintMode(m => m === 'start' ? 'none' : m), 6000);
+    }
+
     const next = count + 1;
     if (next >= BEADS) {
       // Auto-save on mala completion
@@ -115,13 +146,38 @@ export const JapaScreen = ({ navigation }: any) => {
       setCount(0);
       updateProgress(selectedDeity.id, 0, newMalas);
       // Soulsync: increment mala count on the active session row
-      if (soulsync.state.active) soulsync.recordMala();
+      if (soulsync.state.active) {
+        soulsync.recordMala();
+        // ── Hint: mala done, suggest stopping to see score ──
+        setHintMode('stop');
+        setTimeout(() => setHintMode(m => m === 'stop' ? 'none' : m), 8000);
+      }
       showToast(`🪷 1 mala saved for ${selectedDeity.name}`);
     } else {
       setCount(next);
       updateProgress(selectedDeity.id, next, malas);
     }
-  }, [selectedDeity, saveSession, showToast, count, malas, updateProgress]);
+  }, [selectedDeity, saveSession, showToast, count, malas, updateProgress, soulsync]);
+
+  // ── Intercept Soulsync toggle: when stopping, compute score + popup ──
+  const handleSoulsyncToggle = useCallback(async () => {
+    if (soulsync.state.active) {
+      await soulsync.stop();
+      setHintMode('none');
+      // Wait briefly so the DB finalisation (avg_bpm, end_time) lands
+      await new Promise(r => setTimeout(r, 600));
+      try {
+        const snap = await computeJapaEffect();
+        setSessionSnap(snap);
+        setShowScoreModal(true);
+      } catch (e) {
+        console.warn('[JapaScreen] score popup failed', e);
+      }
+    } else {
+      await soulsync.start();
+      setHintMode('none');
+    }
+  }, [soulsync]);
 
   const reset = () => {
     setCount(0);
@@ -209,6 +265,15 @@ export const JapaScreen = ({ navigation }: any) => {
         <View style={styles.header}>
           <Text style={styles.title}>Japa Counter</Text>
           <Text style={styles.subtitle}>1 Mala = 108 Japas · Tap the circle to count</Text>
+
+          {/* Lifetime totals pill — top-right of header, never overlaps the mala */}
+          <View style={styles.lifetimePill}>
+            <Text style={styles.lifetimePillText}>
+              <Text style={styles.lifetimePillNumber}>{lifetimeMalas.toLocaleString()}</Text> malas{'  '}·{'  '}
+              <Text style={styles.lifetimePillNumber}>{lifetimeJapas.toLocaleString()}</Text> japas
+            </Text>
+            <Text style={styles.lifetimePillSubtext}>lifetime</Text>
+          </View>
         </View>
 
         {/* Deity Selector */}
@@ -253,23 +318,33 @@ export const JapaScreen = ({ navigation }: any) => {
           <Text style={styles.mantra}>“{selectedDeity.mantra}”</Text>
         )}
 
-        {/* Soulsync session toggle */}
-        <View style={styles.soulsyncRow}>
-          <TouchableOpacity
-            style={[styles.soulsyncBtn, soulsync.state.active && styles.soulsyncBtnOn]}
-            onPress={() => soulsync.state.active ? soulsync.stop() : soulsync.start()}
-          >
-            <View style={[styles.soulsyncDot, soulsync.state.active && styles.soulsyncDotOn]} />
-            <Text style={[styles.soulsyncText, soulsync.state.active && styles.soulsyncTextOn]}>
-              {soulsync.state.active ? '◉ Soulsync recording' : 'Start Soulsync session'}
-            </Text>
-          </TouchableOpacity>
-          {soulsync.state.active && (
-            <Text style={styles.peakCount}>
-              ✨ {soulsync.state.peaksRegistered} peak{soulsync.state.peaksRegistered === 1 ? '' : 's'}
-            </Text>
-          )}
-        </View>
+        {/* Soulsync session toggle — wrapped with a pulse-glow that
+            fires when the user should start or stop a session. */}
+        <PulseHighlight
+          active={hintMode !== 'none'}
+          tooltip={hintMode === 'start'
+            ? '👉 Tap here first — track this session for your Saadhana Score'
+            : hintMode === 'stop'
+              ? '👉 Tap here to stop and see your Saadhana Score'
+              : undefined}
+        >
+          <View style={styles.soulsyncRow}>
+            <TouchableOpacity
+              style={[styles.soulsyncBtn, soulsync.state.active && styles.soulsyncBtnOn]}
+              onPress={handleSoulsyncToggle}
+            >
+              <View style={[styles.soulsyncDot, soulsync.state.active && styles.soulsyncDotOn]} />
+              <Text style={[styles.soulsyncText, soulsync.state.active && styles.soulsyncTextOn]}>
+                {soulsync.state.active ? '◉ Soulsync recording' : 'Start Soulsync session'}
+              </Text>
+            </TouchableOpacity>
+            {soulsync.state.active && (
+              <Text style={styles.peakCount}>
+                ✨ {soulsync.state.peaksRegistered} peak{soulsync.state.peaksRegistered === 1 ? '' : 's'}
+              </Text>
+            )}
+          </View>
+        </PulseHighlight>
 
         {/* Live HRV wave + glowing peak markers (only during an active session) */}
         {soulsync.state.active && (
@@ -281,6 +356,14 @@ export const JapaScreen = ({ navigation }: any) => {
             isBaselineEstablished={soulsync.state.isBaselineEstablished}
           />
         )}
+
+        {/* BPM + HRV vs baseline — visible whenever there's any session
+            telemetry today, not just during an active recording */}
+        <BpmHrvBaselineCard
+          liveBpm={soulsync.state.liveBpm}
+          liveRmssd={soulsync.state.rmssd}
+          isActive={soulsync.state.active}
+        />
 
         {/* 3-phase BPM Journey — Pre / During / Post Japa */}
         <BpmJourneyChart />
@@ -322,6 +405,17 @@ export const JapaScreen = ({ navigation }: any) => {
           Tap the center bead · 1 mala (108 beads) saves automatically
         </Text>
       </ScrollView>
+
+      {/* Saadhana Score popup — shown after a Soulsync session stops */}
+      <SessionScorePopup
+        visible={showScoreModal}
+        snapshot={sessionSnap}
+        onClose={() => setShowScoreModal(false)}
+        onViewInsights={() => {
+          setShowScoreModal(false);
+          navigation?.navigate?.('History');
+        }}
+      />
 
       {/* Deity Picker Modal */}
       <Modal visible={showPicker} transparent animationType="slide">
@@ -553,6 +647,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.muted,
     textAlign: 'center',
+  },
+  // ── Lifetime totals pill (top-right of header, never overlaps mala) ──
+  lifetimePill: {
+    position: 'absolute',
+    top: -4,
+    right: 0,
+    backgroundColor: 'rgba(255, 184, 0, 0.12)',
+    borderRadius: 10,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 184, 0, 0.3)',
+    alignItems: 'flex-end',
+  },
+  lifetimePillText: { fontSize: 10, color: COLORS.cream },
+  lifetimePillNumber: { color: COLORS.gold, fontWeight: '700', fontSize: 11 },
+  lifetimePillSubtext: {
+    fontSize: 8, color: COLORS.muted, fontStyle: 'italic',
+    letterSpacing: 0.5, textTransform: 'uppercase',
   },
   deitySelector: {
     backgroundColor: COLORS.cardBg,

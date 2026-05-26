@@ -77,11 +77,11 @@ export const SolutionMatrixCard: React.FC = () => {
   return (
     <View style={styles.card}>
       <View style={styles.titleRow}>
-        <Text style={styles.title}>Bio-Spiritual Solution Matrix</Text>
+        <Text style={styles.title}>Body & Soul Today</Text>
         <Text style={styles.todayChip}>Today: {todays.length}</Text>
       </View>
       <Text style={styles.subtitle}>
-        Every wave your body felt today — and how your sadhana responded
+        How your body felt today — and how your prayer helped
       </Text>
 
       {/* SECTION A — IMBALANCE LOG */}
@@ -131,24 +131,8 @@ export const SolutionMatrixCard: React.FC = () => {
         </View>
       )}
 
-      {/* STATISTICAL OUTPUT — CONVERGENCE RATE */}
-      <Text style={styles.sectionLabel}>BODY-SETTING CONVERGENCE</Text>
-      <View style={styles.windowRow}>
-        {windows.map(w => (
-          <View key={w.label} style={styles.windowBox}>
-            <Text style={styles.windowPct}>
-              {w.total > 0 ? `${Math.round(w.rate * 100)}%` : '—'}
-            </Text>
-            <Text style={styles.windowLabel}>{w.label}</Text>
-            <Text style={styles.windowFraction}>
-              {w.total > 0 ? `${w.resolved}/${w.total}` : 'no data'}
-            </Text>
-          </View>
-        ))}
-      </View>
-      <Text style={styles.windowHint}>
-        % of imbalance events you brought back into balance with sadhana
-      </Text>
+      {/* Body-setting convergence stats removed — moved to Insights tab.
+          Home keeps only the Imbalance Log so the section stays light. */}
     </View>
   );
 };

@@ -30,6 +30,67 @@ export interface UserProfile {
   onboarded: boolean;
 }
 
+/** Cached city info used when computing tithi at death location. */
+export interface DeathLocation {
+  name: string;          // "Mumbai" or "Toronto"
+  country: string;       // "India" / "Canada"
+  lat: number;
+  lng: number;
+  tz: string;            // IANA: "Asia/Kolkata"
+}
+
+/**
+ * Family member whose annual Tithi-shraddha (death anniversary) we
+ * track and show in the festival calendar.
+ *
+ * Two input modes, captured by `inputMode`:
+ *
+ *   • 'date'  — user knows the Gregorian date + time + city/country of
+ *     death. We call VedAstro at THAT location to convert to lunar tithi.
+ *   • 'tithi' — user already knows the lunar tithi (paksha + tithi # + maas).
+ *     We store it directly and skip the conversion.
+ *
+ * Either way, `lunarTithiNumber + lunarPaksha + lunarMaas` is what
+ * drives the annual recurrence lookup against the USER'S current
+ * location and the device timezone.
+ */
+export interface FamilyMember {
+  id: string;
+  name: string;
+  /** "Father", "Mother", "Grandfather", or freeform. */
+  relation: string;
+  /** Which input mode the user used. Determines validation + UI. */
+  inputMode: 'date' | 'tithi';
+
+  // ── Input mode 'date' ──────────────────────────────────────
+  /** Gregorian death date (YYYY-MM-DD). */
+  deathDateGregorian?: string;
+  /** Local time at death (HH:MM). Default 12:00 if unknown. */
+  deathTimeLocal?: string;
+  /** Where the person died — needed to compute correct tithi. */
+  deathLocation?: DeathLocation;
+
+  // ── Lunar tithi (entered directly OR computed from above) ──
+  /** Lunar tithi number 1..15. */
+  lunarTithiNumber?: number;
+  /** Paksha. */
+  lunarPaksha?: 'Shukla' | 'Krishna' | '';
+  /** Lunar month name (e.g. "Chaitra"). */
+  lunarMaas?: string;
+
+  // ── Cached annual occurrence ───────────────────────────────
+  /** Next upcoming Gregorian shraddha date (YYYY-MM-DD), in user's TZ. */
+  nextOccurrenceISO?: string;
+  /** When we last computed nextOccurrenceISO. */
+  lastComputedAt?: number;
+
+  // ── Reminder ───────────────────────────────────────────────
+  /** Reminder enabled (defaults true on creation). */
+  reminderEnabled?: boolean;
+  /** Time of day for the reminder (HH:MM). Defaults to 06:00 (sunrise-ish). */
+  reminderTime?: string;
+}
+
 export interface Festival {
   id: string;
   name: string;

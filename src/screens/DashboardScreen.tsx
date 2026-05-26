@@ -24,14 +24,15 @@ import {
   formatShortDate,
 } from '../utils';
 import { COLORS, SPACING } from '../theme';
-import { CalmDivergenceCard } from '../soulsync/components/CalmDivergenceCard';
-import { HealthDashboardCard } from '../soulsync/components/HealthDashboardCard';
 import { AIInsightsCard } from '../soulsync/components/AIInsightsCard';
 import { SolutionMatrixCard } from '../soulsync/components/SolutionMatrixCard';
 import { MicroSadhanaCard } from '../soulsync/components/MicroSadhanaCard';
 import { BodySoulLogo } from '../soulsync/components/BodySoulLogo';
+import { SoulsyncScoreCard } from '../soulsync/components/SoulsyncScoreCard';
+import { SaadhanaScoreCard } from '../soulsync/components/SaadhanaScoreCard';
 import { useEmotionalState } from '../soulsync/hooks/useEmotionalState';
 import { DeityIcon } from '../components/DeityIcon';
+import { TodayPrayersCard } from '../components/TodayPrayersCard';
 
 interface FestReminder {
   shopping?: { enabled: boolean; date: string; time: string; recurrence?: string };
@@ -63,6 +64,8 @@ export const DashboardScreen = ({ navigation }: any) => {
   // ── KPIs ─────────────────────────────────────────────────────────
   // Include in-progress count from deityProgress so dashboards update
   // on every single bead tap, not just on full-mala completion.
+  // 'history' counts ALL japa entries: manual logs, app taps, and
+  // ring-synced taps — all flow through saveSession() into history.
   const inProgressJapas = useMemo(
     () => Object.values(deityProgress).reduce((s, p) => s + (p.count || 0), 0),
     [deityProgress]
@@ -76,6 +79,34 @@ export const DashboardScreen = ({ navigation }: any) => {
     () => history.reduce((s, h) => s + h.malas, 0),
     [history]
   );
+
+  // ── Measured prayer time (from Soulsync sessions with real start/end) ──
+  // For history entries without timing data, we fall back to the 6-sec
+  // per-japa estimate. So `sadhanaSeconds` = estimate of TOTAL time across
+  // every entry (manual, app, ring). If/when measured session data exists,
+  // we ADDITIONALLY surface it as a confirmation row below the hero.
+  const [measuredSeconds, setMeasuredSeconds] = useState<number>(0);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getDB } = await import('../soulsync/db/database');
+        const db = await getDB();
+        const row = await db.getFirstAsync<{ total_sec: number | null }>(
+          `SELECT COALESCE(SUM(
+            CASE WHEN end_time IS NOT NULL
+              THEN (julianday(end_time) - julianday(start_time)) * 86400
+              ELSE 0 END
+          ), 0) AS total_sec FROM session_spiritual`
+        );
+        if (!cancelled) setMeasuredSeconds(Math.round(row?.total_sec ?? 0));
+      } catch {
+        // soft-fail — keep 0
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [history]);
+
   const sadhanaSeconds = japasToSeconds(totalJapas);
   // Total deities the user has added to their sadhana — shown on the
   // dashboard. Previously this only counted deities with history or
@@ -261,16 +292,124 @@ export const DashboardScreen = ({ navigation }: any) => {
           <MicroSadhanaCard event={lethargyEvent} onComplete={dismissEmotional} />
         )}
 
-        {/* Bio-Spiritual Solution Matrix — today's imbalances + body-setting convergence */}
+        {/* ────────────────────────────────────────────────────────────
+            #1 PRIORITY — Total Sadhana Time (clear, big, elderly-friendly)
+            ──────────────────────────────────────────────────────────── */}
+        <View style={styles.sadhanaHero}>
+          <Text style={styles.sadhanaHeroLabel}>Total Time in Sadhana</Text>
+          <Text style={styles.sadhanaHeroValue}>{formatSadhanaTime(sadhanaSeconds)}</Text>
+          <Text style={styles.sadhanaHeroSource}>
+            from {totalJapas.toLocaleString()} japas
+            {measuredSeconds > 0 && ` · ${formatSadhanaTime(measuredSeconds)} timed by ring`}
+          </Text>
+          <View style={styles.sadhanaHeroDivider} />
+          <Text style={styles.sadhanaHeroToday}>
+            🌅 Today: {todayCount > 0
+              ? `${todayCount} mala${todayCount !== 1 ? 's' : ''} (${formatSadhanaTime(japasToSeconds(todayCount * 108))})`
+              : 'No sadhana yet — tap Japa tab to start 🙏'}
+          </Text>
+        </View>
+
+        {/* #2 — Mala / Deity counts */}
+        <View style={styles.kpiCard}>
+          <View style={styles.kpiCol}>
+            <Text style={styles.kpiValue}>{totalMalas.toLocaleString()}</Text>
+            <Text style={styles.kpiLabel}>Mala count</Text>
+          </View>
+          <View style={styles.kpiDivider} />
+          <View style={styles.kpiCol}>
+            <Text style={styles.kpiValue}>
+              {numDeitiesChanted}
+              <Text style={{ fontSize: 14, color: COLORS.muted }}>/{numDeitiesAdded}</Text>
+            </Text>
+            <Text style={styles.kpiLabel}>Deities chanted</Text>
+          </View>
+        </View>
+
+        {/* #3 — Soulsync Score (Day Baseline + Japa Effect overview) */}
+        <SoulsyncScoreCard />
+
+        {/* #4 — My Deities (shortcut + progress). Tap any row to start
+                  a Japa session for that deity. Replaces the old separate
+                  "Start Your Prayer" quick-start grid. */}
+        {perDeity.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>My Deities · tap to start japa</Text>
+            {perDeity.map((d, i) => {
+              const deityRecord = deities.find(x => x.id === d.id);
+              return (
+                <TouchableOpacity
+                  key={i}
+                  style={styles.deityRow}
+                  onPress={() => {
+                    if (deityRecord) {
+                      setSelectedDeity(deityRecord);
+                      navigation?.navigate('Japa');
+                    }
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.deityRowIconWrap}>
+                    <DeityIcon deityId={d.id} icon={d.icon} size={22} color={COLORS.gold} />
+                  </View>
+                  <View style={{ flex: 1, marginLeft: SPACING.sm }}>
+                    <View style={styles.deityRowHeader}>
+                      <Text style={styles.deityRowName} numberOfLines={1}>
+                        {d.name.split(' ').slice(-1)[0]}
+                      </Text>
+                      <Text style={styles.deityRowMalas}>{d.malas} malas</Text>
+                    </View>
+                    <View style={styles.deityBarTrack}>
+                      <View
+                        style={[
+                          styles.deityBarFill,
+                          {
+                            width: `${(d.malas / maxDeityMalas) * 100}%`,
+                            backgroundColor: d.color,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.deityRowTime}>
+                      {formatSadhanaTime(japasToSeconds(d.japas))} of sadhana
+                    </Text>
+                  </View>
+                  <Text style={styles.deityRowChevron}>›</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
+        {/* #5 — Today vs Saadhana (primary table card: Saadhana Score +
+                  note + all metrics baseline → japa) */}
+        <SaadhanaScoreCard />
+
+        {/* #6 — Body & Soul Today (Imbalance Log only — directly below
+                  the Saadhana table since they're contextually related) */}
         <SolutionMatrixCard />
 
-        {/* Soulsync — health metrics + Calm Divergence + Sleep correlation */}
-        <HealthDashboardCard />
-
-        {/* AI Insights — Gemini-powered weekly read on body × sadhana */}
+        {/* #7 — AI Insights — prescribes how to improve the Saadhana Score */}
         <AIInsightsCard userName={userProfile?.name} />
 
-        {/* Today's festival banner */}
+        {/* #8 — Today's Sadhana Times */}
+        <TodayPrayersCard
+          slots={feedItems
+            .filter(i => i.icon === '⏰')
+            .map(i => {
+              const deityFromName = deities.find(d => i.label.includes(d.name)) || deities[0];
+              return {
+                deity: deityFromName,
+                when: i.when,
+                timeLabel: deityFromName?.prayerAlarm || '',
+              };
+            })
+            .filter(s => s.deity)
+          }
+          onSelect={d => { setSelectedDeity(d); navigation?.navigate('Japa'); }}
+        />
+
+        {/* #9 — Today's festival banner */}
         {todayFest && (
           <View style={styles.todayFestCard}>
             <Text style={{ fontSize: 36 }}>{todayFest.deityIcon}</Text>
@@ -279,85 +418,11 @@ export const DashboardScreen = ({ navigation }: any) => {
           </View>
         )}
 
-        {/* Next Japa reminder strip */}
-        {nextJapa && (
-          <View style={styles.nextJapaCard}>
-            <Text style={styles.nextJapaLabel}>NEXT JAPA</Text>
-            <View style={styles.nextJapaRow}>
-              <Text style={styles.nextJapaName}>{nextJapa.label}</Text>
-              <Text style={styles.nextJapaWhen}>{formatTimeUntil(nextJapa.when)}</Text>
-            </View>
-            <Text style={styles.nextJapaDetail}>{nextJapa.detail}</Text>
-          </View>
-        )}
-
-        {/* ───── CORE KPIs ───── */}
-        <View style={styles.kpiCard}>
-          <View style={styles.kpiCol}>
-            <Text style={styles.kpiValue}>{formatSadhanaTime(sadhanaSeconds)}</Text>
-            <Text style={styles.kpiLabel}>Sadhana</Text>
-          </View>
-          <View style={styles.kpiDivider} />
-          <View style={styles.kpiCol}>
-            <Text style={styles.kpiValue}>{totalMalas.toLocaleString()}</Text>
-            <Text style={styles.kpiLabel}>Malas</Text>
-          </View>
-          <View style={styles.kpiDivider} />
-          <View style={styles.kpiCol}>
-            <Text style={styles.kpiValue}>{numDeitiesChanted}<Text style={{ fontSize: 14, color: COLORS.muted }}>/{numDeitiesAdded}</Text></Text>
-            <Text style={styles.kpiLabel}>Deities chanted</Text>
-          </View>
-        </View>
-
-        {/* Today's count strip */}
-        <View style={styles.todayStrip}>
-          <Text style={styles.todayStripText}>
-            🔥 Today: {todayCount} mala{todayCount !== 1 ? 's' : ''} ·{' '}
-            {formatSadhanaTime(japasToSeconds(todayCount * 108))} spent
-          </Text>
-        </View>
-
-        {/* ───── Per-deity Breakdown ───── */}
-        {perDeity.length > 0 && (
+        {/* #10 — Other reminders (festivals & non-prayer items) — bottom */}
+        {feedItems.filter(i => i.icon !== '⏰').length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Per-deity Breakdown</Text>
-            {perDeity.map((d, i) => (
-              <View key={i} style={styles.deityRow}>
-                <View style={styles.deityRowIconWrap}>
-                  <DeityIcon deityId={d.id} icon={d.icon} size={22} color={COLORS.gold} />
-                </View>
-                <View style={{ flex: 1, marginLeft: SPACING.sm }}>
-                  <View style={styles.deityRowHeader}>
-                    <Text style={styles.deityRowName} numberOfLines={1}>
-                      {d.name.split(' ').slice(-1)[0]}
-                    </Text>
-                    <Text style={styles.deityRowMalas}>{d.malas} malas</Text>
-                  </View>
-                  <View style={styles.deityBarTrack}>
-                    <View
-                      style={[
-                        styles.deityBarFill,
-                        {
-                          width: `${(d.malas / maxDeityMalas) * 100}%`,
-                          backgroundColor: d.color,
-                        },
-                      ]}
-                    />
-                  </View>
-                  <Text style={styles.deityRowTime}>
-                    {formatSadhanaTime(japasToSeconds(d.japas))} of sadhana
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* ───── Reminder Feed ───── */}
-        {feedItems.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Upcoming Schedule</Text>
-            {feedItems.slice(0, 6).map((item, i) => (
+            <Text style={styles.sectionTitle}>Other Reminders</Text>
+            {feedItems.filter(i => i.icon !== '⏰').slice(0, 6).map((item, i) => (
               <View key={i} style={styles.feedRow}>
                 <Text style={[styles.feedIcon, { color: item.color }]}>{item.icon}</Text>
                 <View style={{ flex: 1, marginLeft: SPACING.sm }}>
@@ -369,33 +434,6 @@ export const DashboardScreen = ({ navigation }: any) => {
                 </Text>
               </View>
             ))}
-          </View>
-        )}
-
-        {/* Quick Start deities */}
-        {deities.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Quick Start Japa</Text>
-            <View style={styles.quickStartGrid}>
-              {deities.slice(0, 4).map(d => (
-                <TouchableOpacity
-                  key={d.id}
-                  style={styles.deityCard}
-                  onPress={() => {
-                    setSelectedDeity(d);
-                    navigation?.navigate('Japa');
-                  }}
-                >
-                  <View style={styles.deityCardIconWrap}>
-                    <DeityIcon deityId={d.id} icon={d.icon} size={26} color={COLORS.gold} />
-                  </View>
-                  <Text style={styles.deityCardName} numberOfLines={1}>
-                    {d.name.split(' ').slice(-1)[0]}
-                  </Text>
-                  <Text style={styles.deityCardMalas}>{d.totalMalas} malas</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
           </View>
         )}
 
@@ -509,6 +547,50 @@ const styles = StyleSheet.create({
   nextJapaWhen: { fontSize: 13, color: COLORS.saffron, fontWeight: '600' },
   nextJapaDetail: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
 
+  // ── Big hero card for total prayer time (priority #1 for elderly users) ──
+  sadhanaHero: {
+    marginHorizontal: SPACING.md,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.sm,
+    padding: SPACING.lg,
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: COLORS.gold,
+    alignItems: 'center',
+  },
+  sadhanaHeroLabel: {
+    fontSize: 13,
+    color: COLORS.muted,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  sadhanaHeroValue: {
+    fontSize: 38,
+    color: COLORS.gold,
+    fontWeight: '700',
+    lineHeight: 42,
+  },
+  sadhanaHeroSource: {
+    fontSize: 11,
+    color: COLORS.muted,
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  sadhanaHeroDivider: {
+    width: 60,
+    height: 1,
+    backgroundColor: 'rgba(212, 160, 23, 0.4)',
+    marginVertical: SPACING.sm,
+  },
+  sadhanaHeroToday: {
+    fontSize: 14,
+    color: COLORS.cream,
+    textAlign: 'center',
+  },
+
   kpiCard: {
     flexDirection: 'row',
     marginHorizontal: SPACING.md,
@@ -519,14 +601,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(212, 160, 23, 0.2)',
   },
-  kpiCol: { flex: 1, alignItems: 'center' },
-  kpiValue: { fontSize: 22, color: COLORS.gold, fontWeight: '700' },
+  kpiCol: { flex: 1, alignItems: 'center', paddingHorizontal: SPACING.sm },
+  kpiValue: { fontSize: 26, color: COLORS.gold, fontWeight: '700' },
   kpiLabel: {
-    fontSize: 10,
-    color: COLORS.muted,
-    marginTop: 4,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
+    fontSize: 11,
+    color: COLORS.cream,
+    marginTop: 6,
+    textAlign: 'center',
+    lineHeight: 14,
   },
   kpiDivider: { width: 1, backgroundColor: 'rgba(212, 160, 23, 0.2)', marginVertical: 6 },
 
@@ -580,6 +662,7 @@ const styles = StyleSheet.create({
   },
   deityBarFill: { height: '100%', borderRadius: 3 },
   deityRowTime: { fontSize: 10, color: COLORS.muted, marginTop: 4 },
+  deityRowChevron: { fontSize: 22, color: COLORS.gold, marginLeft: SPACING.sm, opacity: 0.7 },
 
   feedRow: {
     flexDirection: 'row',

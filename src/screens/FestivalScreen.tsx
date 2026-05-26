@@ -14,6 +14,10 @@ import { Storage } from '../storage';
 import { getDaysUntil, formatShortDate } from '../utils';
 import { COLORS, SPACING } from '../theme';
 import { Calendar } from '../components/Calendar';
+import { FamilyMembersCard } from '../components/FamilyMembersCard';
+import { getUserLocation, UserLocation } from '../services/location';
+import { computeSunTimes, fmtHHMM, SunTimes } from '../services/sunTimes';
+import { buildCalendar, CalendarItem } from '../services/calendarAggregator';
 
 type CheckedState = Record<string, boolean>;
 import { ReminderPicker, ReminderValue } from '../components/ReminderPicker';
@@ -38,9 +42,23 @@ export const FestivalScreen = () => {
   const [selected, setSelected] = useState<PanchangFestival | null>(null);
   const [view, setView] = useState<'calendar' | 'list'>('calendar');
 
+  // ── Live data: user location, today's sunrise/sunset, merged calendar ──
+  const [loc, setLoc] = useState<UserLocation | null>(null);
+  const [sun, setSun] = useState<SunTimes | null>(null);
+  const [calendar, setCalendar] = useState<CalendarItem[]>([]);
+
   useEffect(() => {
     Storage.get<CheckedState>('festChecked', {}).then(setChecked);
     Storage.get<ReminderState>('festReminders', {}).then(setReminders);
+    (async () => {
+      const l = await getUserLocation();
+      setLoc(l);
+      setSun(computeSunTimes(new Date(), l));
+      try {
+        const merged = await buildCalendar(l, 365);
+        setCalendar(merged);
+      } catch (e) { console.warn('[festival] calendar build failed:', e); }
+    })();
   }, []);
 
   useEffect(() => {
@@ -67,9 +85,104 @@ export const FestivalScreen = () => {
     });
   };
 
-  const filtered = PANCHANG_FESTIVALS
-    .filter(f => f.region === 'Hindu')
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  // Convert tithi-shraddhas + eclipses into PanchangFestival-shaped
+  // entries so they appear naturally in BOTH calendar and list views.
+  const extraFestivals: PanchangFestival[] = React.useMemo(() => {
+    const out: PanchangFestival[] = [];
+    for (const item of calendar) {
+      if (item.kind === 'festival') continue;   // already in PANCHANG_FESTIVALS
+
+      if (item.kind === 'tithi-shraddha') {
+        const m: any = item.payload;
+        out.push({
+          id: item.id,
+          name: item.title,
+          date: item.date,
+          region: 'Hindu',
+          deity: 'Pitru (ancestor)',
+          deityIcon: '🕯️',
+          tithi: m.lunarPaksha
+            ? `${m.lunarPaksha} ${['Pratipada','Dwitiya','Tritiya','Chaturthi','Panchami','Shashthi','Saptami','Ashtami','Navami','Dashami','Ekadashi','Dwadashi','Trayodashi','Chaturdashi','Purnima/Amavasya'][(m.lunarTithiNumber || 1) - 1] || ''}`
+            : '',
+          paksha: m.lunarPaksha,
+          vara: '',
+          nakshatra: '',
+          month: m.lunarMaas || '',
+          significance: `Annual Tithi Shraddha for ${m.name} (${m.relation || ''}). Offer tarpana and pinda dana.`,
+          whatToDo: [
+            'Wake before sunrise, bathe, wear clean clothes',
+            'Perform tarpana with sesame seeds + water',
+            'Offer pinda dana facing south',
+            'Feed Brahmins or donate food in their name',
+            'Avoid arguments and travel — keep the day simple',
+          ],
+          timing: 'Madhyahnika (mid-day) is the traditional time',
+          wish: `Remembering ${m.name} 🙏`,
+          wishSub: 'May their soul rest in eternal peace',
+          checklist: [
+            { id: 1, text: 'Sesame seeds (til)', tag: '🌱' },
+            { id: 2, text: 'Rice + barley', tag: '🍚' },
+            { id: 3, text: 'Darbha grass', tag: '🌾' },
+            { id: 4, text: 'Pure water', tag: '💧' },
+            { id: 5, text: 'Cow ghee', tag: '🧈' },
+          ],
+        });
+      }
+
+      if (item.kind === 'eclipse') {
+        const e: any = item.payload;
+        const isLunar = e.type === 'lunar';
+        out.push({
+          id: item.id,
+          name: item.title,
+          date: item.date,
+          region: 'Hindu',
+          deity: isLunar ? 'Chandra (Moon)' : 'Surya (Sun)',
+          deityIcon: isLunar ? '🌑' : '☀️',
+          tithi: isLunar ? 'Purnima' : 'Amavasya',
+          paksha: isLunar ? 'Shukla' : 'Krishna',
+          vara: '',
+          nakshatra: '',
+          month: '',
+          significance: e.visibleAtLocation
+            ? 'Visible at your location. Sutak rules apply — abstain from food, cooking, and travel during the eclipse window.'
+            : 'Not visible at your location. No sutak rules; standard observances optional.',
+          whatToDo: e.visibleAtLocation ? [
+            'Begin sutak ~12 hr before eclipse (lunar) / ~9 hr before (solar)',
+            'Stop cooking and eating during the eclipse',
+            'Bathe in cold water and chant your ishta mantra',
+            'Donate after the eclipse ends (grain, clothes, sesame)',
+            'Pregnant women: stay indoors, no sharp tools',
+          ] : [
+            'No sutak rules apply (not visible locally)',
+            'Optionally chant Maha Mrityunjaya / Surya mantras',
+            'Donate if you wish — multiplied effect during eclipses',
+          ],
+          timing: e.startTime && e.endTime
+            ? `Eclipse window: ${e.startTime} – ${e.endTime}`
+            : 'See Indian Ephemeris for exact timing',
+          fromTime: e.startTime,
+          toTime: e.endTime,
+          wish: isLunar ? '🌑 Chandra Grahan today' : '☀️ Surya Grahan today',
+          wishSub: 'Time for inner reflection and japa',
+          checklist: [
+            { id: 1, text: 'Pure water for bath', tag: '💧' },
+            { id: 2, text: 'Tulsi leaves for food (post-eclipse)', tag: '🌿' },
+            { id: 3, text: 'Darbha grass on stored food', tag: '🌾' },
+          ],
+        });
+      }
+    }
+    return out;
+  }, [calendar]);
+
+  const filtered = React.useMemo(() => {
+    const all = [
+      ...PANCHANG_FESTIVALS.filter(f => f.region === 'Hindu'),
+      ...extraFestivals,
+    ];
+    return all.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [extraFestivals]);
 
   const handleCalDate = (date: string, fests: PanchangFestival[]) => {
     if (fests.length > 0) setSelected(fests[0]);
@@ -82,6 +195,31 @@ export const FestivalScreen = () => {
           <Text style={styles.title}>Festival Calendar</Text>
           <Text style={styles.subtitle}>Tap any date to view festival details</Text>
         </View>
+
+        {/* ── Live sunrise / sunset for the user's location ── */}
+        {sun && loc && (
+          <View style={styles.sunCard}>
+            <Text style={styles.sunCardLabel}>
+              ☀️ Today · {loc.label || `${loc.lat.toFixed(2)}, ${loc.lng.toFixed(2)}`}
+            </Text>
+            <View style={styles.sunRow}>
+              <SunStat icon="🌅" label="Sunrise"  time={fmtHHMM(sun.sunrise)} />
+              <SunStat icon="🌞" label="Noon"     time={fmtHHMM(sun.solarNoon)} />
+              <SunStat icon="🌇" label="Sunset"   time={fmtHHMM(sun.sunset)} />
+            </View>
+            <View style={styles.sunRow}>
+              <SunStat icon="🌌" label="Brahma muhurta" time={fmtHHMM(sun.brahmaMuhurta)} compact />
+              <SunStat icon="🪷" label="Pratah sandhya" time={`${fmtHHMM(sun.pratahSandhya.start)}–${fmtHHMM(sun.pratahSandhya.end)}`} compact />
+              <SunStat icon="🕯️" label="Sayam sandhya"  time={`${fmtHHMM(sun.sayamSandhya.start)}–${fmtHHMM(sun.sayamSandhya.end)}`} compact />
+            </View>
+            <Text style={styles.sunHint}>
+              Times computed locally from your device location · timezone {loc.tz}
+            </Text>
+          </View>
+        )}
+
+        {/* ── Family · Tithi Shraddha manager ── */}
+        <FamilyMembersCard />
 
         <TimezoneNote />
 
@@ -457,7 +595,55 @@ const PanchangRow: React.FC<{ label: string; value: string }> = ({ label, value 
   </View>
 );
 
+// ── Small helper used by the new sunrise/sunset card ────────────
+const SunStat: React.FC<{
+  icon: string; label: string; time: string; compact?: boolean;
+}> = ({ icon, label, time, compact }) => (
+  <View style={{ flex: 1, alignItems: 'center' }}>
+    <Text style={{ fontSize: compact ? 14 : 20 }}>{icon}</Text>
+    <Text style={{ fontSize: compact ? 9 : 10, color: COLORS.muted, fontWeight: '700', letterSpacing: 0.5, marginTop: 2, textAlign: 'center' }}>
+      {label.toUpperCase()}
+    </Text>
+    <Text style={{ fontSize: compact ? 11 : 14, color: COLORS.cream, fontWeight: '600', marginTop: 2, textAlign: 'center' }}>
+      {time}
+    </Text>
+  </View>
+);
+
 const styles = StyleSheet.create({
+  // ── New sunrise/sunset hero card ──
+  sunCard: {
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+    padding: SPACING.md,
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 184, 0, 0.25)',
+  },
+  sunCardLabel: { fontSize: 11, color: COLORS.gold, fontWeight: '700', letterSpacing: 0.5, marginBottom: SPACING.sm },
+  sunRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
+  sunHint: { fontSize: 9, color: COLORS.muted, fontStyle: 'italic', textAlign: 'center', marginTop: 6 },
+
+  // ── Upcoming calendar card ──
+  upcomingCard: {
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+    padding: SPACING.md,
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  upcomingTitle: { fontSize: 12, color: COLORS.muted, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: SPACING.sm },
+  upcomingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)' },
+  upcomingIcon: { fontSize: 22 },
+  upcomingItemTitle: { fontSize: 14, color: COLORS.cream, fontWeight: '600' },
+  upcomingSub: { fontSize: 11, color: COLORS.muted, marginTop: 1 },
+  upcomingDays: { fontSize: 13, color: COLORS.gold, fontWeight: '700' },
+  upcomingDate: { fontSize: 10, color: COLORS.muted, marginTop: 1 },
+
+  // ── (original styles below) ──
   container: { flex: 1, backgroundColor: COLORS.deep },
   content: { paddingTop: SPACING.lg, paddingBottom: SPACING.xl },
   header: { paddingHorizontal: SPACING.md, marginBottom: SPACING.md },

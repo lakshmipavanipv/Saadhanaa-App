@@ -96,7 +96,7 @@ const TabNavigator = () => {
         name="History"
         component={HistoryScreen}
         options={{
-          tabBarLabel: 'History',
+          tabBarLabel: 'Insights',
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📈</Text>,
         }}
       />

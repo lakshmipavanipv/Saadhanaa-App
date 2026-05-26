@@ -15,6 +15,7 @@ import { COLORS, SPACING } from '../theme';
 import { DeityCatalogPicker } from '../components/DeityCatalogPicker';
 import { CatalogDeity, ALL_CATALOG_DEITIES } from '../deityCatalog';
 import { otpClient } from '../soulsync/auth/otpClient';
+import { isGoogleAuthAvailable, signInWithGoogle } from '../services/googleAuth';
 import {
   requestBlePermissions,
   scanForDevices,
@@ -24,10 +25,9 @@ import {
 } from '../services/ble';
 import { RingSpinner } from '../components/RingSpinner';
 
-type Step = 'welcome' | 'identity' | 'otp' | 'ring' | 'deities' | 'done';
-
-const generateOTP = (): string =>
-  String(Math.floor(100000 + Math.random() * 900000));
+// OTP step removed — trust the email, no friction for elderly users.
+// A welcome email is fired-and-forgotten in the background.
+type Step = 'welcome' | 'identity' | 'ring' | 'deities' | 'done';
 
 const validEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 const validPhone = (s: string) => /^\+?\d[\d\s-]{6,}$/.test(s.trim());
@@ -38,9 +38,7 @@ export const OnboardingScreen = () => {
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
   const [contactType, setContactType] = useState<'email' | 'phone'>('email');
-  const [otp, setOtp] = useState('');
-  const [enteredOtp, setEnteredOtp] = useState('');
-  const [otpSentAt, setOtpSentAt] = useState<number>(0);
+  // (OTP state removed — auto-authentication trusts the email.)
 
   // Start with no deities preselected — user picks their own.
   const [pickedIds, setPickedIds] = useState<Set<string>>(new Set());
@@ -86,47 +84,19 @@ export const OnboardingScreen = () => {
       showToast('Please enter a valid phone number');
       return;
     }
-    // Try backend send; falls back to demo mode if no backend is configured
-    const res = await otpClient.send(contact, contactType);
-    if (!res.sent) {
-      showToast(`Could not send OTP: ${res.error}`);
-      return;
-    }
-    // In mock/demo mode the backend (and thus otpClient) returns the OTP so we
-    // can show it on-screen for development. In production it's sent only via
-    // email/SMS and demoOtp is undefined.
-    setOtp(res.demoOtp ?? '');     // empty when real backend is in use
-    setEnteredOtp('');
-    setOtpSentAt(Date.now());
-    setStep('otp');
-    showToast(res.demoOtp ? `Demo OTP: ${res.demoOtp}` : 'OTP sent — check your email/phone');
-  };
+    // Auto-authentication: no OTP. We trust the email and move forward.
+    // A welcome email is sent in the background (best-effort) via the
+    // existing otpClient endpoint when it's configured as a "welcome"
+    // endpoint — otherwise it's a silent no-op for the user.
+    otpClient.send(contact, contactType).catch(() => {});
 
-  const resendOtp = async () => {
-    const res = await otpClient.send(contact, contactType);
-    if (!res.sent) {
-      showToast(`Resend failed: ${res.error}`);
-      return;
-    }
-    setOtp(res.demoOtp ?? '');
-    setEnteredOtp('');
-    setOtpSentAt(Date.now());
-    showToast(res.demoOtp ? `New OTP: ${res.demoOtp}` : 'New OTP sent');
-  };
-
-  const verifyOtp = async () => {
-    if (Date.now() - otpSentAt > 10 * 60 * 1000) {
-      showToast('OTP expired — please resend');
-      return;
-    }
-    const res = await otpClient.verify(contact, enteredOtp, otp || undefined);
-    if (!res.verified) {
-      showToast(res.reason === 'mismatch' ? 'Wrong OTP — try again' : `Verify failed: ${res.reason}`);
-      return;
-    }
-    showToast('Verified ✓');
+    showToast('Welcome 🙏');
     setStep('ring');
   };
+
+  // resendOtp removed — no OTP step.
+
+  // verifyOtp removed — no OTP step in auto-authentication flow.
 
   // ── Bluetooth pairing (onboarding step) ─────────────────────────
   const [scanning, setScanning] = useState(false);
@@ -234,22 +204,11 @@ export const OnboardingScreen = () => {
           />
         )}
 
-        {step === 'otp' && (
-          <OtpVerify
-            contact={contact}
-            contactType={contactType}
-            otp={otp}
-            enteredOtp={enteredOtp}
-            onChange={setEnteredOtp}
-            onResend={resendOtp}
-            onVerify={verifyOtp}
-            onBack={() => setStep('identity')}
-          />
-        )}
+        {/* OTP step removed — auto-authentication via email trust */}
 
         {step === 'ring' && (
           <View style={styles.stepContent}>
-            <Text style={styles.stepLabel}>Step 2 of 3</Text>
+            <Text style={styles.stepLabel}>Step 1 of 2</Text>
             <Text style={styles.title}>Pair your Saadhana Ring</Text>
             <Text style={styles.subtitle}>
               The Saadhana Ring tracks your heart rate, HRV and movement so the app
@@ -313,7 +272,7 @@ export const OnboardingScreen = () => {
             )}
 
             <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
-              <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('otp')}>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('identity')}>
                 <Text style={styles.secondaryBtnText}>← Back</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -330,7 +289,7 @@ export const OnboardingScreen = () => {
 
         {step === 'deities' && (
           <View style={styles.stepContent}>
-            <Text style={styles.stepLabel}>Step 3 of 3</Text>
+            <Text style={styles.stepLabel}>Step 2 of 2</Text>
             <Text style={styles.title}>Choose your deities</Text>
             <Text style={styles.subtitle}>
               Tap deities to add to your sadhana. Includes the Trinity, Dashavatara,
@@ -387,78 +346,7 @@ const Welcome = ({ onNext }: { onNext: () => void }) => (
   </View>
 );
 
-const OtpVerify = ({
-  contact,
-  contactType,
-  otp,
-  enteredOtp,
-  onChange,
-  onResend,
-  onVerify,
-  onBack,
-}: {
-  contact: string;
-  contactType: 'email' | 'phone';
-  otp: string;
-  enteredOtp: string;
-  onChange: (v: string) => void;
-  onResend: () => void;
-  onVerify: () => void;
-  onBack: () => void;
-}) => (
-  <View style={styles.stepContent}>
-    <Text style={styles.stepLabel}>Verify your {contactType}</Text>
-    <Text style={styles.title}>Enter the OTP</Text>
-    <Text style={styles.subtitle}>
-      We sent a 6-digit code to {'\n'}
-      <Text style={{ color: COLORS.gold, fontWeight: '700' }}>{contact}</Text>
-    </Text>
-
-    {/* Shown only when no OTP backend is configured (mock/demo mode). When the
-        Cloudflare Worker is wired up, `otp` is empty and this banner hides. */}
-    {otp ? (
-      <View style={styles.demoBanner}>
-        <Text style={styles.demoBannerTitle}>🔓 Demo build</Text>
-        <Text style={styles.demoBannerText}>
-          No OTP backend configured. Configure one in Settings to send via email/SMS.
-          For now, your OTP is:
-        </Text>
-        <Text style={styles.demoOtp}>{otp}</Text>
-      </View>
-    ) : null}
-
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>6-digit OTP</Text>
-      <TextInput
-        style={[styles.input, styles.otpInput]}
-        value={enteredOtp}
-        onChangeText={t => onChange(t.replace(/\D/g, '').slice(0, 6))}
-        placeholder="000000"
-        placeholderTextColor={COLORS.muted}
-        keyboardType="number-pad"
-        maxLength={6}
-        autoFocus
-      />
-    </View>
-
-    <TouchableOpacity onPress={onResend} style={{ alignSelf: 'center', padding: SPACING.sm }}>
-      <Text style={{ color: COLORS.gold, fontSize: 13 }}>Didn't receive? Resend</Text>
-    </TouchableOpacity>
-
-    <View style={styles.btnRow}>
-      <TouchableOpacity style={styles.secondaryBtn} onPress={onBack}>
-        <Text style={styles.secondaryBtnText}>← Back</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.primaryBtn, { flex: 1 }, enteredOtp.length !== 6 && styles.primaryBtnDisabled]}
-        onPress={onVerify}
-        disabled={enteredOtp.length !== 6}
-      >
-        <Text style={styles.primaryBtnText}>Verify →</Text>
-      </TouchableOpacity>
-    </View>
-  </View>
-);
+// OtpVerify component removed — auto-authentication has no OTP step.
 
 const Feature = ({ icon, text }: { icon: string; text: string }) => (
   <View style={styles.featureRow}>
@@ -467,15 +355,16 @@ const Feature = ({ icon, text }: { icon: string; text: string }) => (
   </View>
 );
 
+/**
+ * Identity step — primary path is Google Sign-In (native account picker;
+ * the user just taps their existing Google account, no typing/OTP).
+ * Manual entry stays as a fallback for web preview or accounts not on
+ * the device.
+ */
 const Identity = ({
-  name,
-  contact,
-  contactType,
-  onName,
-  onContact,
-  onTypeChange,
-  onBack,
-  onNext,
+  name, contact, contactType,
+  onName, onContact, onTypeChange,
+  onBack, onNext,
 }: {
   name: string;
   contact: string;
@@ -485,81 +374,128 @@ const Identity = ({
   onTypeChange: (t: 'email' | 'phone') => void;
   onBack: () => void;
   onNext: () => void;
-}) => (
-  <View style={styles.stepContent}>
-    <Text style={styles.stepLabel}>Step 1 of 2</Text>
-    <Text style={styles.title}>Tell us about you</Text>
-    <Text style={styles.subtitle}>So we can personalize your sadhana</Text>
+}) => {
+  const [signingIn, setSigningIn] = useState(false);
+  const [showManual, setShowManual] = useState(false);
+  const [googleAvailable, setGoogleAvailable] = useState(false);
 
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>Your name</Text>
-      <TextInput
-        style={styles.input}
-        value={name}
-        onChangeText={onName}
-        placeholder="e.g. Lakshmi Pavani"
-        placeholderTextColor={COLORS.muted}
-        autoFocus
-      />
-    </View>
+  React.useEffect(() => {
+    isGoogleAuthAvailable().then(setGoogleAvailable);
+  }, []);
 
-    <View style={styles.toggleRow}>
-      <TouchableOpacity
-        style={[styles.toggleBtn, contactType === 'email' && styles.toggleBtnActive]}
-        onPress={() => onTypeChange('email')}
-      >
-        <Text
-          style={[
-            styles.toggleText,
-            contactType === 'email' && styles.toggleTextActive,
-          ]}
-        >
-          Email
-        </Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.toggleBtn, contactType === 'phone' && styles.toggleBtnActive]}
-        onPress={() => onTypeChange('phone')}
-      >
-        <Text
-          style={[
-            styles.toggleText,
-            contactType === 'phone' && styles.toggleTextActive,
-          ]}
-        >
-          Phone
-        </Text>
-      </TouchableOpacity>
-    </View>
+  const handleGoogleSignIn = async () => {
+    setSigningIn(true);
+    try {
+      const u = await signInWithGoogle();
+      if (u) {
+        onName(u.name);
+        onContact(u.email);
+        onTypeChange('email');
+        // Tiny delay so users see the values populate before navigation
+        setTimeout(() => onNext(), 250);
+      }
+    } finally {
+      setSigningIn(false);
+    }
+  };
 
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>
-        {contactType === 'email' ? 'Email address' : 'Phone number'}
+  return (
+    <View style={styles.stepContent}>
+      <Text style={styles.stepLabel}>Welcome</Text>
+      <Text style={styles.title}>Sign in</Text>
+      <Text style={styles.subtitle}>
+        Use your Google account already on this phone{'\n'}
+        <Text style={{ color: '#3ddc84' }}>✓ One tap · No password · No OTP</Text>
       </Text>
-      <TextInput
-        style={styles.input}
-        value={contact}
-        onChangeText={onContact}
-        placeholder={contactType === 'email' ? 'you@example.com' : '+91 98765 43210'}
-        placeholderTextColor={COLORS.muted}
-        keyboardType={contactType === 'email' ? 'email-address' : 'phone-pad'}
-        autoCapitalize="none"
-      />
-      <Text style={styles.hint}>
-        Stored only on this device. Used for backup & profile.
-      </Text>
-    </View>
 
-    <View style={styles.btnRow}>
-      <TouchableOpacity style={styles.secondaryBtn} onPress={onBack}>
-        <Text style={styles.secondaryBtnText}>← Back</Text>
+      {/* ── Primary: Google Sign-In button ── */}
+      <TouchableOpacity
+        style={[styles.googleBtn, signingIn && { opacity: 0.6 }]}
+        onPress={handleGoogleSignIn}
+        disabled={signingIn || !googleAvailable}
+      >
+        {signingIn ? (
+          <RingSpinner size={22} color={COLORS.deep} />
+        ) : (
+          <>
+            <Text style={styles.googleG}>G</Text>
+            <Text style={styles.googleBtnText}>
+              {googleAvailable ? 'Continue with Google' : 'Google sign-in unavailable on web'}
+            </Text>
+          </>
+        )}
       </TouchableOpacity>
-      <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }]} onPress={onNext}>
-        <Text style={styles.primaryBtnText}>Continue →</Text>
-      </TouchableOpacity>
+
+      <Text style={styles.googleHint}>
+        Tap above → pick your Google account → app auto-fills your name and email.
+        No typing required.
+      </Text>
+
+      {/* ── Fallback: manual entry (collapsed by default) ── */}
+      {!showManual ? (
+        <TouchableOpacity
+          onPress={() => setShowManual(true)}
+          style={{ alignSelf: 'center', marginTop: SPACING.lg, padding: SPACING.sm }}
+        >
+          <Text style={{ color: COLORS.muted, fontSize: 12, textDecorationLine: 'underline' }}>
+            Or enter details manually
+          </Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={{ marginTop: SPACING.lg }}>
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>Your name</Text>
+            <TextInput
+              style={styles.input}
+              value={name}
+              onChangeText={onName}
+              placeholder="e.g. Lakshmi Pavani"
+              placeholderTextColor={COLORS.muted}
+            />
+          </View>
+          <View style={styles.toggleRow}>
+            <TouchableOpacity
+              style={[styles.toggleBtn, contactType === 'email' && styles.toggleBtnActive]}
+              onPress={() => onTypeChange('email')}
+            >
+              <Text style={[styles.toggleText, contactType === 'email' && styles.toggleTextActive]}>Email</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toggleBtn, contactType === 'phone' && styles.toggleBtnActive]}
+              onPress={() => onTypeChange('phone')}
+            >
+              <Text style={[styles.toggleText, contactType === 'phone' && styles.toggleTextActive]}>Phone</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>
+              {contactType === 'email' ? 'Email address' : 'Phone number'}
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={contact}
+              onChangeText={onContact}
+              placeholder={contactType === 'email' ? 'you@example.com' : '+91 98765 43210'}
+              placeholderTextColor={COLORS.muted}
+              keyboardType={contactType === 'email' ? 'email-address' : 'phone-pad'}
+              autoCapitalize="none"
+            />
+            <Text style={styles.hint}>Stored only on this device.</Text>
+          </View>
+          <TouchableOpacity style={[styles.primaryBtn, { marginTop: SPACING.sm }]} onPress={onNext}>
+            <Text style={styles.primaryBtnText}>Continue →</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
+        <TouchableOpacity style={styles.secondaryBtn} onPress={onBack}>
+          <Text style={styles.secondaryBtnText}>← Back</Text>
+        </TouchableOpacity>
+      </View>
     </View>
-  </View>
-);
+  );
+};
 
 
 const styles = StyleSheet.create({
@@ -783,6 +719,44 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   addCustomBtnText: { color: COLORS.gold, fontSize: 13, fontWeight: '600' },
+
+  // ── Google Sign-In button (elderly-friendly: large, single tap) ──
+  googleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    paddingVertical: 16,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: 12,
+    marginTop: SPACING.lg,
+    minHeight: 56,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  googleG: {
+    fontSize: 22,
+    color: '#4285F4',
+    fontWeight: '900',
+    marginRight: 12,
+  },
+  googleBtnText: {
+    color: '#1a1a1a',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  googleHint: {
+    fontSize: 12,
+    color: COLORS.muted,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: SPACING.md,
+    lineHeight: 17,
+    paddingHorizontal: SPACING.md,
+  },
 
   // Bluetooth pairing (onboarding step)
   deviceRow: {

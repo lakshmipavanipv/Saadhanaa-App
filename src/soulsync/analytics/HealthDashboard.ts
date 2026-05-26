@@ -180,20 +180,18 @@ export const computeHealthDashboard = async (): Promise<HealthDashboardSnapshot>
     };
   };
 
-  // Derived wellness scores — computed from existing biometric data
-  const todaySteps    = await computeSteps('today');
-  const baseSteps     = await computeSteps('baseline');
+  // Derived wellness scores — computed from existing biometric data.
+  // (Steps removed from Home tab — was noise. Still shown on Insights tab.)
   const todayStress   = computeStressScore(today.bpm, today.rmssd);
   const baseStress    = computeStressScore(baseline.bpm, baseline.rmssd);
-  const todayDepress  = computeDepressionScore(today.bpm, today.rmssd, todaySteps);
-  const baseDepress   = computeDepressionScore(baseline.bpm, baseline.rmssd, baseSteps);
+  const todayDepress  = computeDepressionScore(today.bpm, today.rmssd, await computeSteps('today'));
+  const baseDepress   = computeDepressionScore(baseline.bpm, baseline.rmssd, await computeSteps('baseline'));
 
   const metrics: MetricRow[] = [
     mk('Resting BPM',     'bpm',   today.bpm,        baseline.bpm,        true,  '❤️'),
     mk('HRV (RMSSD)',     'ms',    today.rmssd,      baseline.rmssd,      false, '〰️'),
     mk('SpO₂',            '%',     today.spo2,       baseline.spo2,       false, '🫁'),
     mk('Skin temp',       '°C',    today.skinTempC,  baseline.skinTempC,  true,  '🌡️'),
-    mk('Steps',           'steps', todaySteps,       baseSteps,           false, '👣'),
     mk('Stress score',    '/10',   todayStress,      baseStress,          true,  '🧘'),
     mk('Depression risk', '/10',   todayDepress,     baseDepress,         true,  '🌿'),
   ];

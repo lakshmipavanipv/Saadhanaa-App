@@ -206,8 +206,10 @@ RULES
     "encouraging"  → progress + room to grow
     "caution"      → BPM trending up vs baseline, or skipped >3 days
     "neutral"      → not enough data
-- Suggestions: 3-5 actionable, devotional-flavoured items (≤90 chars each),
-  not generic wellness fluff.
+- Suggestions: 3-5 actionable, devotional-flavoured items (≤90 chars each).
+  THE FIRST SUGGESTION MUST BE A CONCRETE DAILY SADHANA TIME TARGET
+  (e.g., "Aim for 20 minutes daily to reach depth 7"). Base it on
+  avgDepthScore + sessions. Tang et al. show HRV gains plateau ~20 min.
 
 ${JSON_INSTRUCTION}
 `.trim();
@@ -234,33 +236,63 @@ ${JSON_INSTRUCTION}
 
 // ─── Parser ────────────────────────────────────────────────────────
 
-const parseInsightJSON = (raw: string): Omit<InsightResult, 'generatedAt'> => {
-  // Gemma sometimes wraps in markdown despite instructions; strip if present.
-  let cleaned = raw.trim();
+/**
+ * Find a balanced JSON object inside an arbitrary string. Works even when
+ * the LLM wraps the JSON in markdown, prose, or extra punctuation.
+ */
+const extractBalancedJSON = (text: string): string | null => {
+  const start = text.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (escape) { escape = false; continue; }
+    if (c === '\\' && inString) { escape = true; continue; }
+    if (c === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;   // unbalanced
+};
 
+const parseInsightJSON = (raw: string): Omit<InsightResult, 'generatedAt'> => {
+  let cleaned = raw.trim();
   // Strip ```json ... ``` or ``` ... ``` fences
   cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
 
-  let parsed: any;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    // Try extracting first {...} block
-    const m = cleaned.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error('GEMMA_PARSE: no JSON object found in response');
-    try {
-      parsed = JSON.parse(m[0]);
-    } catch (e) {
-      throw new Error('GEMMA_PARSE: malformed JSON in response');
+  let parsed: any = null;
+  // Try 1: full string parse
+  try { parsed = JSON.parse(cleaned); } catch { /* fall through */ }
+
+  // Try 2: balanced-brace extraction
+  if (!parsed) {
+    const inner = extractBalancedJSON(cleaned);
+    if (inner) {
+      try { parsed = JSON.parse(inner); } catch { /* fall through */ }
     }
   }
+
+  // Try 3: loose regex (greedy first { ... last })
+  if (!parsed) {
+    const m = cleaned.match(/\{[\s\S]*\}/);
+    if (m) {
+      try { parsed = JSON.parse(m[0]); } catch { /* fall through */ }
+    }
+  }
+
+  if (!parsed) throw new Error('GEMMA_PARSE: malformed JSON in response');
 
   // Validate required fields
   if (!parsed.healthInsight || !parsed.spiritualInsight || !Array.isArray(parsed.suggestions)) {
     throw new Error('GEMMA_SHAPE: required fields missing');
   }
 
-  // Defensive defaults for optional fields
   return {
     tone: parsed.tone ?? 'neutral',
     weeklyHeadline: parsed.weeklyHeadline ?? 'Your weekly read',
@@ -271,42 +303,134 @@ const parseInsightJSON = (raw: string): Omit<InsightResult, 'generatedAt'> => {
   };
 };
 
+/**
+ * Client-side fallback insight generated from the snapshot directly.
+ * No AI call — always succeeds. Used when all LLM providers fail or
+ * return malformed output, so the user is never left looking at an error.
+ */
+/**
+ * Recommend a concrete sadhana time to reach the user's next depth tier.
+ *   target depth = 7.5 (Strong / 75 pts)
+ *   current avg  = avgDepthScore from snapshot (already 7-day avg)
+ *   gap          = target − current
+ *
+ * Maps to a recommended daily session length grounded in Tang et al.
+ * (HRV gains plateau ~20 min).
+ */
+const recommendSession = (snap: InsightSnapshot): string => {
+  const target = 7.5;
+  const current = snap.spiritual.avgDepthScore ?? 0;
+  const sessions = snap.spiritual.last7DaysSessions;
+  const gap = target - current;
+
+  if (sessions === 0) {
+    return 'Begin gently — 10 minutes daily for the first 7 days. Consistency first, depth follows.';
+  }
+  if (gap <= 0) {
+    return `Maintain your current rhythm (avg depth ${current.toFixed(1)}/10) — keep your sessions around 15–20 minutes.`;
+  }
+  if (gap <= 2) {
+    return `Aim for ~20 minutes daily to lift your depth from ${current.toFixed(1)} toward ${target}.`;
+  }
+  if (gap <= 4) {
+    return `Try 25 minutes daily, ideally split as one morning + one evening session. Body needs time to soften.`;
+  }
+  return `Build slowly — start with 10 minutes daily for a week, then add 5 minutes each week. Gap from ${current.toFixed(1)} to ${target} is large; rushing reduces depth.`;
+};
+
+const generateFallbackInsight = (snap: InsightSnapshot): Omit<InsightResult, 'generatedAt'> => {
+  const sessions = snap.spiritual.last7DaysSessions;
+  const malas    = snap.spiritual.last7DaysMalas;
+  const streak   = snap.spiritual.streakDays;
+  const bpmDelta = snap.health.hasNormalcyData
+    ? snap.health.todayBpm - snap.health.normalcyBpm
+    : 0;
+
+  // Tone
+  let tone: InsightResult['tone'] = 'neutral';
+  if (sessions >= 3 && bpmDelta <= -2)      tone = 'celebrating';
+  else if (sessions >= 1 && bpmDelta < 5)   tone = 'encouraging';
+  else if (sessions === 0 || bpmDelta > 8)  tone = 'caution';
+
+  const name = snap.userName ? `${snap.userName}, ` : '';
+
+  const healthLines: string[] = [];
+  if (snap.health.hasNormalcyData) {
+    if (bpmDelta < -2)       healthLines.push(`Your resting heart rate is ${Math.abs(bpmDelta)} bpm lower than your 30-day baseline — a calmer nervous system today.`);
+    else if (bpmDelta > 5)   healthLines.push(`Resting heart rate is ${bpmDelta} bpm above baseline — consider a longer japa session today.`);
+    else                     healthLines.push(`Heart-rate is tracking close to your normal baseline.`);
+    if (snap.health.todayRmssd > snap.health.normalcyRmssd + 4) {
+      healthLines.push(`HRV (RMSSD) is up — your body is recovering well.`);
+    }
+  } else {
+    healthLines.push('Soulsync is still learning your baseline — keep the ring on a few more days to unlock the body comparison.');
+  }
+
+  const spiritualLines: string[] = [];
+  if (sessions === 0) {
+    spiritualLines.push(`No japa sessions this week. ${name}even five minutes today plants a seed.`);
+  } else {
+    spiritualLines.push(`${sessions} session${sessions === 1 ? '' : 's'} and ${malas} mala${malas === 1 ? '' : 's'} this week.`);
+    if (streak >= 3) spiritualLines.push(`${streak}-day streak — consistency is the heart of sadhana.`);
+  }
+
+  const integration = snap.emotional.last7DaysAnxiety + snap.emotional.last7DaysLethargy + snap.emotional.last7DaysAggression === 0
+    ? 'Calm stability across the week — emotional waves stayed quiet.'
+    : `${snap.emotional.overallConvergenceRate}% of emotional events were resolved with sadhana this week.`;
+
+  const suggestions: string[] = [
+    // Prescriptive — always include the session-time recommendation first
+    recommendSession(snap),
+  ];
+  if (snap.health.todayRmssd < 30 && snap.health.hasNormalcyData) suggestions.push('Try 5 minutes of pranayama before japa to lift HRV');
+  if (bpmDelta > 5) suggestions.push('A slower 10-min Gayatri can help bring heart rate down');
+  if (sessions > 0) suggestions.push('Light a diya before your next session — anchors the mind');
+  if (suggestions.length < 3) suggestions.push('Sit facing east in the early morning for tomorrow\'s japa');
+
+  return {
+    tone,
+    weeklyHeadline: sessions >= 3 ? `Strong week — ${sessions} sessions` : sessions > 0 ? `Gentle week — ${sessions} session${sessions === 1 ? '' : 's'}` : 'Begin your weekly rhythm',
+    healthInsight: healthLines.join(' '),
+    spiritualInsight: spiritualLines.join(' '),
+    integration,
+    suggestions: suggestions.slice(0, 5),
+  };
+};
+
 // ─── Generators ────────────────────────────────────────────────────
+
+/**
+ * Try the LLM first; on any failure (rate limit, malformed JSON, network),
+ * fall back to the client-side template generator so the user always sees
+ * a meaningful insight card instead of an error.
+ */
+const tryWithFallback = async (
+  snapshot: InsightSnapshot,
+  systemPrompt: string,
+  signal?: AbortSignal
+): Promise<InsightResult> => {
+  try {
+    const client = new GemmaClient();
+    const raw = await client.generate({
+      systemPrompt,
+      userMessage: `Here is the snapshot:\n${JSON.stringify(snapshot, null, 2)}`,
+      params: { temperature: 0.6, max_new_tokens: 1024, top_p: 0.9 },
+    }, signal);
+    const parsed = parseInsightJSON(raw);
+    return { ...parsed, generatedAt: Date.now() };
+  } catch (e: any) {
+    console.warn('[Insights] LLM failed, using client-side fallback:', e?.message?.slice(0, 80));
+    const parsed = generateFallbackInsight(snapshot);
+    return { ...parsed, generatedAt: Date.now() };
+  }
+};
 
 export const generateInsights = async (
   snapshot: InsightSnapshot,
   signal?: AbortSignal
-): Promise<InsightResult> => {
-  const client = new GemmaClient();
-  const req: GemmaRequest = {
-    systemPrompt: SYSTEM_INSTRUCTION,
-    userMessage: `Here is the snapshot:\n${JSON.stringify(snapshot, null, 2)}`,
-    params: {
-      temperature: 0.7,
-      max_new_tokens: 1024,
-      top_p: 0.95,
-    },
-  };
-  const raw = await client.generate(req, signal);
-  const parsed = parseInsightJSON(raw);
-  return { ...parsed, generatedAt: Date.now() };
-};
+): Promise<InsightResult> => tryWithFallback(snapshot, SYSTEM_INSTRUCTION, signal);
 
 export const generateRetrospectiveInsights = async (
   snapshot: InsightSnapshot,
   signal?: AbortSignal
-): Promise<InsightResult> => {
-  const client = new GemmaClient();
-  const req: GemmaRequest = {
-    systemPrompt: RETROSPECTIVE_SYSTEM,
-    userMessage: `Here is the snapshot:\n${JSON.stringify(snapshot, null, 2)}`,
-    params: {
-      temperature: 0.7,
-      max_new_tokens: 1024,
-      top_p: 0.95,
-    },
-  };
-  const raw = await client.generate(req, signal);
-  const parsed = parseInsightJSON(raw);
-  return { ...parsed, generatedAt: Date.now() };
-};
+): Promise<InsightResult> => tryWithFallback(snapshot, RETROSPECTIVE_SYSTEM, signal);

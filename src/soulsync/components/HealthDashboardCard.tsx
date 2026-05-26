@@ -68,9 +68,9 @@ export const HealthDashboardCard: React.FC = () => {
     <View style={{ marginHorizontal: SPACING.md, marginVertical: SPACING.md, gap: SPACING.md }}>
       {/* ── Today vs your normal day ─── */}
       <View style={styles.card}>
-        <Text style={styles.title}>Today vs your normal day</Text>
+        <Text style={styles.title}>Body Today vs Normal</Text>
         <Text style={styles.subtitle}>
-          Today's averages compared to your rolling 30-day baseline
+          How your body is doing today compared to your usual
         </Text>
 
         {snap.metrics.map(m => (
@@ -94,64 +94,14 @@ export const HealthDashboardCard: React.FC = () => {
           </View>
         ))}
 
-        {/* ── Meditation depth score ─── */}
-        <View style={styles.divider} />
-        <View style={styles.depthRow}>
-          <Text style={styles.depthLabel}>Meditation depth score</Text>
-          <Text style={styles.depthValue}>
-            {snap.depthScore != null ? snap.depthScore.toFixed(1) : '—'}
-            <Text style={styles.depthMax}> / 10</Text>
-          </Text>
-        </View>
-        <DepthBar score={snap.depthScore ?? 0} />
-        <Text style={styles.depthHint}>
-          Composite of HRV gain, BPM drop, session length, SpO₂ stability
-        </Text>
+        {/* Meditation Depth Score removed — replaced by Saadhana Score
+            on Home (uses the same scoring logic but scaled to 0-100). */}
 
         <Text style={styles.message}>{snap.message}</Text>
       </View>
 
-      {/* ── 7-day Calm Divergence trend ─── */}
-      {trend.length > 0 && (
-        <View style={styles.card}>
-          <View style={styles.titleRow}>
-            <Text style={styles.title}>7-day Calm Divergence</Text>
-            <Text style={styles.todayChip}>Today: {todayDivergence}%</Text>
-          </View>
-          <LineChart
-            data={{
-              labels: trend.map(p => p.date.slice(5)),
-              datasets: [{ data: trend.map(p => p.divergencePct), color: () => '#d6e040', strokeWidth: 2 }],
-            }}
-            width={CHART_W}
-            height={120}
-            bezier
-            withDots
-            withInnerLines={false}
-            chartConfig={{
-              backgroundGradientFrom: COLORS.darkBg,
-              backgroundGradientTo: COLORS.cardBg,
-              color: () => '#d6e040',
-              labelColor: () => COLORS.muted,
-              propsForBackgroundLines: { stroke: 'transparent' },
-              propsForDots: { r: '3', strokeWidth: '1', stroke: '#fbff7a' },
-            }}
-            style={{ borderRadius: 10, marginTop: 4 }}
-          />
-          <Text style={styles.weekMessage}>{todayMessage}</Text>
-        </View>
-      )}
-
-      {/* ── 30-day Sleep × Sadhana ─── */}
-      {mat && (
-        <View style={styles.card}>
-          <View style={styles.titleRow}>
-            <Text style={styles.title}>30-day Sleep × Sadhana</Text>
-            <Text style={styles.rChip}>r = {mat.pearsonR.toFixed(2)}</Text>
-          </View>
-          <Text style={styles.insight}>{mat.insightMessage}</Text>
-        </View>
-      )}
+      {/* Note: 7-day Calm Divergence trend + 30-day Sleep × Sadhana
+          have moved to the Insights tab. Home keeps only "today" data. */}
     </View>
   );
 };

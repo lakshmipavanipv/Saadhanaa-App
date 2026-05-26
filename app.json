@@ -58,7 +58,8 @@
       ],
       "@react-native-community/datetimepicker",
       "expo-audio",
-      "expo-sqlite"
+      "expo-sqlite",
+      "@react-native-google-signin/google-signin"
     ],
     "extra": {
       "eas": {
