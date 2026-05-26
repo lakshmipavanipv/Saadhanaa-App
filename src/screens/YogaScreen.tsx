@@ -16,6 +16,7 @@ import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal,
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
+import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
 
 type Category = 'morning' | 'energy' | 'calm' | 'spine' | 'hips' | 'pranayama';
 
@@ -249,7 +250,7 @@ const CATEGORIES: { id: Category | 'all'; label: string; icon: string }[] = [
 const fmtSec = (s: number): string =>
   s >= 60 ? `${Math.round(s / 60)} min` : `${s} sec`;
 
-export const YogaScreen = () => {
+export const YogaScreen = ({ navigation }: any) => {
   const [filter, setFilter] = useState<Category | 'all'>('all');
   const [selected, setSelected] = useState<YogaItem | null>(null);
 
@@ -270,6 +271,12 @@ export const YogaScreen = () => {
           <Text style={styles.title}>Yoga Sadhana</Text>
           <Text style={styles.subtitle}>Asanas + Pranayama for body and prana</Text>
         </View>
+
+        {/* Soulsync — start before yoga to capture HRV / BPM changes */}
+        <SoulsyncSessionBar
+          practice="yoga"
+          onViewInsights={() => navigation?.navigate?.('History')}
+        />
 
         {/* Today's recommendation */}
         <View style={styles.recCard}>

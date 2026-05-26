@@ -20,7 +20,7 @@ import { COLORS, SPACING } from '../theme';
 import { FamilyMember, DeathLocation } from '../types';
 import { familyRepo } from '../services/familyRepo';
 import { getUserLocation } from '../services/location';
-import { searchCities, geocodeCity } from '../services/cities';
+import { searchCities, geocodeCities } from '../services/cities';
 import { RingSpinner } from './RingSpinner';
 
 const RELATIONS = ['Father', 'Mother', 'Grandfather', 'Grandmother', 'Uncle', 'Aunt', 'Brother', 'Sister', 'Other'];
@@ -355,74 +355,105 @@ const FamilyEditorModal: React.FC<{
 
 // ─── City picker modal ──────────────────────────────────────────
 
+interface CityResult extends DeathLocation { source: 'curated' | 'online' }
+
 const CityPickerModal: React.FC<{
   visible: boolean;
   onSelect: (loc: DeathLocation) => void;
   onClose: () => void;
 }> = ({ visible, onSelect, onClose }) => {
   const [q, setQ] = useState('');
-  const [results, setResults] = useState(searchCities(''));
-  const [geocoding, setGeocoding] = useState(false);
+  const [curated, setCurated] = useState<CityResult[]>(
+    searchCities('').map(c => ({ ...c, source: 'curated' as const }))
+  );
+  const [online, setOnline] = useState<CityResult[]>([]);
+  const [searching, setSearching] = useState(false);
 
-  useEffect(() => { setResults(searchCities(q)); }, [q]);
+  // Curated list updates instantly on every keystroke
+  useEffect(() => {
+    setCurated(searchCities(q).map(c => ({ ...c, source: 'curated' as const })));
+  }, [q]);
 
-  const handleGeocode = async () => {
-    if (!q.trim()) return;
-    setGeocoding(true);
-    try {
-      const r = await geocodeCity(q);
-      if (r) onSelect(r);
-    } finally {
-      setGeocoding(false);
-    }
-  };
+  // Online (Nominatim) search — debounced 450ms so we don't hammer the
+  // free API on every keystroke. Only fires for 3+ chars.
+  useEffect(() => {
+    if (q.trim().length < 3) { setOnline([]); return; }
+    setSearching(true);
+    const handle = setTimeout(async () => {
+      const results = await geocodeCities(q, 6);
+      // Drop any that exactly match a curated entry (avoid duplicates)
+      const filtered = results
+        .filter(r => !curated.some(c => c.name.toLowerCase() === r.name.toLowerCase() && c.country === r.country))
+        .map(r => ({ ...r, source: 'online' as const }));
+      setOnline(filtered);
+      setSearching(false);
+    }, 450);
+    return () => { clearTimeout(handle); setSearching(false); };
+  }, [q]);
+
+  // Combine: curated first, then online, dedupe handled above
+  const combined: CityResult[] = [...curated, ...online];
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { maxHeight: '80%' }]}>
+        <View style={[styles.modalContent, { maxHeight: '85%' }]}>
           <View style={styles.modalHandle} />
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>City of Death</Text>
             <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
           </View>
-          <TextInput
-            style={styles.input}
-            placeholder="Search Mumbai, Toronto, etc."
-            placeholderTextColor={COLORS.muted}
-            value={q}
-            onChangeText={setQ}
-            autoFocus
-          />
+
+          <View style={styles.searchRow}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              placeholder="Type any city worldwide…"
+              placeholderTextColor={COLORS.muted}
+              value={q}
+              onChangeText={setQ}
+              autoFocus
+            />
+            {searching && (
+              <View style={{ marginLeft: SPACING.sm }}>
+                <RingSpinner size={20} />
+              </View>
+            )}
+          </View>
+
+          <Text style={styles.searchHint}>
+            🌐 Auto-searches worldwide via OpenStreetMap as you type (3+ chars)
+          </Text>
+
           <FlatList
-            data={results}
-            keyExtractor={(item, i) => `${item.name}-${item.country}-${i}`}
-            style={{ marginTop: SPACING.sm, maxHeight: 320 }}
+            data={combined}
+            keyExtractor={(item, i) => `${item.source}-${item.name}-${item.country}-${i}`}
+            style={{ marginTop: SPACING.sm }}
+            ListEmptyComponent={
+              q.trim().length < 3 ? (
+                <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: 'center', paddingVertical: SPACING.md }}>
+                  Start typing to search…
+                </Text>
+              ) : !searching ? (
+                <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: 'center', paddingVertical: SPACING.md }}>
+                  No matches found
+                </Text>
+              ) : null
+            }
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.cityRow} onPress={() => onSelect(item)}>
-                <Text style={styles.cityName}>{item.name}, {item.country}</Text>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={styles.cityName}>{item.name}</Text>
+                    {item.source === 'online' && (
+                      <Text style={styles.onlineBadge}>🌐 online</Text>
+                    )}
+                  </View>
+                  <Text style={styles.cityCountry}>{item.country}</Text>
+                </View>
                 <Text style={styles.cityTz}>{item.tz}</Text>
               </TouchableOpacity>
             )}
-            ListEmptyComponent={
-              <View style={{ paddingVertical: SPACING.md }}>
-                <Text style={{ color: COLORS.muted, fontSize: 12, textAlign: 'center' }}>
-                  No city in our list — tap below to search online.
-                </Text>
-              </View>
-            }
           />
-          {q.trim() && (
-            <TouchableOpacity
-              style={[styles.saveBtn, { marginTop: SPACING.sm }, geocoding && { opacity: 0.6 }]}
-              onPress={handleGeocode}
-              disabled={geocoding}
-            >
-              {geocoding
-                ? <RingSpinner size={18} color={COLORS.deep} />
-                : <Text style={styles.saveBtnText}>🌐 Search online: "{q}"</Text>}
-            </TouchableOpacity>
-          )}
         </View>
       </View>
     </Modal>
@@ -537,7 +568,20 @@ const styles = StyleSheet.create({
   saveBtn: { flex: 2, paddingVertical: 12, borderRadius: 10, backgroundColor: COLORS.gold, alignItems: 'center', justifyContent: 'center', minHeight: 44 },
   saveBtnText: { color: COLORS.deep, fontSize: 14, fontWeight: '700' },
 
-  cityRow: { paddingVertical: 10, paddingHorizontal: SPACING.sm, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
+  cityRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 10, paddingHorizontal: SPACING.sm,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
   cityName: { fontSize: 14, color: COLORS.cream, fontWeight: '600' },
-  cityTz: { fontSize: 10, color: COLORS.muted, marginTop: 2 },
+  cityCountry: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
+  cityTz: { fontSize: 9, color: COLORS.gold, marginLeft: SPACING.sm },
+  onlineBadge: {
+    fontSize: 8, color: '#4ea8de', fontWeight: '700',
+    backgroundColor: 'rgba(78,168,222,0.15)',
+    paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3,
+    overflow: 'hidden',
+  },
+  searchRow: { flexDirection: 'row', alignItems: 'center' },
+  searchHint: { fontSize: 10, color: COLORS.muted, fontStyle: 'italic', marginTop: 6 },
 });

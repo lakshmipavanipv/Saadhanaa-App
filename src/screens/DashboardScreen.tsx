@@ -271,6 +271,7 @@ export const DashboardScreen = ({ navigation }: any) => {
           <Text style={styles.date}>{formatDate(todayStr())}</Text>
         </View>
 
+
         {/* Alarm Banner */}
         {alarmQueue.length > 0 && (
           <View style={styles.alarmBanner}>

@@ -17,6 +17,7 @@ import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, Animated,
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
+import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
 
 type Intent = 'quick' | 'calm' | 'deep' | 'mantra' | 'cooling';
 
@@ -346,6 +347,12 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
           <Text style={styles.title}>Meditation</Text>
           <Text style={styles.subtitle}>Anxiety relief · daily calm · mantra japa</Text>
         </View>
+
+        {/* Soulsync — start before meditation to capture HRV / BPM */}
+        <SoulsyncSessionBar
+          practice="meditation"
+          onViewInsights={() => navigation?.navigate?.('History')}
+        />
 
         {/* SOS — quick relief block (always visible at top) */}
         <View style={styles.sosCard}>
