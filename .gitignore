@@ -38,6 +38,10 @@ backend/otp-service/.dev.vars
 backend/local/node_modules/
 backend/otp-service/node_modules/
 
+# Firebase config (drop your real one in; placeholder ships with repo)
+# google-services.json
+GoogleService-Info.plist
+
 # typescript
 *.tsbuildinfo
 

@@ -15,7 +15,11 @@ import { COLORS, SPACING } from '../theme';
 import { DeityCatalogPicker } from '../components/DeityCatalogPicker';
 import { CatalogDeity, ALL_CATALOG_DEITIES } from '../deityCatalog';
 import { otpClient } from '../soulsync/auth/otpClient';
-import { isGoogleAuthAvailable, signInWithGoogle } from '../services/googleAuth';
+import {
+  isFirebaseAvailable,
+  signInWithGoogle,
+  signInAnonymously,
+} from '../services/firebaseAuth';
 import {
   requestBlePermissions,
   scanForDevices,
@@ -376,26 +380,39 @@ const Identity = ({
   onNext: () => void;
 }) => {
   const [signingIn, setSigningIn] = useState(false);
+  const [skipping, setSkipping] = useState(false);
   const [showManual, setShowManual] = useState(false);
-  const [googleAvailable, setGoogleAvailable] = useState(false);
+  const [firebaseAvailable, setFirebaseAvailable] = useState(false);
 
   React.useEffect(() => {
-    isGoogleAuthAvailable().then(setGoogleAvailable);
+    isFirebaseAvailable().then(setFirebaseAvailable);
   }, []);
 
   const handleGoogleSignIn = async () => {
     setSigningIn(true);
     try {
       const u = await signInWithGoogle();
-      if (u) {
-        onName(u.name);
+      if (u && u.email) {
+        onName(u.name || u.email.split('@')[0]);
         onContact(u.email);
         onTypeChange('email');
-        // Tiny delay so users see the values populate before navigation
         setTimeout(() => onNext(), 250);
       }
     } finally {
       setSigningIn(false);
+    }
+  };
+
+  const handleSkipWithAnonymous = async () => {
+    setSkipping(true);
+    try {
+      // Silent anonymous Firebase sign-in. App gets a stable UID for
+      // future cloud-sync without forcing the user to type anything.
+      await signInAnonymously();
+      if (!name.trim()) onName('Friend');
+      onNext();
+    } finally {
+      setSkipping(false);
     }
   };
 
@@ -408,11 +425,11 @@ const Identity = ({
         <Text style={{ color: '#3ddc84' }}>✓ One tap · No password · No OTP</Text>
       </Text>
 
-      {/* ── Primary: Google Sign-In button ── */}
+      {/* ── Primary: Google Sign-In via Firebase ── */}
       <TouchableOpacity
         style={[styles.googleBtn, signingIn && { opacity: 0.6 }]}
         onPress={handleGoogleSignIn}
-        disabled={signingIn || !googleAvailable}
+        disabled={signingIn || skipping || !firebaseAvailable}
       >
         {signingIn ? (
           <RingSpinner size={22} color={COLORS.deep} />
@@ -420,7 +437,7 @@ const Identity = ({
           <>
             <Text style={styles.googleG}>G</Text>
             <Text style={styles.googleBtnText}>
-              {googleAvailable ? 'Continue with Google' : 'Google sign-in unavailable on web'}
+              {firebaseAvailable ? 'Continue with Google' : 'Google sign-in unavailable on web'}
             </Text>
           </>
         )}
@@ -431,11 +448,24 @@ const Identity = ({
         No typing required.
       </Text>
 
+      {/* ── Secondary: silent skip (anonymous Firebase auth) ── */}
+      {firebaseAvailable && (
+        <TouchableOpacity
+          style={[styles.skipBtn, skipping && { opacity: 0.6 }]}
+          onPress={handleSkipWithAnonymous}
+          disabled={signingIn || skipping}
+        >
+          {skipping
+            ? <RingSpinner size={18} color={COLORS.cream} />
+            : <Text style={styles.skipBtnText}>Skip for now · continue without sign-in</Text>}
+        </TouchableOpacity>
+      )}
+
       {/* ── Fallback: manual entry (collapsed by default) ── */}
       {!showManual ? (
         <TouchableOpacity
           onPress={() => setShowManual(true)}
-          style={{ alignSelf: 'center', marginTop: SPACING.lg, padding: SPACING.sm }}
+          style={{ alignSelf: 'center', marginTop: SPACING.md, padding: SPACING.sm }}
         >
           <Text style={{ color: COLORS.muted, fontSize: 12, textDecorationLine: 'underline' }}>
             Or enter details manually
@@ -757,6 +787,20 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     paddingHorizontal: SPACING.md,
   },
+  // ── "Skip for now" button — silent anonymous Firebase sign-in ──
+  skipBtn: {
+    marginTop: SPACING.md,
+    paddingVertical: 12,
+    paddingHorizontal: SPACING.md,
+    borderRadius: 10,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  skipBtnText: { color: COLORS.cream, fontSize: 13, fontWeight: '500' },
 
   // Bluetooth pairing (onboarding step)
   deviceRow: {
