@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
 
-type Intent = 'quick' | 'calm' | 'deep' | 'mantra';
+type Intent = 'quick' | 'calm' | 'deep' | 'mantra' | 'cooling';
 
 interface Technique {
   id: string;
@@ -32,6 +32,8 @@ interface Technique {
   instructions: string[];
   /** Optional mantra to chant inline (with simple counter). */
   mantra?: { sanskrit: string; transliteration: string; meaning: string; targetCount: number };
+  /** Optional warning shown in a callout. */
+  contraindications?: string;
 }
 
 const TECHNIQUES: Technique[] = [
@@ -172,6 +174,74 @@ const TECHNIQUES: Technique[] = [
     ],
   },
 
+  // ── COOLING — for anger / agitation ──
+  {
+    id: 'shitali-breath',
+    name: 'Shitali Cooling Breath',
+    subtitle: 'Tongue-curl inhale · drops body heat',
+    intent: 'cooling',
+    durationSec: 180,
+    breath: { in: 4, hold1: 2, out: 4, hold2: 0, rounds: 12 },
+    instructions: [
+      'Sit comfortably, spine tall',
+      'Curl your tongue into a tube (or purse lips if you cannot)',
+      'Inhale slowly through the tube — feel cool air on the tongue',
+      'Close mouth, hold briefly',
+      'Exhale slowly through nose',
+      '12 rounds — body temperature drops noticeably',
+    ],
+    contraindications: 'Avoid in cold weather or with low BP',
+  },
+  {
+    id: 'chandra-bhedana',
+    name: 'Left Nostril Breathing',
+    subtitle: 'Chandra Bhedana · cooling lunar channel',
+    intent: 'cooling',
+    durationSec: 240,
+    breath: { in: 4, hold1: 4, out: 6, hold2: 0, rounds: 15 },
+    instructions: [
+      'Sit comfortably, right hand to nose',
+      'Close RIGHT nostril with right thumb',
+      'Inhale slowly through LEFT nostril (4 counts)',
+      'Hold briefly (4 counts)',
+      'Switch — close LEFT nostril with ring finger, open right',
+      'Exhale through RIGHT (6 counts)',
+      'Inhale again through LEFT (always). 15 rounds.',
+      'Activates the parasympathetic (calming) nervous system.',
+    ],
+  },
+  {
+    id: 'cold-water-reset',
+    name: 'Cold Water Reset',
+    subtitle: 'Vagus-nerve activation · instant cooling',
+    intent: 'cooling',
+    durationSec: 60,
+    instructions: [
+      'Stand at the sink, no rush',
+      'Splash cold water on your face — eyes closed, forehead, cheeks',
+      'Hold cold water against the back of your neck for 15 seconds',
+      'Cold on the wrists for 15 more seconds',
+      'Triggers the mammalian dive reflex — vagus nerve activates, heart slows, body cools',
+      'Dry off, breathe naturally, return',
+    ],
+  },
+  {
+    id: 'ahimsa-contemplation',
+    name: 'Ahimsa & Forgiveness',
+    subtitle: 'Loving-kindness for the moment of anger',
+    intent: 'cooling',
+    durationSec: 300,
+    instructions: [
+      'Sit quietly. Notice the body — where is the heat? Tension?',
+      'Bring to mind the person or situation that triggered you',
+      'Silently say: "I forgive you. I forgive myself."',
+      'Then: "May you be well. May you be peaceful. May you be free from suffering."',
+      'Then: "May I be well. May I be peaceful. May I be free from suffering."',
+      'When the heat eases, sit in the resulting space',
+      'This is Ahimsa in action — non-violence even in thought.',
+    ],
+  },
+
   // ── MANTRA JAPA ──
   {
     id: 'gayatri-japa',
@@ -233,11 +303,12 @@ const TECHNIQUES: Technique[] = [
 ];
 
 const INTENTS: { id: Intent | 'all'; label: string; icon: string; sub: string }[] = [
-  { id: 'all',    label: 'All',           icon: '🧘', sub: 'Everything' },
-  { id: 'quick',  label: 'Quick Relief',  icon: '🆘', sub: 'For anxiety right now (1-4 min)' },
-  { id: 'calm',   label: 'Daily Calm',    icon: '🌊', sub: 'Preventive practice (10-15 min)' },
-  { id: 'deep',   label: 'Deep Rest',     icon: '🌙', sub: 'Body scan, yoga nidra (20-30 min)' },
-  { id: 'mantra', label: 'Mantra Japa',   icon: '📿', sub: 'Peace-focused mantras' },
+  { id: 'all',     label: 'All',          icon: '🧘', sub: 'Everything' },
+  { id: 'quick',   label: 'Quick Relief', icon: '🆘', sub: 'For anxiety right now (1-4 min)' },
+  { id: 'cooling', label: 'Cooling',      icon: '❄️', sub: 'For anger / agitation' },
+  { id: 'calm',    label: 'Daily Calm',   icon: '🌊', sub: 'Preventive practice (10-15 min)' },
+  { id: 'deep',    label: 'Deep Rest',    icon: '🌙', sub: 'Body scan, yoga nidra (20-30 min)' },
+  { id: 'mantra',  label: 'Mantra Japa',  icon: '📿', sub: 'Peace-focused mantras' },
 ];
 
 interface Props {

@@ -86,8 +86,10 @@ export class AggressionDetector {
       resolved: 0,
     });
 
-    // HARDWARE ACTION — single soft chime as a mindfulness anchor
-    void this.ring.buzz({ pattern: [200], intensity: 'soft' });
+    // HARDWARE ACTION — distinctive cooling pattern (long-short-long) at
+    // medium intensity. Different from the anxiety buzz (5-pulse) so the
+    // user can tell the two apart by feel.
+    void this.ring.buzz({ pattern: [400, 150, 400], intensity: 'medium' });
 
     const event: EmotionalEvent = {
       id,
