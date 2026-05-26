@@ -5,7 +5,7 @@ import { useEmotionalState } from './soulsync/hooks/useEmotionalState';
 import { GroundingOverlay } from './soulsync/components/GroundingOverlay';
 import { CoolingOverlay } from './soulsync/components/CoolingOverlay';
 import { StyleSheet, View, Text, StatusBar, TouchableOpacity, Modal } from 'react-native';
-import { RingSpinnerLarge } from './components/RingSpinner';
+import { SplashScreen } from './components/SplashScreen';
 import { initNotifications } from './services/notifications';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -183,11 +183,7 @@ const AppContent = () => {
   }, [activeEvent?.id, activeEvent?.trigger]);
 
   if (isLoading) {
-    return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <RingSpinnerLarge label="Awakening your sadhana…" />
-      </View>
-    );
+    return <SplashScreen label="Awakening your sadhana" />;
   }
 
   if (!userProfile?.onboarded) {
