@@ -17,9 +17,9 @@ import { SadhanaProvider, useSadhana } from './context';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { JapaScreen } from './screens/JapaScreen';
 import { SandhyaScreen } from './screens/SandhyaScreen';
-import { DeityScreen } from './screens/DeityScreen';
 import { FestivalScreen } from './screens/FestivalScreen';
 import { HistoryScreen } from './screens/HistoryScreen';
+import { ExerciseScreen } from './screens/ExerciseScreen';
 import { OnboardingScreen } from './screens/OnboardingScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { YogaScreen } from './screens/YogaScreen';
@@ -100,11 +100,11 @@ const TabNavigator = () => {
         }}
       />
       <Tab.Screen
-        name="Deities"
-        component={DeityScreen}
+        name="Exercise"
+        component={ExerciseScreen}
         options={{
-          tabBarLabel: 'Deities',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🌸</Text>,
+          tabBarLabel: 'Exercise',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🏃</Text>,
         }}
       />
       <Tab.Screen

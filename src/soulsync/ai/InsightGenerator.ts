@@ -187,29 +187,49 @@ Required JSON shape:
 `.trim();
 
 const SYSTEM_INSTRUCTION = `
-You are Soulsync — a kind, grounded bio-spiritual analyst inside a Hindu
-sadhana app. The user wears a smart ring tracking BPM, HRV (RMSSD), SpO₂
-and skin temperature, and practises japa meditation daily.
+You are the Body & Soul Ring companion — a deeply empathetic, gentle voice
+that helps the user find balance between physical health (body) and
+spiritual practice (soul). The user wears a smart ring tracking BPM, HRV
+(RMSSD), SpO₂, skin temperature, steps and emotional spikes.
 
 You will receive a JSON snapshot of their past week. Analyse it and respond
-with insights formatted as JSON.
+with insights as JSON.
 
-RULES
-- Be warm. Use the user's name if provided.
-- NEVER give medical advice or diagnoses. Phrase observations as
-  "your data suggests…", not "you have…".
+CORE PRINCIPLE — CORRELATE BODY ⇄ SOUL:
+The single most important value of this app is showing the user how
+physical and spiritual practice support each other. Every suggestion
+should, when possible, pair a body recommendation with a soul one:
+
+  Body need                          → Soul partner
+  ─────────────────────────────────────────────────────────────────
+  Not enough exercise time           → Not enough soul sadhana time
+  Increase steps / mobility          → Pair with japa during the walk
+  Run/jog                            → Add meditation sounds post-run
+  Late sleep                         → Tratak / breathing pre-sleep
+  Sudden emotional spike detected    → Ask user, learn pattern, suggest 15-min meditation
+  Anxiety / stress detected          → Box breathing → meditate window
+  Anger detected                     → Empathetic calm note → cooling tactic
+  Slow recovery speed                → Yoga + pranayama recommendation
+
+TONE — EMPATHY ABOVE ALL:
+- Warm, encouraging, rewarding, calming. Never judgmental or alarming.
+- Phrase observations gently: "your body is gently asking for...",
+  "you might find peace in...", "your sadhana is gracefully...".
+- Use the user's name if provided. Sound like a wise friend, not a coach.
+- For struggling weeks: "you're carrying a lot — even one breath is sacred".
+- For strong weeks: "what you're doing is beautiful — keep this rhythm".
+
+RULES:
+- Never medical diagnoses. Always "your data suggests..." not "you have...".
 - Reference SPECIFIC numbers from the snapshot.
-- If hasNormalcyData=false OR hasEnoughData=false, acknowledge that
-  you're still learning their baseline; don't make confident claims.
 - Tone selection:
-    "celebrating"  → big improvements in BPM/HRV + ≥3 sessions this week
-    "encouraging"  → progress + room to grow
-    "caution"      → BPM trending up vs baseline, or skipped >3 days
-    "neutral"      → not enough data
-- Suggestions: 3-5 actionable, devotional-flavoured items (≤90 chars each).
-  THE FIRST SUGGESTION MUST BE A CONCRETE DAILY SADHANA TIME TARGET
-  (e.g., "Aim for 20 minutes daily to reach depth 7"). Base it on
-  avgDepthScore + sessions. Tang et al. show HRV gains plateau ~20 min.
+    "celebrating"  → improvements in BPM/HRV + ≥3 sessions this week
+    "encouraging"  → progress with room to grow
+    "caution"      → trending the wrong way; phrase as gentle invitation
+    "neutral"      → still learning baseline
+- 3-5 suggestions, each ≤90 chars. AT LEAST ONE should be a body↔soul pair
+  (e.g. "Walk 20 min with Om mantra — moves body, settles soul").
+  First suggestion = concrete daily time target (body+soul combined).
 
 ${JSON_INSTRUCTION}
 `.trim();
@@ -345,51 +365,101 @@ const generateFallbackInsight = (snap: InsightSnapshot): Omit<InsightResult, 'ge
   const bpmDelta = snap.health.hasNormalcyData
     ? snap.health.todayBpm - snap.health.normalcyBpm
     : 0;
+  const name = snap.userName ? `${snap.userName}, ` : '';
 
-  // Tone
+  // ── Tone (empathetic) ──
   let tone: InsightResult['tone'] = 'neutral';
   if (sessions >= 3 && bpmDelta <= -2)      tone = 'celebrating';
   else if (sessions >= 1 && bpmDelta < 5)   tone = 'encouraging';
   else if (sessions === 0 || bpmDelta > 8)  tone = 'caution';
 
-  const name = snap.userName ? `${snap.userName}, ` : '';
-
+  // ── Body line (empathetic, no judgement) ──
   const healthLines: string[] = [];
   if (snap.health.hasNormalcyData) {
-    if (bpmDelta < -2)       healthLines.push(`Your resting heart rate is ${Math.abs(bpmDelta)} bpm lower than your 30-day baseline — a calmer nervous system today.`);
-    else if (bpmDelta > 5)   healthLines.push(`Resting heart rate is ${bpmDelta} bpm above baseline — consider a longer japa session today.`);
-    else                     healthLines.push(`Heart-rate is tracking close to your normal baseline.`);
+    if (bpmDelta < -2) {
+      healthLines.push(`Your heart is ${Math.abs(bpmDelta)} bpm calmer than your usual — your nervous system is finding peace.`);
+    } else if (bpmDelta > 5) {
+      healthLines.push(`Your body's been working harder this week (heart rate ${bpmDelta} bpm above your baseline). It's gently asking for rest.`);
+    } else {
+      healthLines.push(`Your body is moving along your usual rhythm — steady, grounded.`);
+    }
     if (snap.health.todayRmssd > snap.health.normalcyRmssd + 4) {
-      healthLines.push(`HRV (RMSSD) is up — your body is recovering well.`);
+      healthLines.push(`HRV is rising — that's your body saying "thank you" for the practice.`);
     }
   } else {
-    healthLines.push('Soulsync is still learning your baseline — keep the ring on a few more days to unlock the body comparison.');
+    healthLines.push("I'm still learning your normal rhythm. Wear the ring a few more days and I'll have a clearer picture.");
   }
 
+  // ── Soul line (empathetic) ──
   const spiritualLines: string[] = [];
   if (sessions === 0) {
-    spiritualLines.push(`No japa sessions this week. ${name}even five minutes today plants a seed.`);
+    spiritualLines.push(`No sessions this week, and that's okay — life ebbs and flows. ${name}even one mantra today is enough.`);
   } else {
-    spiritualLines.push(`${sessions} session${sessions === 1 ? '' : 's'} and ${malas} mala${malas === 1 ? '' : 's'} this week.`);
-    if (streak >= 3) spiritualLines.push(`${streak}-day streak — consistency is the heart of sadhana.`);
+    spiritualLines.push(`${sessions} session${sessions === 1 ? '' : 's'}, ${malas} mala${malas === 1 ? '' : 's'} — your practice is here.`);
+    if (streak >= 3) spiritualLines.push(`A ${streak}-day streak — quiet consistency is the most sacred thing.`);
   }
 
-  const integration = snap.emotional.last7DaysAnxiety + snap.emotional.last7DaysLethargy + snap.emotional.last7DaysAggression === 0
-    ? 'Calm stability across the week — emotional waves stayed quiet.'
-    : `${snap.emotional.overallConvergenceRate}% of emotional events were resolved with sadhana this week.`;
+  // ── Integration (Body ⇄ Soul correlation) ──
+  let integration: string;
+  const anxietyCount = snap.emotional.last7DaysAnxiety;
+  const aggressionCount = snap.emotional.last7DaysAggression;
+  if (anxietyCount + snap.emotional.last7DaysLethargy + aggressionCount === 0) {
+    integration = 'Your inner waves stayed quiet this week — body and soul moving as one. Beautiful.';
+  } else if (snap.emotional.overallConvergenceRate >= 60) {
+    integration = `Of the ${anxietyCount + aggressionCount} emotional waves this week, ${snap.emotional.overallConvergenceRate}% softened with your sadhana. The body listens when the soul speaks.`;
+  } else {
+    integration = `The body had ${anxietyCount + aggressionCount} stress moments — gently inviting more breath, more pause. Your sadhana is the antidote already in your hands.`;
+  }
 
+  // ── Body↔Soul correlation suggestions ──
+  // Drawn from the user-supplied correlation matrix:
+  //   No exercise        ↔ No soul sadhana       → walk + japa
+  //   Low steps          ↔ Suggest japa during walk
+  //   Run / jog          ↔ Meditation sounds after run
+  //   Late sleep         ↔ Tratak / breathing before sleep
+  //   Anxiety spike      ↔ Box breathing → meditation
+  //   Anger spike        ↔ Empathetic calming + cooling
+  //   Low recovery       ↔ Yoga + pranayama
   const suggestions: string[] = [
-    // Prescriptive — always include the session-time recommendation first
-    recommendSession(snap),
+    // First: concrete daily target combining body + soul
+    sessions >= 3
+      ? `${name}keep your ${sessions}-session weekly rhythm — pair each with a 15-min walk for balance`
+      : sessions > 0
+        ? `Aim for 20 min daily sadhana + a 20-min walk — body and soul both need movement`
+        : `Begin gently: 10 min walk + 10 min japa daily for the next 7 days`,
   ];
-  if (snap.health.todayRmssd < 30 && snap.health.hasNormalcyData) suggestions.push('Try 5 minutes of pranayama before japa to lift HRV');
-  if (bpmDelta > 5) suggestions.push('A slower 10-min Gayatri can help bring heart rate down');
-  if (sessions > 0) suggestions.push('Light a diya before your next session — anchors the mind');
-  if (suggestions.length < 3) suggestions.push('Sit facing east in the early morning for tomorrow\'s japa');
+
+  // Body↔Soul pair suggestions (pick most relevant)
+  if (snap.health.todayRmssd < 30 && snap.health.hasNormalcyData) {
+    suggestions.push('Try 5 min nadi shodhana (alternate-nostril) before japa — lifts HRV');
+  }
+  if (anxietyCount >= 2) {
+    suggestions.push('Box breathing (4-4-4-4) anytime stress surfaces — opens the Meditation tab');
+  }
+  if (aggressionCount >= 1) {
+    suggestions.push('Shitali cooling breath + Ahimsa contemplation when the heat rises');
+  }
+  if (bpmDelta > 5 && sessions === 0) {
+    suggestions.push('A 10-min slow Gayatri walk softens both the body and the mind together');
+  }
+  if (sessions > 0 && sessions < 3) {
+    suggestions.push('Light a diya before tomorrow\'s session — anchors mind and body together');
+  }
+  if (snap.spiritual.streakDays === 0) {
+    suggestions.push('Pair your morning walk with a single mantra — small acts compound');
+  }
+  // Ensure at least 3 suggestions
+  if (suggestions.length < 3) {
+    suggestions.push('Sit facing east at sunrise — the body wakes when the soul greets the sun');
+  }
 
   return {
     tone,
-    weeklyHeadline: sessions >= 3 ? `Strong week — ${sessions} sessions` : sessions > 0 ? `Gentle week — ${sessions} session${sessions === 1 ? '' : 's'}` : 'Begin your weekly rhythm',
+    weeklyHeadline: sessions >= 3
+      ? `A beautiful week — ${sessions} sessions of practice`
+      : sessions > 0
+        ? `Gentle week — ${sessions} session${sessions === 1 ? '' : 's'} of soul time`
+        : `A fresh week awaits — begin gently`,
     healthInsight: healthLines.join(' '),
     spiritualInsight: spiritualLines.join(' '),
     integration,

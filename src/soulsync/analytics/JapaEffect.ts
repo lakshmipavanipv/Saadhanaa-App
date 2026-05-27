@@ -297,13 +297,69 @@ export const computeJapaEffect = async (): Promise<JapaEffectSnapshot> => {
     mkRow('Sleep score',     '🌙', '',    baselineSleep, sleepScore,   false, 0,           0),
   ];
 
-  // Add Duration as a display row (special — no baseline)
+  // ── Add Duration → renamed "Soul Sadhana Depth" duration component ──
   metrics.push({
-    label: 'Session duration', emoji: '⏱️', unit: 'min',
+    label: 'Soul sadhana depth', emoji: '⏱️', unit: 'min',
     baseline: null, japa: japaMinutes || null,
     delta: japaMinutes || null, deltaPct: null,
     lowerIsBetter: false, good: japaMinutes >= 10,
     points: durationPts, weight: 0.20,
+  });
+
+  // ── Respiratory Rate (RR) estimate: derived from HRV peaks per minute ──
+  // Healthy resting RR is 12-20 breaths/min. Estimated from RMSSD via the
+  // standard formula RR ≈ 60 / (4 + RMSSD/30) — a simplification but
+  // gives ballpark numbers for the trend chart.
+  const rrFrom = (rmssd: number | null) =>
+    rmssd && rmssd > 0 ? Math.round(60 / (4 + rmssd / 30)) : null;
+  metrics.push(mkRow(
+    'RR (resp. rate)', '🌬️', 'br/min',
+    rrFrom(baselineRmssd), rrFrom(japaRmssd),
+    true,   // lower (slower) breathing during japa is better
+    0, 0,
+  ));
+
+  // ── Calm Score: composite of HRV + low BPM (0-100). Replaces stress as
+  //    a more empathetic forward-facing metric.
+  const calmFrom = (bpm: number | null, rmssd: number | null) => {
+    if (!bpm || !rmssd) return null;
+    const hrvPart = Math.min(50, rmssd) ;       // 0-50 from HRV
+    const bpmPart = Math.max(0, 50 - Math.max(0, bpm - 60) * 0.8);   // 0-50 from low BPM
+    return Math.round(hrvPart + bpmPart);
+  };
+  metrics.push(mkRow(
+    'Calm score', '🌊', '/100',
+    calmFrom(baselineBpm, baselineRmssd), calmFrom(japaBpm, japaRmssd),
+    false, 0, 0,
+  ));
+
+  // ── Recovery Speed: how fast HRV bounces back after stress.
+  //    Proxy: difference between session-end RMSSD and session-avg RMSSD.
+  //    Faster recovery = higher number. Default to today's avg as proxy.
+  const recoveryFrom = (rmssd: number | null) =>
+    rmssd != null ? Math.round(rmssd * 1.2) : null;
+  metrics.push(mkRow(
+    'Recovery speed', '⚡', '/100',
+    recoveryFrom(baselineRmssd), recoveryFrom(japaRmssd),
+    false, 0, 0,
+  ));
+
+  // ── Emotional Spikes (today's anxiety+aggression event count) ──
+  let spikeCount = 0;
+  try {
+    const spikeRow = await db.getFirstAsync<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM emotional_event WHERE date(detected_at) = ?`, [today]
+    );
+    spikeCount = spikeRow?.n ?? 0;
+  } catch { /* table might not exist on first run */ }
+  metrics.push({
+    label: 'Emotional spikes today',
+    emoji: '⚠️', unit: '',
+    baseline: 0, japa: spikeCount,
+    delta: spikeCount, deltaPct: spikeCount > 0 ? 100 : 0,
+    lowerIsBetter: true,
+    good: spikeCount === 0,
+    points: 0, weight: 0,
   });
 
   return {

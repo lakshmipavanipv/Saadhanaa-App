@@ -22,12 +22,59 @@ export interface Deity {
   notificationIds?: Record<number, string>;
 }
 
+export type BodyActivity = 'yoga' | 'swim' | 'run' | 'jog' | 'cycle' | 'walk' | 'gym';
+export type SoulActivity = 'meditation' | 'japa' | 'sandhya';
+
+export interface UserGoals {
+  /** Daily body-activity target minutes (e.g. 30). */
+  bodyMinutesPerDay: number;
+  /** Which body activities the user practices. */
+  bodyActivities: BodyActivity[];
+  /** Daily soul-activity target minutes (e.g. 20). */
+  soulMinutesPerDay: number;
+  /** Which soul activities the user practices. */
+  soulActivities: SoulActivity[];
+}
+
 export interface UserProfile {
   name: string;
   email?: string;
   phone?: string;
   createdAt: string;
   onboarded: boolean;
+  /** ISO date string, YYYY-MM-DD. */
+  dob?: string;
+  /** Height in cm. */
+  heightCm?: number;
+  /** Weight in kg. */
+  weightKg?: number;
+  /** Body + Soul daily goals. */
+  goals?: UserGoals;
+}
+
+/** Logged exercise / body activity session. */
+export interface ExerciseEntry {
+  id: string;
+  date: string;          // YYYY-MM-DD
+  activity: BodyActivity;
+  durationMin: number;
+  /** Optional ring-measured calories / distance / etc. */
+  caloriesKcal?: number;
+  distanceKm?: number;
+  notes?: string;
+}
+
+/** User-defined custom yoga routine. */
+export interface CustomYoga {
+  id: string;
+  name: string;
+  description?: string;
+  /** Ordered steps, each with its own duration. */
+  steps: { id: string; instruction: string; durationSec: number }[];
+  /** Cue between steps: ring buzz or sound id. */
+  cue: 'buzz' | 'sound';
+  soundId?: string;
+  createdAt: number;
 }
 
 /** Cached city info used when computing tithi at death location. */

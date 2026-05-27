@@ -19,6 +19,7 @@ import { PulseHighlight } from '../components/PulseHighlight';
 import { BpmHrvBaselineCard } from '../soulsync/components/BpmHrvBaselineCard';
 import { SessionScorePopup } from '../soulsync/components/SessionScorePopup';
 import { computeJapaEffect, JapaEffectSnapshot } from '../soulsync/analytics/JapaEffect';
+import { DeityScreen } from './DeityScreen';
 import { DeityIcon } from '../components/DeityIcon';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
 import { HRVWaveGraph } from '../soulsync/components/HRVWaveGraph';
@@ -116,6 +117,8 @@ export const JapaScreen = ({ navigation }: any) => {
   // Post-session score modal state
   const [showScoreModal, setShowScoreModal] = useState(false);
   const [sessionSnap, setSessionSnap] = useState<JapaEffectSnapshot | null>(null);
+  // Deity manager modal (replaces removed Deities tab)
+  const [showDeityManager, setShowDeityManager] = useState(false);
 
   const tap = useCallback(() => {
     if (!selectedDeity) {
@@ -404,7 +407,68 @@ export const JapaScreen = ({ navigation }: any) => {
         <Text style={styles.autoSaveHint}>
           Tap the center bead · 1 mala (108 beads) saves automatically
         </Text>
+
+        {/* ─── My Deities (moved from old Deities tab) ─── */}
+        <View style={styles.deitiesBlock}>
+          <View style={styles.deitiesHeader}>
+            <Text style={styles.deitiesTitle}>My Deities</Text>
+            <Text style={styles.deitiesSubtitle}>Tap to switch · long-press to manage</Text>
+          </View>
+          {deities.map(d => {
+            const totalForDeity = (deityProgress[d.id]?.malas || 0) + d.totalMalas;
+            const isActive = selectedDeity?.id === d.id;
+            return (
+              <TouchableOpacity
+                key={d.id}
+                style={[styles.deityListRow, isActive && styles.deityListRowActive]}
+                onPress={() => {
+                  setSelectedDeity(d);
+                  const saved = deityProgress[d.id];
+                  setCount(saved?.count ?? 0);
+                  setMalas(saved?.malas ?? 0);
+                }}
+              >
+                <View style={styles.deityListIconWrap}>
+                  <DeityIcon deityId={d.id} icon={d.icon} size={24} color={COLORS.gold} />
+                </View>
+                <View style={{ flex: 1, marginLeft: SPACING.sm }}>
+                  <Text style={styles.deityListName}>{d.name}</Text>
+                  <Text style={styles.deityListMantra} numberOfLines={1}>"{d.mantra}"</Text>
+                  <View style={styles.deityListBarTrack}>
+                    <View style={[styles.deityListBarFill, { width: `${Math.min(100, totalForDeity * 4)}%` }]} />
+                  </View>
+                </View>
+                <View style={styles.deityListRight}>
+                  <Text style={styles.deityListMalas}>{totalForDeity}</Text>
+                  <Text style={styles.deityListMalasLabel}>malas</Text>
+                  <Text style={styles.deityListAlarm}>
+                    {d.alarmOn ? `⏰ ${d.prayerAlarm}` : '🔕'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+          <TouchableOpacity
+            style={styles.addDeityBtn}
+            onPress={() => setShowDeityManager(true)}
+          >
+            <Text style={styles.addDeityBtnText}>+ Manage deities & reminders</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
+
+      {/* Deity manager modal (replaces removed Deities tab) */}
+      <Modal visible={showDeityManager} animationType="slide" onRequestClose={() => setShowDeityManager(false)}>
+        <View style={{ flex: 1, backgroundColor: COLORS.deep }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: SPACING.md, paddingTop: 50, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+            <Text style={{ color: COLORS.cream, fontSize: 18, fontWeight: '700' }}>Deities & Reminders</Text>
+            <TouchableOpacity onPress={() => setShowDeityManager(false)}>
+              <Text style={{ color: COLORS.muted, fontSize: 20, padding: 4 }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <DeityScreen navigation={navigation} route={{ params: {} }} />
+        </View>
+      </Modal>
 
       {/* Saadhana Score popup — shown after a Soulsync session stops */}
       <SessionScorePopup
@@ -667,6 +731,42 @@ const styles = StyleSheet.create({
     fontSize: 8, color: COLORS.muted, fontStyle: 'italic',
     letterSpacing: 0.5, textTransform: 'uppercase',
   },
+
+  // ── Deities list (inline replacement for removed Deities tab) ──
+  deitiesBlock: { marginHorizontal: SPACING.md, marginTop: SPACING.lg },
+  deitiesHeader: { marginBottom: SPACING.sm },
+  deitiesTitle: { fontSize: 14, color: COLORS.gold, fontWeight: '700', letterSpacing: 0.5 },
+  deitiesSubtitle: { fontSize: 11, color: COLORS.muted, marginTop: 2, fontStyle: 'italic' },
+  deityListRow: {
+    flexDirection: 'row', alignItems: 'center',
+    padding: SPACING.sm,
+    backgroundColor: COLORS.cardBg, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.border,
+    marginBottom: 6,
+  },
+  deityListRowActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.1)' },
+  deityListIconWrap: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(212,160,23,0.12)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  deityListName: { fontSize: 13, color: COLORS.cream, fontWeight: '600' },
+  deityListMantra: { fontSize: 10, color: COLORS.muted, fontStyle: 'italic', marginTop: 1 },
+  deityListBarTrack: {
+    height: 3, backgroundColor: 'rgba(212,160,23,0.15)', borderRadius: 2,
+    marginTop: 4, overflow: 'hidden',
+  },
+  deityListBarFill: { height: '100%', backgroundColor: COLORS.gold },
+  deityListRight: { alignItems: 'flex-end', marginLeft: SPACING.sm },
+  deityListMalas: { fontSize: 16, color: COLORS.gold, fontWeight: '700' },
+  deityListMalasLabel: { fontSize: 8, color: COLORS.muted, letterSpacing: 0.5 },
+  deityListAlarm: { fontSize: 9, color: COLORS.muted, marginTop: 2 },
+  addDeityBtn: {
+    marginTop: SPACING.sm, paddingVertical: 10,
+    borderRadius: 8, borderWidth: 1.5, borderStyle: 'dashed',
+    borderColor: COLORS.gold, alignItems: 'center',
+  },
+  addDeityBtnText: { color: COLORS.gold, fontSize: 12, fontWeight: '700' },
   deitySelector: {
     backgroundColor: COLORS.cardBg,
     borderRadius: 12,

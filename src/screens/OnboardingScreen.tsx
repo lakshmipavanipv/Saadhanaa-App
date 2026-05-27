@@ -15,6 +15,7 @@ import { COLORS, SPACING } from '../theme';
 import { DeityCatalogPicker } from '../components/DeityCatalogPicker';
 import { CatalogDeity, ALL_CATALOG_DEITIES } from '../deityCatalog';
 import { otpClient } from '../soulsync/auth/otpClient';
+import { BodyActivity, SoulActivity, UserGoals } from '../types';
 import {
   isFirebaseAvailable,
   signInWithGoogle,
@@ -31,7 +32,7 @@ import { RingSpinner } from '../components/RingSpinner';
 
 // OTP step removed — trust the email, no friction for elderly users.
 // A welcome email is fired-and-forgotten in the background.
-type Step = 'welcome' | 'identity' | 'ring' | 'deities' | 'done';
+type Step = 'welcome' | 'identity' | 'personal' | 'ring' | 'deities' | 'done';
 
 const validEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 const validPhone = (s: string) => /^\+?\d[\d\s-]{6,}$/.test(s.trim());
@@ -43,6 +44,15 @@ export const OnboardingScreen = () => {
   const [contact, setContact] = useState('');
   const [contactType, setContactType] = useState<'email' | 'phone'>('email');
   // (OTP state removed — auto-authentication trusts the email.)
+
+  // Personal data
+  const [dob, setDob] = useState('');
+  const [heightCm, setHeightCm] = useState('');
+  const [weightKg, setWeightKg] = useState('');
+  const [bodyActivities, setBodyActivities] = useState<BodyActivity[]>([]);
+  const [soulActivities, setSoulActivities] = useState<SoulActivity[]>([]);
+  const [bodyGoalMin, setBodyGoalMin] = useState('30');
+  const [soulGoalMin, setSoulGoalMin] = useState('20');
 
   // Start with no deities preselected — user picks their own.
   const [pickedIds, setPickedIds] = useState<Set<string>>(new Set());
@@ -95,6 +105,10 @@ export const OnboardingScreen = () => {
     otpClient.send(contact, contactType).catch(() => {});
 
     showToast('Welcome 🙏');
+    setStep('personal');
+  };
+
+  const submitPersonal = () => {
     setStep('ring');
   };
 
@@ -170,6 +184,13 @@ export const OnboardingScreen = () => {
     const finalDeities = [...fromCatalog, ...fromCustom];
     setDeities(finalDeities);
 
+    const goals: UserGoals = {
+      bodyMinutesPerDay: parseInt(bodyGoalMin, 10) || 30,
+      bodyActivities,
+      soulMinutesPerDay: parseInt(soulGoalMin, 10) || 20,
+      soulActivities,
+    };
+
     const profile: UserProfile = {
       name: name.trim(),
       createdAt: new Date().toISOString(),
@@ -177,6 +198,10 @@ export const OnboardingScreen = () => {
       ...(contactType === 'email'
         ? { email: contact.trim() }
         : { phone: contact.trim() }),
+      ...(dob && { dob }),
+      ...(heightCm && { heightCm: parseInt(heightCm, 10) || 0 }),
+      ...(weightKg && { weightKg: parseInt(weightKg, 10) || 0 }),
+      goals,
     };
     setUserProfile(profile);
     showToast(`Welcome, ${profile.name}! 🙏`);
@@ -210,9 +235,118 @@ export const OnboardingScreen = () => {
 
         {/* OTP step removed — auto-authentication via email trust */}
 
+        {step === 'personal' && (
+          <View style={styles.stepContent}>
+            <Text style={styles.stepLabel}>Step 1 of 3</Text>
+            <Text style={styles.title}>Tell us about yourself</Text>
+            <Text style={styles.subtitle}>
+              Helps the AI personalise body + soul recommendations. All optional.
+            </Text>
+
+            <Text style={styles.fieldLabel}>Date of birth</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={COLORS.muted}
+              value={dob}
+              onChangeText={setDob}
+            />
+
+            <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>Height (cm)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="170"
+                  placeholderTextColor={COLORS.muted}
+                  value={heightCm}
+                  onChangeText={setHeightCm}
+                  keyboardType="numeric"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>Weight (kg)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="65"
+                  placeholderTextColor={COLORS.muted}
+                  value={weightKg}
+                  onChangeText={setWeightKg}
+                  keyboardType="numeric"
+                />
+              </View>
+            </View>
+
+            <Text style={[styles.fieldLabel, { marginTop: SPACING.md }]}>
+              🏃 Body goals (pick all that apply)
+            </Text>
+            <View style={styles.chipRow}>
+              {(['yoga','swim','run','jog','cycle','walk','gym'] as BodyActivity[]).map(a => {
+                const on = bodyActivities.includes(a);
+                return (
+                  <TouchableOpacity
+                    key={a}
+                    style={[styles.chip, on && styles.chipActive]}
+                    onPress={() => setBodyActivities(prev =>
+                      on ? prev.filter(x => x !== a) : [...prev, a])}
+                  >
+                    <Text style={[styles.chipText, on && styles.chipTextActive]}>{a}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={styles.fieldLabel}>Body minutes/day target</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="30"
+              placeholderTextColor={COLORS.muted}
+              value={bodyGoalMin}
+              onChangeText={setBodyGoalMin}
+              keyboardType="numeric"
+            />
+
+            <Text style={[styles.fieldLabel, { marginTop: SPACING.md }]}>
+              🪷 Soul goals (pick all that apply)
+            </Text>
+            <View style={styles.chipRow}>
+              {(['japa','meditation','sandhya'] as SoulActivity[]).map(a => {
+                const on = soulActivities.includes(a);
+                return (
+                  <TouchableOpacity
+                    key={a}
+                    style={[styles.chip, on && styles.chipActive]}
+                    onPress={() => setSoulActivities(prev =>
+                      on ? prev.filter(x => x !== a) : [...prev, a])}
+                  >
+                    <Text style={[styles.chipText, on && styles.chipTextActive]}>{a}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={styles.fieldLabel}>Soul minutes/day target</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="20"
+              placeholderTextColor={COLORS.muted}
+              value={soulGoalMin}
+              onChangeText={setSoulGoalMin}
+              keyboardType="numeric"
+            />
+
+            <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('identity')}>
+                <Text style={styles.secondaryBtnText}>← Back</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }]} onPress={submitPersonal}>
+                <Text style={styles.primaryBtnText}>Continue →</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {step === 'ring' && (
           <View style={styles.stepContent}>
-            <Text style={styles.stepLabel}>Step 1 of 2</Text>
+            <Text style={styles.stepLabel}>Step 2 of 3</Text>
             <Text style={styles.title}>Pair your Saadhana Ring</Text>
             <Text style={styles.subtitle}>
               The Saadhana Ring tracks your heart rate, HRV and movement so the app
@@ -276,7 +410,7 @@ export const OnboardingScreen = () => {
             )}
 
             <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
-              <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('identity')}>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('personal')}>
                 <Text style={styles.secondaryBtnText}>← Back</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -293,7 +427,7 @@ export const OnboardingScreen = () => {
 
         {step === 'deities' && (
           <View style={styles.stepContent}>
-            <Text style={styles.stepLabel}>Step 2 of 2</Text>
+            <Text style={styles.stepLabel}>Step 3 of 3</Text>
             <Text style={styles.title}>Choose your deities</Text>
             <Text style={styles.subtitle}>
               Tap deities to add to your sadhana. Includes the Trinity, Dashavatara,
@@ -749,6 +883,15 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   addCustomBtnText: { color: COLORS.gold, fontSize: 13, fontWeight: '600' },
+
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: SPACING.sm },
+  chip: {
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.cardBg,
+  },
+  chipActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
+  chipText: { fontSize: 12, color: COLORS.muted, fontWeight: '600', textTransform: 'capitalize' },
+  chipTextActive: { color: COLORS.gold },
 
   // ── Google Sign-In button (elderly-friendly: large, single tap) ──
   googleBtn: {

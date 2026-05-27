@@ -60,13 +60,13 @@ export const SaadhanaScoreCard: React.FC = () => {
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Today vs Saadhana</Text>
-        <Text style={styles.subtitle}>How your body responds during prayer</Text>
+        <Text style={styles.title}>Body & Soul Health</Text>
+        <Text style={styles.subtitle}>Your body baseline vs your soul sadhana state</Text>
       </View>
 
       {/* Big Saadhana Score number */}
       <View style={styles.scoreRow}>
-        <Text style={styles.scoreLabel}>Saadhana Score</Text>
+        <Text style={styles.scoreLabel}>Soul Sadhana Depth</Text>
         <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
           <Text style={[styles.scoreBig, { color: c }]}>
             {snap.hasJapaToday ? snap.score : '—'}

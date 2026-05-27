@@ -119,7 +119,7 @@ export const SoulsyncScoreCard: React.FC = () => {
 
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>Soulsync Score</Text>
+      <Text style={styles.title}>Body & Soul Score</Text>
 
       <View style={styles.bigRow}>
         <Text style={[styles.bigNumber, { color: overallColor }]}>
@@ -130,8 +130,8 @@ export const SoulsyncScoreCard: React.FC = () => {
       <Text style={styles.bigLabel}>{scores.label}</Text>
 
       <View style={styles.barRow}>
-        <ScoreBar label="Day Baseline" score={scores.dayBaseline} icon="🌅" />
-        <ScoreBar label="Japa Effect"  score={scores.japaEffect}  icon="🪷"
+        <ScoreBar label="Body Health Score" score={scores.dayBaseline} icon="❤️" />
+        <ScoreBar label="Soul Sadhana Depth" score={scores.japaEffect} icon="🪷"
                   empty={!scores.hasJapaToday} />
       </View>
 

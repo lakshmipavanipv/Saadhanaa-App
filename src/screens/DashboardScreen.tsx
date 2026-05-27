@@ -33,6 +33,7 @@ import { SaadhanaScoreCard } from '../soulsync/components/SaadhanaScoreCard';
 import { useEmotionalState } from '../soulsync/hooks/useEmotionalState';
 import { DeityIcon } from '../components/DeityIcon';
 import { TodayPrayersCard } from '../components/TodayPrayersCard';
+import { exerciseRepo } from '../services/exerciseRepo';
 
 interface FestReminder {
   shopping?: { enabled: boolean; date: string; time: string; recurrence?: string };
@@ -53,6 +54,10 @@ export const DashboardScreen = ({ navigation }: any) => {
   const [festReminders, setFestReminders] = useState<Record<string, FestReminder>>({});
   const [sandhyaSettings, setSandhyaSettings] = useState<SandhyaSettings | null>(null);
   const [_tick, setTick] = useState(0);   // refresh "in X mins" every minute
+  const [todayBodyMin, setTodayBodyMin] = useState(0);
+  useEffect(() => {
+    exerciseRepo.todayMinutes().then(setTodayBodyMin);
+  }, [_tick]);
 
   useEffect(() => {
     Storage.get<Record<string, FestReminder>>('festReminders', {}).then(setFestReminders);
@@ -297,90 +302,43 @@ export const DashboardScreen = ({ navigation }: any) => {
             #1 PRIORITY — Total Sadhana Time (clear, big, elderly-friendly)
             ──────────────────────────────────────────────────────────── */}
         <View style={styles.sadhanaHero}>
-          <Text style={styles.sadhanaHeroLabel}>Total Time in Sadhana</Text>
-          <Text style={styles.sadhanaHeroValue}>{formatSadhanaTime(sadhanaSeconds)}</Text>
+          <Text style={styles.sadhanaHeroLabel}>Total time spent for your body & soul</Text>
+          <Text style={styles.sadhanaHeroValue}>{formatSadhanaTime(sadhanaSeconds + todayBodyMin * 60)}</Text>
           <Text style={styles.sadhanaHeroSource}>
-            from {totalJapas.toLocaleString()} japas
+            🪷 {formatSadhanaTime(sadhanaSeconds)} soul · 🏃 {todayBodyMin} min body today
             {measuredSeconds > 0 && ` · ${formatSadhanaTime(measuredSeconds)} timed by ring`}
           </Text>
           <View style={styles.sadhanaHeroDivider} />
           <Text style={styles.sadhanaHeroToday}>
-            🌅 Today: {todayCount > 0
-              ? `${todayCount} mala${todayCount !== 1 ? 's' : ''} (${formatSadhanaTime(japasToSeconds(todayCount * 108))})`
-              : 'No sadhana yet — tap Japa tab to start 🙏'}
+            {todayCount === 0 && todayBodyMin === 0
+              ? '🌅 No exercise or soul work done yet today — gentle start awaits 🙏'
+              : `🌅 Today: ${todayCount > 0 ? `${todayCount} mala${todayCount !== 1 ? 's' : ''}` : 'no japa yet'}${todayBodyMin > 0 ? ` · ${todayBodyMin} min movement` : ''}`}
           </Text>
         </View>
 
-        {/* #2 — Mala / Deity counts */}
+        {/* #2 — Body / Soul daily goals */}
         <View style={styles.kpiCard}>
           <View style={styles.kpiCol}>
-            <Text style={styles.kpiValue}>{totalMalas.toLocaleString()}</Text>
-            <Text style={styles.kpiLabel}>Mala count</Text>
+            <Text style={styles.kpiValue}>
+              {todayBodyMin}
+              <Text style={{ fontSize: 14, color: COLORS.muted }}>/{userProfile?.goals?.bodyMinutesPerDay ?? 30}</Text>
+            </Text>
+            <Text style={styles.kpiLabel}>🏃 Workout time{'\n'}(min today)</Text>
           </View>
           <View style={styles.kpiDivider} />
           <View style={styles.kpiCol}>
             <Text style={styles.kpiValue}>
-              {numDeitiesChanted}
-              <Text style={{ fontSize: 14, color: COLORS.muted }}>/{numDeitiesAdded}</Text>
+              {Math.round((todayCount * 108 * 6) / 60)}
+              <Text style={{ fontSize: 14, color: COLORS.muted }}>/{userProfile?.goals?.soulMinutesPerDay ?? 20}</Text>
             </Text>
-            <Text style={styles.kpiLabel}>Deities chanted</Text>
+            <Text style={styles.kpiLabel}>🪷 Soul time{'\n'}(min today)</Text>
           </View>
         </View>
 
         {/* #3 — Soulsync Score (Day Baseline + Japa Effect overview) */}
         <SoulsyncScoreCard />
 
-        {/* #4 — My Deities (shortcut + progress). Tap any row to start
-                  a Japa session for that deity. Replaces the old separate
-                  "Start Your Prayer" quick-start grid. */}
-        {perDeity.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>My Deities · tap to start japa</Text>
-            {perDeity.map((d, i) => {
-              const deityRecord = deities.find(x => x.id === d.id);
-              return (
-                <TouchableOpacity
-                  key={i}
-                  style={styles.deityRow}
-                  onPress={() => {
-                    if (deityRecord) {
-                      setSelectedDeity(deityRecord);
-                      navigation?.navigate('Japa');
-                    }
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.deityRowIconWrap}>
-                    <DeityIcon deityId={d.id} icon={d.icon} size={22} color={COLORS.gold} />
-                  </View>
-                  <View style={{ flex: 1, marginLeft: SPACING.sm }}>
-                    <View style={styles.deityRowHeader}>
-                      <Text style={styles.deityRowName} numberOfLines={1}>
-                        {d.name.split(' ').slice(-1)[0]}
-                      </Text>
-                      <Text style={styles.deityRowMalas}>{d.malas} malas</Text>
-                    </View>
-                    <View style={styles.deityBarTrack}>
-                      <View
-                        style={[
-                          styles.deityBarFill,
-                          {
-                            width: `${(d.malas / maxDeityMalas) * 100}%`,
-                            backgroundColor: d.color,
-                          },
-                        ]}
-                      />
-                    </View>
-                    <Text style={styles.deityRowTime}>
-                      {formatSadhanaTime(japasToSeconds(d.japas))} of sadhana
-                    </Text>
-                  </View>
-                  <Text style={styles.deityRowChevron}>›</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
+        {/* My Deities section moved to Japa tab in v37 (tap Japa tab below) */}
 
         {/* #5 — Today vs Saadhana (primary table card: Saadhana Score +
                   note + all metrics baseline → japa) */}
