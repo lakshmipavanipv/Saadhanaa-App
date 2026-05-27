@@ -8,7 +8,7 @@
     {
       "client_info": {
         "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
-        "android_client_info": { "package_name": "com.sadhana.app" }
+        "android_client_info": { "package_name": "com.bodyandsoulring.app" }
       },
       "oauth_client": [
         { "client_id": "000000000000-placeholder.apps.googleusercontent.com", "client_type": 3 }
