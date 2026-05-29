@@ -805,6 +805,10 @@ const styles = StyleSheet.create({
   goalTitle: { color: COLORS.cream, fontSize: 16, fontWeight: '700', marginBottom: 4 },
   goalHint: { color: COLORS.muted, fontSize: 12, fontStyle: 'italic', marginBottom: SPACING.md },
   goalInput: { backgroundColor: COLORS.cardBg, borderRadius: 10, padding: SPACING.md, color: COLORS.cream, fontSize: 18, fontWeight: '700', borderWidth: 1, borderColor: COLORS.border, textAlign: 'center' },
+  cancelBtn: { flex: 1, paddingVertical: SPACING.md, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center' },
+  cancelText: { color: COLORS.muted, fontSize: 14, fontWeight: '600' },
+  saveBtn: { flex: 1, paddingVertical: SPACING.md, borderRadius: 10, backgroundColor: COLORS.gold, alignItems: 'center' },
+  saveText: { color: COLORS.deep, fontSize: 14, fontWeight: '700' },
 
   autoBadge: {
     backgroundColor: 'rgba(78,168,222,0.18)', borderRadius: 6,

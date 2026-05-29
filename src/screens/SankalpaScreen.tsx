@@ -20,6 +20,7 @@ import { COLORS, SPACING } from '../theme';
 import { useSadhana } from '../context';
 import { routineRepo, RoutineItem, RoutineCategory } from '../services/routineRepo';
 import { routineParser } from '../soulsync/ai/RoutineParser';
+import { vitalsPlanEngine, VitalsPlan } from '../soulsync/ai/VitalsPlanEngine';
 import { TimePickerField } from '../components/TimePickerField';
 import { YOGA_CATALOG } from './YogaScreen';
 import { EXERCISE_CATALOG } from './ExerciseScreen';
@@ -226,7 +227,7 @@ const fmtFrequency = (f: 'daily' | number[]): string => {
 };
 
 export const SankalpaScreen = ({ navigation }: any) => {
-  const { showToast } = useSadhana();
+  const { showToast, userProfile } = useSadhana();
   const [items, setItems] = useState<RoutineItem[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [parsedPreview, setParsedPreview] = useState<ReturnType<typeof routineParser.parse>>([]);
@@ -234,6 +235,20 @@ export const SankalpaScreen = ({ navigation }: any) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddSheet, setShowAddSheet] = useState<RoutineCategory | null>(null);
   const [showSandhyaInfo, setShowSandhyaInfo] = useState(false);
+
+  // ── AI personalized plan (vitals + age + 7-day history) ──
+  const [aiPlan, setAiPlan] = useState<VitalsPlan | null>(null);
+  const [showWhy, setShowWhy] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const p = await vitalsPlanEngine.generate(userProfile?.dob);
+        if (!cancelled) setAiPlan(p);
+      } catch { /* soft-fail — card simply hides */ }
+    })();
+    return () => { cancelled = true; };
+  }, [userProfile?.dob]);
 
   // Live clock — refreshes "in 2h 15m" countdowns once a minute
   const [, setNowTick] = useState(Date.now());
@@ -537,6 +552,52 @@ export const SankalpaScreen = ({ navigation }: any) => {
                   </View>
                 ))}
             </View>
+          </View>
+        )}
+
+        {/* ── AI Personalized Plan — vitals + age + 7-day history ── */}
+        {aiPlan && (
+          <View style={styles.aiPlanCard}>
+            <View style={styles.aiPlanHeaderRow}>
+              <Text style={styles.aiPlanTitle}>🌿  AI-RECOMMENDED PLAN FOR TODAY</Text>
+              <Text style={styles.aiPlanTotal}>{aiPlan.totalMin} min</Text>
+            </View>
+            <Text style={styles.aiPlanSub}>
+              Tuned to your age, today's vitals, and last-7-day history.
+            </Text>
+
+            {/* Top-of-card note(s) */}
+            {aiPlan.notes.map((n, i) => (
+              <Text key={i} style={styles.aiPlanNote}>• {n}</Text>
+            ))}
+
+            {/* Plan breakdown — 5 buckets shown as compact pill rows */}
+            <View style={styles.aiPlanBuckets}>
+              <PlanBucketRow icon="🚶" label="Walking"     mins={aiPlan.walkingMin} />
+              <PlanBucketRow icon="🧘" label="Yoga"        mins={aiPlan.yogaMin} />
+              <PlanBucketRow icon="📿" label="Japa"        mins={aiPlan.japaMin} />
+              <PlanBucketRow icon="🪷" label="Meditation"  mins={aiPlan.meditationMin} />
+              <PlanBucketRow icon="🫁" label="Breath work" mins={aiPlan.breathworkMin} />
+            </View>
+
+            {/* Why this plan — collapsible rationale */}
+            <TouchableOpacity onPress={() => setShowWhy(s => !s)} style={styles.aiPlanWhyBtn}>
+              <Text style={styles.aiPlanWhyText}>
+                {showWhy ? '▾  Hide reasoning' : '▸  Why this plan?'}
+              </Text>
+            </TouchableOpacity>
+            {showWhy && (
+              <View style={styles.aiPlanRationaleBox}>
+                {aiPlan.rationale.map((r, i) => (
+                  <Text key={i} style={styles.aiPlanRationaleLine}>· {r}</Text>
+                ))}
+                <Text style={styles.aiPlanProvenance}>
+                  {aiPlan.fromRealVitals ? '✓ Live ring vitals' : '◌ Vitals fallback (ring not synced yet)'}
+                  {'  ·  '}
+                  {aiPlan.fromRealHistory ? '✓ 7-day history' : '◌ No history yet'}
+                </Text>
+              </View>
+            )}
           </View>
         )}
 
@@ -1182,6 +1243,24 @@ const EditItemSheet: React.FC<{
   );
 };
 
+// ─── AI Plan bucket row — one of the 5 buckets (walk/yoga/japa/...) ─
+
+const PlanBucketRow: React.FC<{ icon: string; label: string; mins: number }> = ({ icon, label, mins }) => {
+  // Width % is mapped from minutes (cap at 30 min = 100% width) so the
+  // bar visually telegraphs which bucket is largest today.
+  const pct = Math.min(100, Math.round((mins / 30) * 100));
+  return (
+    <View style={styles.bucketRow}>
+      <Text style={styles.bucketIcon}>{icon}</Text>
+      <Text style={styles.bucketLabel}>{label}</Text>
+      <View style={styles.bucketBarTrack}>
+        <View style={[styles.bucketBarFill, { width: `${pct}%` }]} />
+      </View>
+      <Text style={styles.bucketMins}>{mins} min</Text>
+    </View>
+  );
+};
+
 // ─── Styles ─────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -1368,6 +1447,42 @@ const styles = StyleSheet.create({
   },
   recText: { fontSize: 13, color: COLORS.cream, lineHeight: 19 },
   recBold: { color: COLORS.gold, fontWeight: '700' },
+
+  // ── AI Personalized Plan card (vitals + age + 7-day history) ──
+  aiPlanCard: {
+    marginHorizontal: SPACING.md, marginTop: SPACING.md, padding: SPACING.md,
+    backgroundColor: 'rgba(80, 200, 180, 0.08)',
+    borderRadius: 14, borderWidth: 1, borderColor: 'rgba(80, 200, 180, 0.35)',
+  },
+  aiPlanHeaderRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
+  },
+  aiPlanTitle: { fontSize: 13, color: '#7FE8C8', fontWeight: '800', letterSpacing: 0.4 },
+  aiPlanTotal: { fontSize: 18, color: '#7FE8C8', fontWeight: '700' },
+  aiPlanSub: { fontSize: 11, color: COLORS.muted, marginTop: 2, marginBottom: SPACING.sm },
+  aiPlanNote: {
+    fontSize: 13, color: COLORS.cream, fontStyle: 'italic',
+    lineHeight: 18, marginBottom: 4,
+  },
+  aiPlanBuckets: { marginTop: SPACING.sm, gap: 6 },
+  bucketRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  bucketIcon: { fontSize: 16, width: 22 },
+  bucketLabel: { fontSize: 12, color: COLORS.cream, fontWeight: '600', width: 84 },
+  bucketBarTrack: {
+    flex: 1, height: 8, borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.06)', overflow: 'hidden',
+  },
+  bucketBarFill: { height: '100%', backgroundColor: '#7FE8C8', borderRadius: 4 },
+  bucketMins: { fontSize: 12, color: COLORS.cream, fontWeight: '700', width: 56, textAlign: 'right' },
+
+  aiPlanWhyBtn: { marginTop: SPACING.sm, alignSelf: 'flex-start' },
+  aiPlanWhyText: { fontSize: 11, color: '#7FE8C8', fontWeight: '700' },
+  aiPlanRationaleBox: {
+    marginTop: 6, padding: SPACING.sm, borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.18)',
+  },
+  aiPlanRationaleLine: { fontSize: 11, color: COLORS.cream, lineHeight: 16, marginBottom: 2 },
+  aiPlanProvenance: { fontSize: 10, color: COLORS.muted, marginTop: 6, fontStyle: 'italic' },
 
   // Add / Edit sheets
   sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },

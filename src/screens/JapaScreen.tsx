@@ -949,13 +949,13 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
             if (!d) return null;
             return (
               <TimePickerField
-                value={d.prayerAlarm || null}
+                value={d!.prayerAlarm || null}
                 onChange={(next) => {
                   setPickingDeityId(null);
                   setDeities(prev => prev.map(x =>
-                    x.id === d.id ? { ...x, prayerAlarm: next, alarmOn: true } : x
+                    x.id === d!.id ? { ...x, prayerAlarm: next, alarmOn: true } : x
                   ));
-                  showToast(`⏰ ${d.name} reminder set to ${next}`);
+                  showToast(`⏰ ${d!.name} reminder set to ${next}`);
                 }}
               />
             );
