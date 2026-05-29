@@ -159,16 +159,70 @@ export const DeityScreen = ({ navigation, route }: any) => {
     setDeities(p => p.filter(d => d.id !== id));
   };
 
+  // ── v46: inline-everything layout ────────────────────────────────
+  //
+  // The screen used to bury the catalog + custom add behind two nested
+  // modals.  Older sadhakas couldn't find their way back.  Now ONE
+  // scrollable view shows: list of added deities → catalog grid →
+  // inline custom-add form.  Toggling a catalog item adds/removes it
+  // from the user's sadhana INSTANTLY (no Save/Commit button).
+  const togglePickedInstant = (cat: CatalogDeity) => {
+    const already = deities.some(d => d.id === cat.id);
+    if (already) {
+      setDeities(prev => prev.filter(d => d.id !== cat.id));
+    } else {
+      const newDeity: Deity = {
+        id:    cat.id,
+        name:  cat.name,
+        icon:  cat.icon,
+        mantra: cat.mantra,
+        prayerAlarm: '06:00',
+        alarmOn: false,
+        totalMalas: 0,
+        malaMaterial:  cat.malaMaterial,
+        malaColor:     cat.malaColor,
+        malaHighlight: cat.malaHighlight,
+      };
+      setDeities(prev => [...prev, newDeity]);
+      showToast(`✓ ${cat.name} added`);
+    }
+  };
+
+  const saveCustomInline = () => {
+    if (!customNameInput.trim()) {
+      showToast('Enter a deity name first');
+      return;
+    }
+    const d: Deity = {
+      id: `custom-${Date.now()}`,
+      name: customNameInput.trim(),
+      icon: '🙏',
+      mantra: customMantraInput.trim() || 'Om Namah',
+      prayerAlarm: '06:00',
+      alarmOn: false,
+      totalMalas: 0,
+    };
+    setDeities(prev => [...prev, d]);
+    setCustomNameInput('');
+    setCustomMantraInput('');
+    showToast(`✓ ${d.name} added`);
+  };
+
+  // pickedIds drives the catalog grid's checkmark state — every entry
+  // in the user's `deities` shows as picked, so they see what they own
+  // at a glance.
+  const pickedIds = React.useMemo(
+    () => new Set(deities.map(d => d.id)),
+    [deities]
+  );
+
   return (
     <View style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>My Deities</Text>
-          <Text style={styles.subtitle}>{deities.length} deities in your sadhana</Text>
-        </View>
-
-        {/* Notification Banner */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.content, { paddingBottom: 80 }]}
+      >
+        {/* Notification banner */}
         {!notifGranted && (
           <View style={styles.notifBanner}>
             <Text style={{ fontSize: 24 }}>🔔</Text>
@@ -182,156 +236,92 @@ export const DeityScreen = ({ navigation, route }: any) => {
           </View>
         )}
 
-        {/* Deities List */}
-        {deities.map((d, i) => {
-          const target = d.targetMalas || 0;
-          const todayPct = target > 0 ? Math.min(100, (d.totalMalas / target) * 100) : 0;
-          return (
-            <View key={d.id} style={styles.deityItem}>
-              <View style={styles.deityIconWrap}>
-                <DeityIcon deityId={d.id} icon={d.icon} size={28} color={COLORS.gold} />
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.deityName}>{d.name}</Text>
-                <Text style={styles.deityMantra}>{d.mantra}</Text>
-                {target > 0 && (
-                  <View style={styles.targetRow}>
-                    <View style={styles.targetTrack}>
-                      <View style={[styles.targetFill, { width: `${todayPct}%` }]} />
-                    </View>
-                    <Text style={styles.targetText}>
-                      {d.totalMalas}/{target}
-                    </Text>
-                  </View>
-                )}
-                <TouchableOpacity onPress={() => setEditingReminder(d)} style={styles.alarmPill}>
-                  <Text style={styles.alarmStatus}>
-                    {d.alarmOn ? '⏰' : '🔕'} {d.prayerAlarm} · Tap to edit
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.deityStats}>
-                <Text style={styles.totalMalas}>{d.totalMalas}</Text>
-                <Text style={styles.totalMalasLabel}>malas</Text>
-                <TouchableOpacity onPress={() => remove(d.id)}>
-                  <Text style={styles.deleteBtn}>✕</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          );
-        })}
-      </ScrollView>
-
-      {/* Add Button */}
-      <TouchableOpacity style={styles.addBtn} onPress={openAddModal}>
-        <Text style={styles.addBtnText}>+ Add New Deity</Text>
-      </TouchableOpacity>
-
-      {/* Add Deity Modal — T4 two-step: tap for tick, commit on Add button */}
-      <Modal visible={showAdd} animationType="slide" onRequestClose={() => setShowAdd(false)}>
-        <View style={[styles.container, { paddingTop: 50 }]}>
-          <View style={styles.fullModalHeader}>
-            <TouchableOpacity onPress={() => setShowAdd(false)} style={styles.fullCloseBtn}>
-              <Text style={styles.fullCloseText}>✕</Text>
-            </TouchableOpacity>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.fullModalTitle}>Choose deities</Text>
-              <Text style={styles.fullModalSub}>Tap to select, then commit at the bottom</Text>
-            </View>
-          </View>
-          <ScrollView
-            contentContainerStyle={{ padding: SPACING.md, paddingBottom: 120 }}
-            showsVerticalScrollIndicator={false}
-          >
-            <DeityCatalogPicker
-              pickedIds={pendingPicked}
-              onTogglePick={togglePending}
-              showCustom={false}
-            />
-            {/* Show pending customs */}
-            {pendingCustoms.length > 0 && (
-              <View style={{ marginTop: SPACING.md }}>
-                <Text style={{ fontSize: 11, color: COLORS.gold, fontWeight: '700', letterSpacing: 1, marginBottom: 6 }}>
-                  YOUR CUSTOM DEITIES
-                </Text>
-                {pendingCustoms.map(d => (
-                  <View key={d.id} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.cardBg, padding: SPACING.sm, borderRadius: 8, marginBottom: 6 }}>
-                    <Text style={{ fontSize: 22 }}>🙏</Text>
-                    <View style={{ flex: 1, marginLeft: SPACING.sm }}>
-                      <Text style={{ fontSize: 14, color: COLORS.cream, fontWeight: '600' }}>{d.name}</Text>
-                      <Text style={{ fontSize: 11, color: COLORS.muted, fontStyle: 'italic' }}>{d.mantra}</Text>
-                    </View>
-                    <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center' }}>
-                      <Text style={{ color: COLORS.deep, fontSize: 11, fontWeight: '700' }}>✓</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
-            {/* T6: + Other Deity button at the bottom */}
-            <TouchableOpacity
-              style={styles.otherDeityBtn}
-              onPress={() => setShowCustomModal(true)}
-            >
-              <Text style={styles.otherDeityBtnText}>+ Other Deity</Text>
-            </TouchableOpacity>
-          </ScrollView>
-          {/* Sticky commit bar at the bottom */}
-          <View style={styles.commitBar}>
-            <Text style={styles.commitCount}>{pendingPicked.size} selected</Text>
-            <TouchableOpacity
-              style={[styles.commitBtn, pendingPicked.size === 0 && { opacity: 0.4 }]}
-              onPress={commitSelection}
-              disabled={pendingPicked.size === 0}
-            >
-              <Text style={styles.commitBtnText}>Add Deity</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* T6: "Other Deity" sub-modal — clean 2-field form */}
-      <Modal visible={showCustomModal} transparent animationType="slide" onRequestClose={() => setShowCustomModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Add a custom deity</Text>
-            <Text style={{ fontSize: 12, color: COLORS.muted, marginBottom: SPACING.md }}>
-              Family ishta devata, regional form, or any mantra not in the catalog.
+        {/* ── 1. YOUR SADHANA · current deities list ─────────────── */}
+        <Text style={styles.sectionLabel}>
+          YOUR SADHANA · {deities.length} {deities.length === 1 ? 'DEITY' : 'DEITIES'}
+        </Text>
+        {deities.length === 0 ? (
+          <View style={styles.emptyHint}>
+            <Text style={styles.emptyHintText}>
+              No deities yet. Tap a god below to add it to your sadhana, or type your
+              own name + mantra at the bottom of this screen.
             </Text>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Deity Name</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Sri Banke Bihari"
-                placeholderTextColor={COLORS.muted}
-                value={customNameInput}
-                onChangeText={setCustomNameInput}
-                autoFocus
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Maha-Mantra</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Om Namo Bhagavate Vasudevaaya"
-                placeholderTextColor={COLORS.muted}
-                value={customMantraInput}
-                onChangeText={setCustomMantraInput}
-              />
-            </View>
-
-            <TouchableOpacity style={styles.submitBtn} onPress={saveCustomDeity}>
-              <Text style={styles.submitBtnText}>Save</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowCustomModal(false)}>
-              <Text style={styles.cancelBtnText}>Cancel</Text>
-            </TouchableOpacity>
           </View>
+        ) : (
+          deities.map(d => {
+            const target = d.targetMalas || 0;
+            const todayPct = target > 0 ? Math.min(100, (d.totalMalas / target) * 100) : 0;
+            return (
+              <View key={d.id} style={styles.deityItem}>
+                <View style={styles.deityIconWrap}>
+                  <DeityIcon deityId={d.id} icon={d.icon} size={28} color={COLORS.gold} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.deityName}>{d.name}</Text>
+                  <Text style={styles.deityMantra}>{d.mantra}</Text>
+                  {target > 0 && (
+                    <View style={styles.targetRow}>
+                      <View style={styles.targetTrack}>
+                        <View style={[styles.targetFill, { width: `${todayPct}%` }]} />
+                      </View>
+                      <Text style={styles.targetText}>{d.totalMalas}/{target}</Text>
+                    </View>
+                  )}
+                  <TouchableOpacity onPress={() => setEditingReminder(d)} style={styles.alarmPill}>
+                    <Text style={styles.alarmStatus}>
+                      {d.alarmOn ? '⏰' : '🔕'} {d.prayerAlarm} · Tap to edit
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.deityStats}>
+                  <Text style={styles.totalMalas}>{d.totalMalas}</Text>
+                  <Text style={styles.totalMalasLabel}>malas</Text>
+                  <TouchableOpacity onPress={() => remove(d.id)}>
+                    <Text style={styles.deleteBtn}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })
+        )}
+
+        {/* ── 2. ADD MORE · the full catalog, inline ──────────────── */}
+        <Text style={styles.sectionLabel}>ADD MORE · TAP TO TOGGLE</Text>
+        <DeityCatalogPicker
+          pickedIds={pickedIds}
+          onTogglePick={togglePickedInstant}
+          showCustom={false}
+        />
+
+        {/* ── 3. ADD YOUR OWN · inline 2-field form ───────────────── */}
+        <Text style={styles.sectionLabel}>ADD YOUR OWN</Text>
+        <Text style={styles.customHint}>
+          Family ishta devata, regional form, or any mantra not in the catalog above.
+        </Text>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Deity Name</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. Sri Banke Bihari"
+            placeholderTextColor={COLORS.muted}
+            value={customNameInput}
+            onChangeText={setCustomNameInput}
+          />
         </View>
-      </Modal>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Maha-Mantra</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. Om Namo Bhagavate Vasudevaaya"
+            placeholderTextColor={COLORS.muted}
+            value={customMantraInput}
+            onChangeText={setCustomMantraInput}
+          />
+        </View>
+        <TouchableOpacity style={styles.submitBtn} onPress={saveCustomInline}>
+          <Text style={styles.submitBtnText}>+ Add to my sadhana</Text>
+        </TouchableOpacity>
+      </ScrollView>
 
       {/* Edit Reminder Modal */}
       {editingReminder && (
@@ -735,6 +725,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: SPACING.md,
   },
+  // v46 inline-everything section labels + helper styles
+  sectionLabel: {
+    fontSize: 11, color: COLORS.gold, fontWeight: '800', letterSpacing: 1.2,
+    marginTop: SPACING.md, marginBottom: SPACING.sm,
+  },
+  emptyHint: {
+    backgroundColor: COLORS.cardBg, borderRadius: 10, padding: SPACING.md,
+    borderWidth: 1, borderColor: COLORS.border, borderStyle: 'dashed',
+    marginBottom: SPACING.md,
+  },
+  emptyHintText: { color: COLORS.muted, fontSize: 13, lineHeight: 18, fontStyle: 'italic' },
+  customHint: {
+    color: COLORS.muted, fontSize: 12, fontStyle: 'italic',
+    marginBottom: SPACING.sm,
+  },
+
   inputGroup: {
     marginBottom: SPACING.lg,
   },

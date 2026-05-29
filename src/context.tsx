@@ -66,11 +66,12 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const loadedProfile = await Storage.get<UserProfile | null>('userProfile', null);
         setUserProfile(loadedProfile);
 
-        // Only seed default data on first run (when not yet onboarded).
-        const loadedDeities = await Storage.get<Deity[]>(
-          'deities',
-          loadedProfile?.onboarded ? [] : DEFAULT_DEITIES
-        );
+        // Fresh installs now start with ZERO deities. The user picks from
+        // the catalog (or adds custom ones) the first time they tap "Add
+        // a Sadhana".  The old DEFAULT_DEITIES seed pre-selected Ganesha
+        // / Krishna / Lakshmi and pretended the user already owned them,
+        // which confused new sadhakas.  Empty start, user owns every pick.
+        const loadedDeities = await Storage.get<Deity[]>('deities', []);
         const loadedHistory = await Storage.get<HistoryEntry[]>(
           'history',
           loadedProfile?.onboarded ? [] : []

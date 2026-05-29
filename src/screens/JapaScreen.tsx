@@ -1076,10 +1076,34 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
       {/* Deity manager modal (replaces removed Deities tab) */}
       <Modal visible={showDeityManager} animationType="slide" onRequestClose={() => setShowDeityManager(false)}>
         <View style={{ flex: 1, backgroundColor: COLORS.deep }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: SPACING.md, paddingTop: 50, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
-            <Text style={{ color: COLORS.cream, fontSize: 18, fontWeight: '700' }}>Deities & Reminders</Text>
-            <TouchableOpacity onPress={() => setShowDeityManager(false)}>
-              <Text style={{ color: COLORS.muted, fontSize: 20, padding: 4 }}>✕</Text>
+          <View style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: SPACING.md, paddingTop: 50,
+            borderBottomWidth: 1, borderBottomColor: COLORS.border,
+          }}>
+            <View>
+              <Text style={{ color: COLORS.cream, fontSize: 18, fontWeight: '700' }}>
+                Choose Deities
+              </Text>
+              <Text style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>
+                Tap to add · tap again to remove
+              </Text>
+            </View>
+            {/* X close — UPPER RIGHT, circular gold-bordered button for
+                consistency with the rest of the app's close affordances. */}
+            <TouchableOpacity
+              onPress={() => setShowDeityManager(false)}
+              hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}
+              style={{
+                width: 36, height: 36, borderRadius: 18,
+                backgroundColor: COLORS.cardBg,
+                borderWidth: 1, borderColor: COLORS.gold,
+                alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <Text style={{ color: COLORS.gold, fontSize: 18, fontWeight: '700' }}>✕</Text>
             </TouchableOpacity>
           </View>
           <DeityScreen navigation={navigation} route={{ params: {} }} />
