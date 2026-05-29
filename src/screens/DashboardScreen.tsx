@@ -29,9 +29,7 @@ import { COLORS, SPACING } from '../theme';
 import { AIInsightsCard } from '../soulsync/components/AIInsightsCard';
 import { SolutionMatrixCard } from '../soulsync/components/SolutionMatrixCard';
 import { MicroSadhanaCard } from '../soulsync/components/MicroSadhanaCard';
-// BodySoulLogo removed in v49 — replaced with a small text header to keep
-// the Home tab calm. The animated logo still lives in src/soulsync/components
-// for other uses (e.g. Splash).
+import { BodySoulLogo } from '../soulsync/components/BodySoulLogo';
 import { SoulsyncScoreCard, computeScores } from '../soulsync/components/SoulsyncScoreCard';
 import { computeHealthDashboard } from '../soulsync/analytics/HealthDashboard';
 import { computeSleepScore } from '../soulsync/analytics/SleepScore';
@@ -412,13 +410,12 @@ export const DashboardScreen = ({ navigation }: any) => {
   return (
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        {/* v49 header — small text brand instead of the big animated
-            logo, so the page opens calm and the user lands on Today's
-            Plan immediately.  The full animation still lives in the
-            Splash screen + Onboarding welcome. */}
+        {/* Header — restored animated BODY & SOUL infinity-ribbon logo
+            (BodySoulLogo). The ribbon draws itself in with a blue → purple
+            → gold gradient and the 5-petal lotus blossoms from the top
+            crossing — this is the canonical brand mark. */}
         <View style={styles.header}>
-          <Text style={styles.smallBrand}>BODY &amp; SOUL</Text>
-          <Text style={styles.smallTagline}>Where vitals meet sadhana</Text>
+          <BodySoulLogo width={240} />
           <Text style={styles.personalLine}>{getPersonalLine(userProfile?.name)}</Text>
           <Text style={styles.date}>{formatDate(todayStr())}</Text>
         </View>
@@ -445,111 +442,9 @@ export const DashboardScreen = ({ navigation }: any) => {
           <MicroSadhanaCard event={lethargyEvent} onComplete={dismissEmotional} />
         )}
 
-        {/* ─── v49 NEW ORDER ────────────────────────────────────────
-              1. Small Body & Soul header (already above)
-              2. Today's Planned Activities (RIGHT HERE — moved up)
-              3. "Know more about your body Vitals?" collapsible toggle
-              4. Plan your well-being CTA
-              5. Festivals
-           Old TodayPrayersCard removed — its "in 4h" semantics now
-           appear inline on each TPA row. */}
-
-        {/* ── 2. Today's Planned Activities (moved up + 'in 4h' label) ── */}
-        <View style={styles.tpaBox}>
-          <Text style={styles.tpaTitle}>📅  Today's Planned Activities</Text>
-          <View style={styles.tpaSummary}>
-            <View style={styles.tpaSummaryCol}>
-              <Text style={styles.tpaSummaryValue}>{todayBodyMin}</Text>
-              <Text style={styles.tpaSummaryLabel}>🏃 workout{'\n'}min today</Text>
-            </View>
-            <View style={styles.tpaSummaryCol}>
-              <Text style={styles.tpaSummaryValue}>{Math.round(sadhanaSeconds / 60)}</Text>
-              <Text style={styles.tpaSummaryLabel}>🪷 sadhana{'\n'}min today</Text>
-            </View>
-            <View style={styles.tpaSummaryCol}>
-              <Text style={styles.tpaSummaryValue}>{todayRoutine.length}</Text>
-              <Text style={styles.tpaSummaryLabel}>📋 planned{'\n'}items</Text>
-            </View>
-          </View>
-          {todayRoutine.length === 0 ? (
-            <Text style={styles.tpaEmpty}>
-              No activities planned yet. Tap "Plan your well-being" below to set up your routine.
-            </Text>
-          ) : (
-            todayRoutine.slice(0, 6).map(item => {
-              const isWorkout = ['exercise'].includes(item.category);
-              const isSoul    = ['japa','meditate','sandhya'].includes(item.category);
-              const minDone   = isWorkout ? todayBodyMin : isSoul ? Math.round(sadhanaSeconds / 60) : 0;
-              const done = minDone >= item.durationMin;
-              const categoryMeta: Record<string, { tab: string; icon: string }> = {
-                exercise: { tab: 'Exercise', icon: '🏃' },
-                yoga:     { tab: 'Yoga',     icon: '🧘‍♀️' },
-                meditate: { tab: 'Yoga',     icon: '🪷' },
-                japa:     { tab: 'Japa',     icon: '📿' },
-                sandhya:  { tab: 'Japa',     icon: '🌅' },
-                shraadha: { tab: 'Panchang', icon: '🕯️' },
-                tithi:    { tab: 'Panchang', icon: '🌗' },
-                festival: { tab: 'Panchang', icon: '🛕' },
-              };
-              const meta = categoryMeta[item.category] ?? { tab: 'Dashboard', icon: '📌' };
-              const until = timeUntilLabel(item.time);
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  style={styles.tpaCard}
-                  onPress={() => navigation?.navigate?.(meta.tab)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.tpaCardIcon}>{meta.icon}</Text>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.tpaCardName} numberOfLines={1}>
-                      {item.name}
-                      {done && <Text style={styles.tpaCardDone}>  ⭐</Text>}
-                    </Text>
-                    <Text style={styles.tpaCardMeta}>
-                      {item.durationMin} min
-                      {item.notificationIds && '  ·  🔔 on'}
-                      {item.time ? `  ·  ⏰ ${item.time}` : ''}
-                    </Text>
-                  </View>
-                  {/* v49: "in 4h" style label — same UI as the removed
-                       TodayPrayersCard so users see how far away each
-                       reminder is at a glance. */}
-                  {until && (
-                    <View style={styles.tpaCardUntilPill}>
-                      <Text style={styles.tpaCardUntil}>{until}</Text>
-                    </View>
-                  )}
-                  <Text style={styles.tpaCardChevron}>›</Text>
-                </TouchableOpacity>
-              );
-            })
-          )}
-        </View>
-
-        {/* ── 3. "Know more about your body Vitals?" collapsible toggle ── */}
-        <TouchableOpacity
-          style={styles.vitalsToggle}
-          onPress={() => setShowVitals(v => !v)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.vitalsToggleIcon}>{showVitals ? '🩺' : '🫀'}</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.vitalsToggleTitle}>
-              {showVitals ? 'Hide your body vitals' : 'Know more about your body vitals?'}
-            </Text>
-            <Text style={styles.vitalsToggleSub}>
-              {showVitals
-                ? 'Tap to collapse'
-                : 'Heart · Lung · Stress · Sleep · Body & Soul Health Score'}
-            </Text>
-          </View>
-          <Text style={styles.vitalsToggleChev}>{showVitals ? '▴' : '▾'}</Text>
-        </TouchableOpacity>
-
-        {/* ── 4. VITALS BLOCK — only renders when expanded ── */}
-        {showVitals && (
-          <>
+        {/* ── 1. BODY & SOUL HEALTH SCORE (hero) ──
+            Now shows a NUMBER /100 (not time). Breakdown pills show
+            Body Health Score + Soul Depth Score. */}
         <View style={styles.sadhanaHero}>
           <Text style={styles.sadhanaHeroLabel}>Body & Soul Health Score</Text>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center' }}>
@@ -640,7 +535,8 @@ export const DashboardScreen = ({ navigation }: any) => {
           ))}
         </View>
 
-        {/* Plan CTA moved BELOW the collapsible vitals (v49 layout). */}
+        {/* ── 3. "Plan your routine" CTA · animated to grab attention ── */}
+        <AnimatedPlanCta onPress={() => navigation?.navigate?.('Plan')} />
 
         {/* ── 4. COMMITMENT SCORE — bars styled like the SoulsyncScoreCard ── */}
         {(() => {
@@ -716,29 +612,112 @@ export const DashboardScreen = ({ navigation }: any) => {
           </Text>
         </View>
 
-        {/* ── 6. Your Vitals Baseline — real 7-day baseline vs current ── */}
-        <SaadhanaScoreCard />
-          </>
+        {/* ── 6. "Know more about your body vitals?" — toggle wraps
+              ONLY the vitals baseline table below.  All the upstream
+              KPIs (hero score, 4 health boxes, commitment, note) stay
+              visible by default in their original positions. */}
+        <TouchableOpacity
+          style={styles.vitalsToggle}
+          onPress={() => setShowVitals(v => !v)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.vitalsToggleIcon}>🫀</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.vitalsToggleTitle}>
+              {showVitals ? 'Hide your vitals baseline' : 'Know more about your body vitals?'}
+            </Text>
+            <Text style={styles.vitalsToggleSub}>
+              {showVitals
+                ? 'Tap to collapse the 7-day baseline table'
+                : 'Resting BPM · HRV · SpO₂ · 7-day baseline vs today'}
+            </Text>
+          </View>
+          <Text style={styles.vitalsToggleChev}>{showVitals ? '▴' : '▾'}</Text>
+        </TouchableOpacity>
+
+        {showVitals && (
+          // Your Vitals Baseline — real 7-day baseline vs current.
+          // Wrapped in the toggle so the table only renders when the
+          // user asks to see it — the rest of the KPIs above stay in
+          // place by default.
+          <SaadhanaScoreCard />
         )}
 
-        {/* Plan your well-being — moved BELOW the vitals collapse (v49) */}
-        <AnimatedPlanCta onPress={() => navigation?.navigate?.('Plan')} />
+        {/* ── 7. Today's Planned Activities (restored to original position) ── */}
+        <View style={styles.tpaBox}>
+          <Text style={styles.tpaTitle}>📅  Today's Planned Activities</Text>
+          <View style={styles.tpaSummary}>
+            <View style={styles.tpaSummaryCol}>
+              <Text style={styles.tpaSummaryValue}>{todayBodyMin}</Text>
+              <Text style={styles.tpaSummaryLabel}>🏃 workout{'\n'}min today</Text>
+            </View>
+            <View style={styles.tpaSummaryCol}>
+              <Text style={styles.tpaSummaryValue}>{Math.round(sadhanaSeconds / 60)}</Text>
+              <Text style={styles.tpaSummaryLabel}>🪷 sadhana{'\n'}min today</Text>
+            </View>
+            <View style={styles.tpaSummaryCol}>
+              <Text style={styles.tpaSummaryValue}>{todayRoutine.length}</Text>
+              <Text style={styles.tpaSummaryLabel}>📋 planned{'\n'}items</Text>
+            </View>
+          </View>
+          {todayRoutine.length === 0 ? (
+            <Text style={styles.tpaEmpty}>
+              No activities planned yet. Tap "Plan your well-being" above to set up your routine.
+            </Text>
+          ) : (
+            todayRoutine.slice(0, 6).map(item => {
+              const isWorkout = ['exercise'].includes(item.category);
+              const isSoul    = ['japa','meditate','sandhya'].includes(item.category);
+              const minDone   = isWorkout ? todayBodyMin : isSoul ? Math.round(sadhanaSeconds / 60) : 0;
+              const done = minDone >= item.durationMin;
+              const categoryMeta: Record<string, { tab: string; icon: string }> = {
+                exercise: { tab: 'Exercise', icon: '🏃' },
+                yoga:     { tab: 'Yoga',     icon: '🧘‍♀️' },
+                meditate: { tab: 'Yoga',     icon: '🪷' },
+                japa:     { tab: 'Japa',     icon: '📿' },
+                sandhya:  { tab: 'Japa',     icon: '🌅' },
+                shraadha: { tab: 'Panchang', icon: '🕯️' },
+                tithi:    { tab: 'Panchang', icon: '🌗' },
+                festival: { tab: 'Panchang', icon: '🛕' },
+              };
+              const meta = categoryMeta[item.category] ?? { tab: 'Dashboard', icon: '📌' };
+              const until = timeUntilLabel(item.time);
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.tpaCard}
+                  onPress={() => navigation?.navigate?.(meta.tab)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.tpaCardIcon}>{meta.icon}</Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.tpaCardName} numberOfLines={1}>
+                      {item.name}
+                      {done && <Text style={styles.tpaCardDone}>  ⭐</Text>}
+                    </Text>
+                    <Text style={styles.tpaCardMeta}>
+                      {item.durationMin} min
+                      {item.notificationIds && '  ·  🔔 on'}
+                      {item.time ? `  ·  ⏰ ${item.time}` : ''}
+                    </Text>
+                  </View>
+                  {/* "in 4h" countdown pill — same UI as the removed
+                       TodayPrayersCard so users see how far away each
+                       reminder is at a glance. */}
+                  {until && (
+                    <View style={styles.tpaCardUntilPill}>
+                      <Text style={styles.tpaCardUntil}>{until}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.tpaCardChevron}>›</Text>
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </View>
 
-
-        {/* SoulsyncScoreCard removed — its Body Health + Soul Depth bars
-            are now in the hero (top), and the new Commitment Score box
-            above already covers the same "score / 100 + 2 bars" shape
-            with Workout Time / Sadhana Time labels per UX feedback. */}
-
-        {/* My Deities section moved to Japa tab in v37 (tap Japa tab below) */}
-
-        {/* SaadhanaScoreCard moved up — it is now "Your Vitals Baseline"
-            sitting right after the Note. AIInsightsCard removed — the
-            page ends cleanly at Today's Sadhana Times + Festivals. */}
-
-        {/* v49: TodayPrayersCard removed entirely — its "in 4h" countdown
-            semantics are now baked into each Today's Planned Activities
-            row at the top of the screen. One source of truth. */}
+        {/* TodayPrayersCard removed per the earlier ask — its "in 4h"
+            countdown semantics now live inline on each TPA row above. */}
 
         {/* #9 — Today's festival banner */}
         {todayFest && (
