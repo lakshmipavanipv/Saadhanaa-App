@@ -23,6 +23,14 @@ interface Props {
   practice?: string;        // e.g. "yoga", "meditation"
   /** Navigation ref so the popup can deep-link to Insights. */
   onViewInsights?: () => void;
+  /** Optional EXTERNAL soulsync session.  If the parent screen already
+   *  holds a `useSoulsyncSession()` instance — because it also renders
+   *  LiveVitalsTrends / BeforeAfterVitals that read from the same hook
+   *  state — pass it in here so we mutate the SAME state instead of
+   *  forking a second, isolated instance.  Without this, the bar would
+   *  start a session on its own private hook and the parent's
+   *  LiveVitalsTrends would stay empty. */
+  session?: ReturnType<typeof useSoulsyncSession>;
 }
 
 const fmtElapsed = (seconds: number): string => {
@@ -34,8 +42,15 @@ const fmtElapsed = (seconds: number): string => {
 export const SoulsyncSessionBar: React.FC<Props> = ({
   practice = 'practice',
   onViewInsights,
+  session,
 }) => {
-  const soulsync = useSoulsyncSession();
+  // Use the parent-supplied session if it exists; otherwise spin up our
+  // own (so the bar still works standalone in screens that don't render
+  // LiveVitalsTrends).  Note: a hook is called unconditionally to keep
+  // React's rules-of-hooks happy — if `session` is passed in, the
+  // internal hook still mounts but we just ignore its return value.
+  const ownSession = useSoulsyncSession();
+  const soulsync = session ?? ownSession;
   const [elapsed, setElapsed] = useState(0);
   const [showScoreModal, setShowScoreModal] = useState(false);
   const [scoreSnap, setScoreSnap] = useState<JapaEffectSnapshot | null>(null);

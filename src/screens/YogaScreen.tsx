@@ -361,6 +361,7 @@ export const YogaScreen = ({ navigation }: any) => {
         <SoulsyncSessionBar
           practice="yoga"
           onViewInsights={() => navigation?.navigate?.('History')}
+          session={soulsync}
         />
 
         {/* While a session is active → live heart + lung trend charts.

@@ -425,6 +425,7 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
         <SoulsyncSessionBar
           practice="meditation"
           onViewInsights={() => navigation?.navigate?.('History')}
+          session={soulsync}
         />
 
         {/* While active → live heart + lung trends.  After stop → swap to
