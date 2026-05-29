@@ -89,6 +89,12 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
   const scoreColor = colorForScore(depthScore);
 
   // ── Compact single-box mode (Japa screen) ──
+  //
+  // Same visual language as the Yoga / Meditation "time today" hero
+  // (huge minutes number, " / goal" sub-text, full-width gold progress
+  // bar) — but with the Japa-specific japa-count surfaced on the RIGHT
+  // side so it sits inline with the minutes hero.  Saves vertical
+  // space so the bead counter can sit on the same fold.
   if (compact) {
     const DepthRow = (
       <View style={statBoxStyles.compactDepthBlock}>
@@ -111,36 +117,38 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
     );
 
     return (
-      <View style={statBoxStyles.wrap}>
+      // Compact mode is used INSIDE a ScrollView that already provides
+      // horizontal padding (JapaScreen), so we cancel the wrap's own
+      // marginHorizontal to keep this box flush with the Sadhana picker
+      // below it. Also lighter top/bottom margins so the bead counter
+      // fits on the same fold.
+      <View style={[statBoxStyles.wrap, { marginHorizontal: 0, marginTop: 0, marginBottom: SPACING.sm }]}>
         <View style={[statBoxStyles.box, statBoxStyles.compactBox]}>
-          <Text style={statBoxStyles.compactTitle}>{label} · TODAY</Text>
-
-          {/* KPI row — time / sub-metric (japa count) */}
-          <View style={statBoxStyles.compactKpiRow}>
-            <View style={statBoxStyles.compactKpiCell}>
-              <Text style={statBoxStyles.compactKpiValue}>{minutesToday}</Text>
-              <Text style={statBoxStyles.compactKpiLabel}>
-                min · / {goalMinutes}
-              </Text>
+          {/* Hero row — Yoga-style big "TIME TODAY" on the left,
+              right-aligned "japas today" stat on the right. */}
+          <View style={statBoxStyles.compactHeroRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={statBoxStyles.compactHeroLabel}>{label} TIME TODAY</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                <Text style={statBoxStyles.compactHeroValue}>{minutesToday}</Text>
+                <Text style={statBoxStyles.compactHeroGoal}> / {goalMinutes} min</Text>
+              </View>
             </View>
             {subMetric && (
-              <View style={statBoxStyles.compactKpiCell}>
-                <Text style={statBoxStyles.compactKpiValue}>{subMetric.value}</Text>
-                <Text style={statBoxStyles.compactKpiLabel}>japas today</Text>
+              <View style={statBoxStyles.compactRightStat}>
+                <Text style={statBoxStyles.compactRightValue}>{subMetric.value}</Text>
+                <Text style={statBoxStyles.compactRightLabel}>japas today</Text>
               </View>
             )}
           </View>
 
-          {/* Time-goal solid bar with its own label */}
-          <View style={statBoxStyles.compactBarLabelRow}>
-            <Text style={statBoxStyles.compactBarLabel}>TIME · DAILY GOAL</Text>
-            <Text style={statBoxStyles.compactBarValue}>{goalPct}%</Text>
-          </View>
-          <View style={[statBoxStyles.progressTrack, { height: 10 }]}>
+          {/* Time-goal solid bar — full width like Yoga's hero */}
+          <View style={[statBoxStyles.progressTrack, { height: 10, marginTop: 6 }]}>
             <View style={[statBoxStyles.progressFill, { width: `${goalPct}%` }]} />
           </View>
+          <Text style={statBoxStyles.compactHeroPct}>{goalPct}% of today's goal</Text>
 
-          {/* Depth score row — tappable to open the trend modal when wired */}
+          {/* Depth score block — tappable to open the trend modal */}
           {onOpenTrend ? (
             <TouchableOpacity onPress={onOpenTrend} activeOpacity={0.7}>
               {DepthRow}
@@ -528,7 +536,26 @@ const statBoxStyles = StyleSheet.create({
   subMetricValue: { fontSize: 24, color: COLORS.cream, fontWeight: '800' },
 
   // ── Compact single-box mode (Japa screen) ──
+  // Slightly tighter padding than the full mode so the box fits the
+  // same fold as the bead counter and Soul Sync button.
   compactBox: { paddingVertical: 12, paddingHorizontal: 14 },
+
+  // Hero row: yoga-style time on the left, japas-today stat on the right.
+  compactHeroRow: {
+    flexDirection: 'row', alignItems: 'flex-start',
+  },
+  compactHeroLabel: {
+    fontSize: 13, color: COLORS.gold,
+    fontWeight: '700', letterSpacing: 1.2,
+    marginBottom: 4,
+  },
+  compactHeroValue: { fontSize: 44, color: COLORS.cream, fontWeight: '800', lineHeight: 48 },
+  compactHeroGoal:  { fontSize: 14, color: COLORS.muted, fontWeight: '600' },
+  compactHeroPct:   { fontSize: 12, color: COLORS.cream, fontWeight: '600', marginTop: 4 },
+  compactRightStat: { alignItems: 'flex-end', justifyContent: 'flex-start', paddingLeft: SPACING.md },
+  compactRightValue: { fontSize: 22, color: COLORS.cream, fontWeight: '800', lineHeight: 26 },
+  compactRightLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '700', marginTop: 2 },
+
   compactTitle: {
     fontSize: 11, color: COLORS.gold, fontWeight: '800', letterSpacing: 1.2,
     marginBottom: 8,

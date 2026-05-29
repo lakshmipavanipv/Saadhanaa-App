@@ -27,30 +27,49 @@ import {
   View, Text, TouchableOpacity, StyleSheet, Modal, Platform, TextInput, Animated, Easing,
 } from 'react-native';
 import Svg, { Circle, Defs, RadialGradient, Stop, Rect, Path, G, LinearGradient } from 'react-native-svg';
+import * as ExpoSpeech from 'expo-speech';
 import { COLORS, SPACING } from '../theme';
 import { defaultGemmaClient } from '../soulsync/ai/GemmaClient';
+import { useSadhana } from '../context';
+import { routineRepo, RoutineCategory } from '../services/routineRepo';
+import { scheduleRoutineReminder, requestNotificationPermission } from '../services/notifications';
 
 // ─── Cross-platform TTS shim ──────────────────────────────────────
-// Uses the browser's SpeechSynthesis API on web. On native we currently
-// no-op (expo-speech can be wired later — adding it requires a native
-// rebuild which we want to avoid here).
+// On WEB: uses the browser's SpeechSynthesis API.
+// On NATIVE (iOS / Android): uses expo-speech which talks to the
+// system's native TTS engine — same engine used by accessibility tools
+// so it's fluent in every Indian language the device supports.
 const Speech = {
   speak(text: string, opts?: { language?: string; rate?: number; pitch?: number }) {
-    if (Platform.OS !== 'web') return;
+    if (Platform.OS === 'web') {
+      try {
+        const synth = (typeof window !== 'undefined') ? (window as any).speechSynthesis : null;
+        if (!synth) return;
+        const u = new (window as any).SpeechSynthesisUtterance(text);
+        if (opts?.language) u.lang = opts.language;
+        if (opts?.rate)     u.rate = opts.rate;
+        if (opts?.pitch)    u.pitch = opts.pitch;
+        synth.cancel();
+        synth.speak(u);
+      } catch { /* TTS optional */ }
+      return;
+    }
+    // Native — expo-speech wraps Android TextToSpeech / iOS AVSpeechSynthesizer.
     try {
-      const synth = (typeof window !== 'undefined') ? (window as any).speechSynthesis : null;
-      if (!synth) return;
-      const u = new (window as any).SpeechSynthesisUtterance(text);
-      if (opts?.language) u.lang = opts.language;
-      if (opts?.rate)     u.rate = opts.rate;
-      if (opts?.pitch)    u.pitch = opts.pitch;
-      synth.cancel();      // stop any in-flight utterance
-      synth.speak(u);
+      ExpoSpeech.stop();
+      ExpoSpeech.speak(text, {
+        language: opts?.language || 'en-IN',
+        rate: opts?.rate ?? 0.92,
+        pitch: opts?.pitch ?? 1.0,
+      });
     } catch { /* TTS optional */ }
   },
   stop() {
-    if (Platform.OS !== 'web') return;
-    try { (window as any).speechSynthesis?.cancel(); } catch { /* */ }
+    if (Platform.OS === 'web') {
+      try { (window as any).speechSynthesis?.cancel(); } catch { /* */ }
+      return;
+    }
+    try { ExpoSpeech.stop(); } catch { /* */ }
   },
 };
 
@@ -216,6 +235,7 @@ const fabWrap = StyleSheet.create({
 });
 
 export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
+  const { showToast } = useSadhana();
   const [open, setOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -313,7 +333,68 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
     }
   };
 
-  const executeAction = (a: VoiceAction) => {
+  // ── Action persistence helpers ──────────────────────────────────
+  // The Gemma intent parser returns structured params (e.g. { activity:
+  // "walk", durationMin: 30, time: "06:00" }).  These helpers actually
+  // PERSIST the action so Gemma's response feels real — not just a
+  // spoken acknowledgement followed by a navigate.
+
+  const inferCategory = (activity: string): RoutineCategory => {
+    const a = (activity || '').toLowerCase();
+    if (/walk|run|jog|cycle|swim|gym|hiit|workout|cardio/.test(a)) return 'exercise';
+    if (/yoga|asana|surya|namaskar|pranayama/.test(a))             return 'yoga';
+    if (/japa|mantra|mala|gayatri|om/.test(a))                     return 'japa';
+    if (/meditat|breath|mindful/.test(a))                          return 'meditate';
+    if (/sandhya|pratah|sayam|madhyahnika/.test(a))                return 'sandhya';
+    if (/shradh|tithi|ekadashi|pradosh/.test(a))                   return 'tithi';
+    return 'meditate';
+  };
+
+  const persistAddGoal = async (params: any) => {
+    const activity = String(params?.activity || params?.name || 'practice');
+    const minutes  = Number(params?.durationMin || params?.minutes || 15);
+    const time     = params?.time ? String(params.time) : null;
+    await routineRepo.add({
+      category:    inferCategory(activity),
+      name:        activity.charAt(0).toUpperCase() + activity.slice(1),
+      durationMin: Math.max(1, Math.round(minutes)),
+      time,
+      frequency:   'daily',
+      custom:      true,
+    });
+    showToast(`✓ Added "${activity}" · ${minutes} min daily`);
+  };
+
+  const persistReminder = async (params: any) => {
+    const activity = String(params?.activity || params?.name || 'practice');
+    const time     = String(params?.time || '07:00');
+    const minutes  = Number(params?.durationMin || params?.minutes || 10);
+    const cat      = inferCategory(activity);
+    // Add the routine item so the reminder has something to point at,
+    // then schedule the notification via the existing helper.
+    const item = await routineRepo.add({
+      category:    cat,
+      name:        activity.charAt(0).toUpperCase() + activity.slice(1),
+      durationMin: Math.max(1, Math.round(minutes)),
+      time,
+      frequency:   'daily',
+      custom:      true,
+    });
+    const granted = await requestNotificationPermission();
+    if (granted) {
+      const ids = await scheduleRoutineReminder({
+        title: `🔔 ${item.name}`,
+        body:  `Time for your ${minutes}-min ${cat}`,
+        time,
+        frequency: 'daily',
+        routineId: item.id,
+      });
+      await routineRepo.update(item.id, { notificationIds: ids });
+    }
+    showToast(`⏰ Reminder set for ${time} daily`);
+  };
+
+  const executeAction = async (a: VoiceAction) => {
     switch (a.action) {
       case 'navigate':
         if (a.target && navRef.current?.navigate) {
@@ -322,14 +403,27 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
         }
         break;
       case 'explain_vitals':
-        // Already on Home — Soulsync score card is visible
         if (navRef.current?.navigate) navRef.current.navigate('Dashboard');
         break;
       case 'explain_goals':
       case 'explain_routine':
-      case 'add_goal':
-      case 'set_reminder':
         if (navRef.current?.navigate) navRef.current.navigate('Plan');
+        break;
+      case 'add_goal':
+        try {
+          await persistAddGoal(a.params || {});
+          if (navRef.current?.navigate) navRef.current.navigate('Plan');
+        } catch (e: any) {
+          showToast(`Couldn't add goal: ${e?.message || 'unknown'}`);
+        }
+        break;
+      case 'set_reminder':
+        try {
+          await persistReminder(a.params || {});
+          if (navRef.current?.navigate) navRef.current.navigate('Plan');
+        } catch (e: any) {
+          showToast(`Couldn't set reminder: ${e?.message || 'unknown'}`);
+        }
         break;
       case 'chat':
       case 'unknown':
