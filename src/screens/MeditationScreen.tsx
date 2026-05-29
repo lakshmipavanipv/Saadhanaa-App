@@ -22,10 +22,11 @@ import { soulActivityRepo } from '../services/soulActivityRepo';
 import { useSadhana } from '../context';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
 import { todayStr } from '../utils';
-import { withFallback } from '../services/dummyData';
-import { BigVitalsHeader } from '../components/BigVitalsHeader';
+import { DUMMY, withFallback } from '../services/dummyData';
+import { PracticeStatsBox, SessionList, BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import { PracticeAssistant, PracticeCatalogItem } from '../components/PracticeAssistant';
+import { computeJapaEffect } from '../soulsync/analytics/JapaEffect';
 
 type Intent = 'quick' | 'calm' | 'deep' | 'mantra' | 'cooling';
 
@@ -335,16 +336,23 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const quickRelief = MEDITATION_CATALOG.filter(t => t.intent === 'quick');
 
-  // Today's meditation minutes (with dummy fallback)
+  // Today's meditation minutes + sadhana depth score (with dummy fallback)
   const [minutesToday, setMinutesToday] = useState(0);
+  const [depthScore, setDepthScore]   = useState<number>(DUMMY.soulDepthScore);
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       const all = await soulActivityRepo.list();
       const today = todayStr();
       const real = all.filter(e => e.activity === 'meditation' && e.date === today)
                       .reduce((s, e) => s + e.durationMin, 0);
-      setMinutesToday(withFallback(real, 12));
+      if (!cancelled) setMinutesToday(withFallback(real, 12));
+      try {
+        const snap = await computeJapaEffect();
+        if (!cancelled && snap?.score != null) setDepthScore(snap.score);
+      } catch { /* keep dummy */ }
     })();
+    return () => { cancelled = true; };
   }, []);
 
   // Map Technique → PracticeCatalogItem for the assistant modal
@@ -388,23 +396,21 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
           </View>
         </View>
 
-        {/* Elder-friendly KPI strip: big minutes-today + Heart + Lung tiles */}
-        <BigVitalsHeader practice="Meditation" minutesToday={minutesToday} goalMinutes={20} />
-
-        {/* Soulsync — start before meditation to capture HRV / BPM */}
-        <SoulsyncSessionBar
+        {/* Top stats — mirrors ExerciseScreen pattern (sync'd with Yoga):
+              · Box A: meditation time today (solid gold progress bar)
+              · Box B: sadhana depth score (HORIZONTAL DASHED bar) */}
+        <PracticeStatsBox
           practice="meditation"
-          onViewInsights={() => navigation?.navigate?.('History')}
+          minutesToday={minutesToday}
+          goalMinutes={20}
+          depthScore={depthScore}
         />
 
-        {/* Live trends — heart + lung with today's baseline overlay */}
-        <LiveVitalsTrends
-          bpmSeries={soulsync.state.bpmSeries}
-          liveSpo2={soulsync.state.liveSpo2}
-          isActive={soulsync.state.active}
-        />
+        {/* One card per session today (name, minutes, depth score, week trend, week total) */}
+        <SessionList practice="meditation" />
 
-        {/* SOS — quick relief block (always visible at top) */}
+        {/* SOS — quick relief block (kept here because anxiety can hit
+            before the user even thinks about Soul Sync) */}
         <View style={styles.sosCard}>
           <Text style={styles.sosLabel}>🆘  IF YOU ARE FEELING ANXIOUS NOW</Text>
           {quickRelief.slice(0, 3).map(t => (
@@ -414,6 +420,21 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* Soulsync — start before meditation to capture HRV / BPM */}
+        <SoulsyncSessionBar
+          practice="meditation"
+          onViewInsights={() => navigation?.navigate?.('History')}
+        />
+
+        {/* While active → live heart + lung trends.  After stop → swap to
+              the before-vs-during table (mutually exclude via isActive). */}
+        <LiveVitalsTrends
+          bpmSeries={soulsync.state.bpmSeries}
+          liveSpo2={soulsync.state.liveSpo2}
+          isActive={soulsync.state.active}
+        />
+        <BeforeAfterVitals practice="meditation" isActive={soulsync.state.active} />
 
         {/* All techniques behind a single button — includes user's
             custom Sadhana Paths first, then the full library. */}

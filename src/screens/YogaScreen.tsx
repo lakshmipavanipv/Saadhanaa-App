@@ -24,10 +24,11 @@ import { exerciseRepo } from '../services/exerciseRepo';
 import { useSadhana } from '../context';
 import { todayStr } from '../utils';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
-import { BigVitalsHeader } from '../components/BigVitalsHeader';
+import { PracticeStatsBox, SessionList, BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import { PracticeAssistant, PracticeCatalogItem } from '../components/PracticeAssistant';
-import { withFallback } from '../services/dummyData';
+import { computeJapaEffect } from '../soulsync/analytics/JapaEffect';
+import { DUMMY, withFallback } from '../services/dummyData';
 
 // Single shared ring instance for yoga stage-mark buzzes
 const ring = createDefaultRing();
@@ -283,16 +284,23 @@ export const YogaScreen = ({ navigation }: any) => {
     setShowLog(false); setLogMin('');
   };
 
-  // Compute today's yoga minutes for the BigVitalsHeader
+  // Compute today's yoga minutes + sadhana depth score for the stats box
   const [minutesToday, setMinutesToday] = useState(0);
+  const [depthScore, setDepthScore]   = useState<number>(DUMMY.soulDepthScore);
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       const all = await exerciseRepo.list();
       const today = todayStr();
       const real = all.filter(e => e.activity === 'yoga' && e.date === today)
                       .reduce((s, e) => s + e.durationMin, 0);
-      setMinutesToday(withFallback(real, 12));
+      if (!cancelled) setMinutesToday(withFallback(real, 12));
+      try {
+        const snap = await computeJapaEffect();
+        if (!cancelled && snap?.score != null) setDepthScore(snap.score);
+      } catch { /* keep dummy */ }
     })();
+    return () => { cancelled = true; };
   }, []);
 
   // Map YogaItem → PracticeCatalogItem for the assistant modal
@@ -335,8 +343,19 @@ export const YogaScreen = ({ navigation }: any) => {
           </View>
         </View>
 
-        {/* Elder-friendly KPI strip: big minutes-today hero + Heart + Lung tiles */}
-        <BigVitalsHeader practice="Yoga" minutesToday={minutesToday} goalMinutes={YOGA_DAILY_GOAL_MIN} />
+        {/* Top stats — mirrors ExerciseScreen pattern:
+              · Box A: yoga time today (solid gold progress bar)
+              · Box B: sadhana depth score (HORIZONTAL DASHED bar) */}
+        <PracticeStatsBox
+          practice="yoga"
+          minutesToday={minutesToday}
+          goalMinutes={YOGA_DAILY_GOAL_MIN}
+          depthScore={depthScore}
+        />
+
+        {/* One card per session today — name (from Sadhana Path or "Session N · yoga"),
+              minutes, depth score, week sparkline of scores, week total in small font. */}
+        <SessionList practice="yoga" />
 
         {/* Soulsync — start before yoga to capture HRV / BPM changes */}
         <SoulsyncSessionBar
@@ -344,14 +363,16 @@ export const YogaScreen = ({ navigation }: any) => {
           onViewInsights={() => navigation?.navigate?.('History')}
         />
 
-        {/* ── LIVE TRENDS — heart + lung with today's baseline overlay.
-              Shows only while a session is active. Replaces the old
-              HRVWaveGraph + BpmHrvBaselineCard pair. ── */}
+        {/* While a session is active → live heart + lung trend charts.
+              After the session stops → swap to the before-vs-during table.
+              The two components mutually exclude via isActive so we just
+              render both and let them gate themselves. */}
         <LiveVitalsTrends
           bpmSeries={soulsync.state.bpmSeries}
           liveSpo2={soulsync.state.liveSpo2}
           isActive={soulsync.state.active}
         />
+        <BeforeAfterVitals practice="yoga" isActive={soulsync.state.active} />
 
         {/* All practices behind a single button — opens a modal with
             user's custom Sadhana Paths first, then the full library. */}
