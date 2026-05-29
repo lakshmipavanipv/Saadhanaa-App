@@ -862,9 +862,10 @@ const styles = StyleSheet.create({
 
   // ── Big hero card for total prayer time (priority #1 for elderly users) ──
   sadhanaHero: {
+    // v52: top/bottom margins normalised to match every other section
+    // so the gaps on Home read as a single rhythm.
     marginHorizontal: SPACING.md,
-    marginTop: SPACING.sm,
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.md,
     padding: SPACING.lg,
     backgroundColor: COLORS.cardBg,
     borderRadius: 16,
@@ -1111,7 +1112,9 @@ const styles = StyleSheet.create({
   // v49: "Know more about your body Vitals?" collapsible toggle
   vitalsToggle: {
     flexDirection: 'row', alignItems: 'center',
-    marginHorizontal: SPACING.md, marginVertical: SPACING.sm,
+    // v52: marginBottom bumped from SPACING.sm → SPACING.md to match
+    // the gap every other Home-tab section uses (h4Grid, cscBox, tpaBox).
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
     paddingVertical: SPACING.md, paddingHorizontal: SPACING.md,
     backgroundColor: COLORS.cardBg, borderRadius: 14,
     borderWidth: 1, borderColor: 'rgba(255, 184, 0, 0.35)',
@@ -1155,8 +1158,9 @@ const styles = StyleSheet.create({
   sadhanaNoteBold:  { color: COLORS.gold, fontWeight: '800' },
 
   // v51: short single-line "Body & Soul" message under the Plan CTA
+  // v52: marginBottom normalised to SPACING.md for consistent gaps.
   shortNote: {
-    marginHorizontal: SPACING.md, marginBottom: SPACING.sm,
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
     paddingHorizontal: SPACING.md, paddingVertical: 10,
     borderRadius: 12,
     backgroundColor: 'rgba(212,160,23,0.06)',
