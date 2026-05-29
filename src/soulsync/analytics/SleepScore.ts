@@ -105,6 +105,34 @@ const scoreWASO = (wasoMin: number): number => {
   return 0;
 };
 
+/**
+ * Score the bedtime onset against the Ayurvedic "Kapha quality window"
+ * 9 pm – 12 am (1260 – 1439 minutes since midnight). Going to bed inside
+ * this window scores highest; sleeping past midnight loses points
+ * progressively because melatonin & deep-sleep cycles shift later.
+ *
+ *   21:00 – 22:30   → 100  (ideal — peak deep sleep band)
+ *   22:30 – 23:30   →  85
+ *   23:30 – 00:00   →  70
+ *   00:00 – 01:00   →  50
+ *   01:00 – 02:00   →  25
+ *    > 02:00        →   0
+ *   before 21:00    →  90  (early but acceptable)
+ */
+const scoreBedtime = (bedtimeMinute: number | null | undefined): number | null => {
+  if (bedtimeMinute == null) return null;
+  // Normalize: anything before 9 pm we treat as same-day evening
+  const m = bedtimeMinute;
+  if (m < 21 * 60)             return 90;                 // before 21:00
+  if (m >= 21*60 && m < 22*60+30) return 100;             // 21:00 – 22:30
+  if (m >= 22*60+30 && m < 23*60+30) return 85;           // 22:30 – 23:30
+  if (m >= 23*60+30 && m < 24*60)    return 70;           // 23:30 – 00:00
+  // After midnight — bedtime_minute may be 0–120 (00:00 – 02:00)
+  if (m < 60)                  return 50;                 // 00:00 – 01:00
+  if (m < 120)                 return 25;                 // 01:00 – 02:00
+  return 0;                                               // worse
+};
+
 // ─── Convert a SleepRow into a 0–100 score + components ────────────
 
 interface NightStats {
@@ -116,8 +144,9 @@ interface NightStats {
   hrvSleep: number;
   wasoMin: number;
   deepHours: number;
-  rawComponents: { duration: number; efficiency: number; deepPct: number; remPct: number; hrv: number; waso: number };
-  pts: { duration: number; efficiency: number; deep: number; rem: number; hrv: number; waso: number };
+  bedtimeMinute: number | null;
+  rawComponents: { duration: number; efficiency: number; deepPct: number; remPct: number; hrv: number; waso: number; bedtimeMin: number | null };
+  pts: { duration: number; efficiency: number; deep: number; rem: number; hrv: number; waso: number; bedtime: number };
 }
 
 const computeNightStats = async (row: SleepRow): Promise<NightStats> => {
@@ -141,6 +170,8 @@ const computeNightStats = async (row: SleepRow): Promise<NightStats> => {
   );
   const hrvSleep = hrvRow?.avg_rmssd ?? 30;
 
+  const bedtimePts = scoreBedtime(row.bedtime_minute);
+
   const pts = {
     duration:   scoreDuration(hours),
     efficiency: scoreEfficiency(efficiency),
@@ -148,20 +179,34 @@ const computeNightStats = async (row: SleepRow): Promise<NightStats> => {
     rem:        scoreREM(remPct),
     hrv:        scoreHRVSleep(hrvSleep),
     waso:       scoreWASO(wasoMin),
+    bedtime:    bedtimePts ?? 0,
   };
 
-  const score = Math.round(
-    pts.duration   * 0.20 +
-    pts.efficiency * 0.20 +
-    pts.deep       * 0.20 +
-    pts.rem        * 0.15 +
-    pts.hrv        * 0.15 +
-    pts.waso       * 0.10
-  );
+  // If bedtime is recorded, reweight: bedtime gets 15% (taken from duration & waso).
+  // Without bedtime, fall back to the original weights.
+  const score = bedtimePts != null
+    ? Math.round(
+        pts.duration   * 0.15 +
+        pts.efficiency * 0.18 +
+        pts.deep       * 0.17 +
+        pts.rem        * 0.12 +
+        pts.hrv        * 0.15 +
+        pts.waso       * 0.08 +
+        pts.bedtime    * 0.15
+      )
+    : Math.round(
+        pts.duration   * 0.20 +
+        pts.efficiency * 0.20 +
+        pts.deep       * 0.20 +
+        pts.rem        * 0.15 +
+        pts.hrv        * 0.15 +
+        pts.waso       * 0.10
+      );
 
   return {
     score, hours, efficiency, deepPct, remPct, hrvSleep, wasoMin, deepHours,
-    rawComponents: { duration: hours, efficiency, deepPct, remPct, hrv: hrvSleep, waso: wasoMin },
+    bedtimeMinute: row.bedtime_minute ?? null,
+    rawComponents: { duration: hours, efficiency, deepPct, remPct, hrv: hrvSleep, waso: wasoMin, bedtimeMin: row.bedtime_minute ?? null },
     pts,
   };
 };

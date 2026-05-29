@@ -17,10 +17,25 @@ import {
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
+import { YogaPoseAnimation } from '../components/YogaPoseAnimation';
+import { createDefaultRing } from '../soulsync/services/RingTelemetryService';
+import { TextInput } from 'react-native';
+import { exerciseRepo } from '../services/exerciseRepo';
+import { useSadhana } from '../context';
+import { WeekSparkline } from '../components/WeekSparkline';
+import { getDB } from '../soulsync/db/database';
+import { todayStr } from '../utils';
+import { HRVWaveGraph } from '../soulsync/components/HRVWaveGraph';
+import { BpmHrvBaselineCard } from '../soulsync/components/BpmHrvBaselineCard';
+import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
+import { DUMMY, withFallback } from '../services/dummyData';
+
+// Single shared ring instance for yoga stage-mark buzzes
+const ring = createDefaultRing();
 
 type Category = 'morning' | 'energy' | 'calm' | 'spine' | 'hips' | 'pranayama';
 
-interface YogaItem {
+export interface YogaItem {
   id: string;
   name: string;
   sanskrit: string;
@@ -33,7 +48,7 @@ interface YogaItem {
   breathPattern?: { in: number; hold1: number; out: number; hold2: number };
 }
 
-const ITEMS: YogaItem[] = [
+export const YOGA_CATALOG: YogaItem[] = [
   // ── Surya Namaskar component poses ──
   {
     id: 'surya-namaskar',
@@ -251,31 +266,75 @@ const fmtSec = (s: number): string =>
   s >= 60 ? `${Math.round(s / 60)} min` : `${s} sec`;
 
 export const YogaScreen = ({ navigation }: any) => {
+  const { showToast } = useSadhana();
+  // Soulsync session — same hook the Japa tab uses; live BPM/HRV streams
+  // are surfaced as a wave graph + baseline card while a session is on.
+  const soulsync = useSoulsyncSession();
   const [filter, setFilter] = useState<Category | 'all'>('all');
   const [selected, setSelected] = useState<YogaItem | null>(null);
+  const [showLog, setShowLog] = useState(false);
+  const [logMin, setLogMin] = useState('');
+  const [logDate, setLogDate] = useState(new Date().toISOString().slice(0, 10));
+
+  const submitLog = async () => {
+    const m = parseInt(logMin, 10);
+    if (!m || m <= 0) { showToast('Enter minutes'); return; }
+    await exerciseRepo.add({ activity: 'yoga', durationMin: m, date: logDate });
+    showToast(`✓ Logged ${m} min yoga on ${logDate}`);
+    setShowLog(false); setLogMin('');
+  };
 
   // Time-of-day recommendation
   const recommended = React.useMemo(() => {
     const h = new Date().getHours();
-    if (h < 10)  return ITEMS.filter(i => ['morning', 'energy', 'pranayama'].includes(i.category)).slice(0, 3);
-    if (h < 17)  return ITEMS.filter(i => ['energy', 'spine', 'hips'].includes(i.category)).slice(0, 3);
-    return            ITEMS.filter(i => ['calm', 'pranayama'].includes(i.category)).slice(0, 3);
+    if (h < 10)  return YOGA_CATALOG.filter(i => ['morning', 'energy', 'pranayama'].includes(i.category)).slice(0, 3);
+    if (h < 17)  return YOGA_CATALOG.filter(i => ['energy', 'spine', 'hips'].includes(i.category)).slice(0, 3);
+    return            YOGA_CATALOG.filter(i => ['calm', 'pranayama'].includes(i.category)).slice(0, 3);
   }, []);
 
-  const filtered = filter === 'all' ? ITEMS : ITEMS.filter(i => i.category === filter);
+  const filtered = filter === 'all' ? YOGA_CATALOG : YOGA_CATALOG.filter(i => i.category === filter);
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={styles.title}>Yoga Sadhana</Text>
-          <Text style={styles.subtitle}>Asanas + Pranayama for body and prana</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Yoga Sadhana</Text>
+              <Text style={styles.subtitle}>Asanas + Pranayama for body and prana</Text>
+            </View>
+            <TouchableOpacity style={styles.logBtn} onPress={() => setShowLog(true)}>
+              <Text style={styles.logBtnText}>+ Log past</Text>
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {/* Samsung-Health-style yoga KPIs + vitals comparison */}
+        <YogaStatsHeader />
 
         {/* Soulsync — start before yoga to capture HRV / BPM changes */}
         <SoulsyncSessionBar
           practice="yoga"
           onViewInsights={() => navigation?.navigate?.('History')}
+        />
+
+        {/* ── LIVE TREND — visible only while a Soulsync session is active.
+              Mirrors the Japa-tab pattern so the user sees BPM dipping and
+              HRV rising in real time as they practice. ── */}
+        {soulsync.state.active && (
+          <HRVWaveGraph
+            bpmSeries={soulsync.state.bpmSeries}
+            peakIndices={soulsync.state.peakIndices}
+            rmssd={soulsync.state.rmssd}
+            improvementPct={soulsync.state.improvementPct}
+            isBaselineEstablished={soulsync.state.isBaselineEstablished}
+          />
+        )}
+
+        <BpmHrvBaselineCard
+          liveBpm={soulsync.state.liveBpm}
+          liveRmssd={soulsync.state.rmssd}
+          isActive={soulsync.state.active}
         />
 
         {/* Today's recommendation */}
@@ -325,6 +384,296 @@ export const YogaScreen = ({ navigation }: any) => {
       {selected && (
         <YogaDetailModal item={selected} onClose={() => setSelected(null)} />
       )}
+
+      {/* Log past yoga modal */}
+      <Modal visible={showLog} transparent animationType="slide" onRequestClose={() => setShowLog(false)}>
+        <View style={styles.logOverlay}>
+          <View style={styles.logCard}>
+            <View style={styles.logHandle} />
+            <Text style={styles.logTitle}>Log past yoga</Text>
+            <Text style={styles.logHint}>Add minutes you've already done.</Text>
+            <Text style={styles.logFieldLabel}>Minutes</Text>
+            <TextInput
+              style={styles.logInput}
+              value={logMin}
+              onChangeText={setLogMin}
+              placeholder="0"
+              placeholderTextColor={COLORS.muted}
+              keyboardType="number-pad"
+            />
+            <Text style={styles.logFieldLabel}>Date</Text>
+            <TextInput
+              style={styles.logInput}
+              value={logDate}
+              onChangeText={setLogDate}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={COLORS.muted}
+            />
+            <TouchableOpacity style={styles.logSubmit} onPress={submitLog}>
+              <Text style={styles.logSubmitText}>Log this</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowLog(false)}>
+              <Text style={styles.logCancel}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
+// ─── Yoga Stats Header (KPIs + before/during vitals comparison) ──
+//
+// Mirrors the Samsung-Health-style cards in the Exercise tab but
+// focused on the inner yield: how today's yoga moved the body's
+// resting baseline (BPM / HRV / SpO₂) during practice.
+
+interface YogaStatsState {
+  minutesToday: number;
+  weeklyMinutes: number[];
+  sessionsToday: number;
+  avgDepth: number | null;
+  baseline: { bpm: number; hrv: number; spo2: number } | null;
+  during:   { bpm: number; hrv: number; spo2: number } | null;
+  hrvLiftSeries: number[];
+}
+
+const YOGA_DAILY_GOAL_MIN = 15;
+
+const YogaStatsHeader: React.FC = () => {
+  const [s, setS] = useState<YogaStatsState>({
+    minutesToday: 0, weeklyMinutes: [0,0,0,0,0,0,0],
+    sessionsToday: 0, avgDepth: null,
+    baseline: null, during: null, hrvLiftSeries: [0,0,0,0,0,0,0],
+  });
+
+  useEffect(() => {
+    (async () => {
+      const today = todayStr();
+      // ── Yoga minutes today + weekly trend ──
+      const all = await exerciseRepo.list();
+      const yogaToday = all.filter(e => e.activity === 'yoga' && e.date === today);
+      const minutesToday = yogaToday.reduce((sum, e) => sum + e.durationMin, 0);
+      const weeklyMinutes: number[] = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+        const m = all
+          .filter(e => e.activity === 'yoga' && e.date === d)
+          .reduce((sum, e) => sum + e.durationMin, 0);
+        weeklyMinutes.push(m);
+      }
+
+      // ── Sessions + depth + vitals (best-effort; DB may be empty) ──
+      let sessionsToday = 0;
+      let avgDepth: number | null = null;
+      let baseline: any = null;
+      let during: any = null;
+      const hrvLiftSeries: number[] = [];
+      try {
+        const db = await getDB();
+        const dayStart = today + 'T00:00:00';
+        const dayEnd   = today + 'T23:59:59';
+
+        const sess = await db.getAllAsync<{ session_id: string; depth_score: number | null }>(
+          `SELECT session_id, depth_score FROM session_spiritual
+           WHERE start_time BETWEEN ? AND ?`,
+          [dayStart, dayEnd]
+        );
+        sessionsToday = sess.length;
+        const depthVals = sess.map(x => x.depth_score).filter((v): v is number => v != null);
+        avgDepth = depthVals.length > 0
+          ? Math.round((depthVals.reduce((s, x) => s + x, 0) / depthVals.length) * 10) / 10
+          : null;
+
+        // Today's ambient baseline averages
+        const baseRow = await db.getFirstAsync<{ bpm: number | null; hrv: number | null; spo2: number | null }>(
+          `SELECT AVG(ambient_bpm) AS bpm, AVG(ambient_rmssd) AS hrv, AVG(spo2) AS spo2
+           FROM ambient_baseline WHERE timestamp BETWEEN ? AND ?`,
+          [dayStart, dayEnd]
+        );
+        if (baseRow?.bpm != null) {
+          baseline = {
+            bpm: Math.round(baseRow.bpm),
+            hrv: Math.round(baseRow.hrv ?? 0),
+            spo2: Math.round((baseRow.spo2 ?? 0) * 10) / 10,
+          };
+        }
+
+        // Today's during-session averages (any spiritual session — yoga's
+        // SoulsyncSessionBar writes here too)
+        if (sess.length > 0) {
+          const ids = sess.map(x => x.session_id);
+          const placeholders = ids.map(() => '?').join(',');
+          const teleRow = await db.getFirstAsync<{ bpm: number | null; hrv: number | null; spo2: number | null }>(
+            `SELECT AVG(bpm) AS bpm, AVG(rmssd_ms) AS hrv, AVG(spo2) AS spo2
+             FROM session_telemetry WHERE session_id IN (${placeholders})`,
+            ids
+          );
+          if (teleRow?.bpm != null) {
+            during = {
+              bpm: Math.round(teleRow.bpm),
+              hrv: Math.round(teleRow.hrv ?? 0),
+              spo2: Math.round((teleRow.spo2 ?? 0) * 10) / 10,
+            };
+          }
+        }
+
+        // 7-day HRV lift (during − baseline) — positive bars = practice lifted HRV
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+          const ds = d + 'T00:00:00', de = d + 'T23:59:59';
+          const b = await db.getFirstAsync<{ v: number | null }>(
+            `SELECT AVG(ambient_rmssd) AS v FROM ambient_baseline WHERE timestamp BETWEEN ? AND ?`,
+            [ds, de]
+          );
+          const dur = await db.getFirstAsync<{ v: number | null }>(
+            `SELECT AVG(t.rmssd_ms) AS v FROM session_telemetry t
+             JOIN session_spiritual s ON s.session_id = t.session_id
+             WHERE s.start_time BETWEEN ? AND ?`,
+            [ds, de]
+          );
+          const lift = (dur?.v && b?.v) ? Math.max(0, Math.round(dur.v - b.v)) : 0;
+          hrvLiftSeries.push(lift);
+        }
+      } catch { /* DB not ready or no data — leave zeros */ }
+
+      setS({ minutesToday, weeklyMinutes, sessionsToday, avgDepth, baseline, during, hrvLiftSeries });
+    })();
+  }, []);
+
+  // ── Apply dummy fallback when no real data has landed yet ──
+  const minutesToday = withFallback(s.minutesToday, 12);  // ~12 min mock
+  const weeklyMinutes = withFallback(s.weeklyMinutes,  DUMMY.workoutWeek);
+  const sessionsToday = withFallback(s.sessionsToday, DUMMY.sessionsToday);
+  const avgDepth      = withFallback(s.avgDepth,      DUMMY.avgSessionDepthToday);
+  const baseline      = s.baseline ?? { bpm: DUMMY.ambientToday.bpm, hrv: DUMMY.ambientToday.rmssd, spo2: DUMMY.ambientToday.spo2 };
+  const during        = s.during   ?? { bpm: DUMMY.sessionAverages.bpm, hrv: DUMMY.sessionAverages.rmssd, spo2: DUMMY.sessionAverages.spo2 };
+  const hrvLiftSeries = withFallback(s.hrvLiftSeries, DUMMY.hrvLift7d);
+
+  const goalPct = Math.min(100, Math.round((minutesToday / YOGA_DAILY_GOAL_MIN) * 100));
+  const weekTotal = weeklyMinutes.reduce((a, b) => a + b, 0);
+
+  // Vital row helper
+  const VitalRow = ({ icon, label, before, during, unit, higherIsBetter }: {
+    icon: string; label: string;
+    before: number | null; during: number | null;
+    unit: string; higherIsBetter: boolean;
+  }) => {
+    const hasData = before != null && during != null;
+    const delta = hasData ? (during - before) : 0;
+    const improved = higherIsBetter ? delta > 0 : delta < 0;
+    return (
+      <View style={styles.yshVitalRow}>
+        <Text style={styles.yshVitalIcon}>{icon}</Text>
+        <Text style={styles.yshVitalLabel}>{label}</Text>
+        <Text style={styles.yshVitalNum}>{before ?? '—'}</Text>
+        <Text style={styles.yshVitalArrow}>→</Text>
+        <Text style={[styles.yshVitalNum, hasData && { color: COLORS.cream, fontWeight: '700' }]}>
+          {during ?? '—'}
+        </Text>
+        {hasData ? (
+          <Text style={[styles.yshVitalDelta, improved ? styles.yshDeltaUp : styles.yshDeltaDown]}>
+            {delta > 0 ? '+' : ''}{delta} {unit}
+          </Text>
+        ) : (
+          <Text style={styles.yshVitalDelta}>—</Text>
+        )}
+      </View>
+    );
+  };
+
+  return (
+    <View style={styles.yshContainer}>
+      {/* PRIMARY KPI */}
+      <View style={styles.yshHero}>
+        <Text style={styles.yshHeroLabel}>YOGA MINUTES TODAY</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+          <Text style={styles.yshHeroValue}>{minutesToday}</Text>
+          <Text style={styles.yshHeroGoal}> / {YOGA_DAILY_GOAL_MIN} min goal</Text>
+        </View>
+        <View style={styles.yshProgressTrack}>
+          <View style={[styles.yshProgressFill, { width: `${goalPct}%` }]} />
+        </View>
+      </View>
+
+      {/* Secondary KPIs grid */}
+      <View style={styles.yshKpiGrid}>
+        <View style={styles.yshKpiCell}>
+          <Text style={styles.yshKpiValue}>{sessionsToday}</Text>
+          <Text style={styles.yshKpiLabel}>Sessions{'\n'}today</Text>
+        </View>
+        <View style={styles.yshKpiCell}>
+          <Text style={styles.yshKpiValue}>{avgDepth}</Text>
+          <Text style={styles.yshKpiLabel}>Avg depth{'\n'}score</Text>
+        </View>
+        <View style={styles.yshKpiCell}>
+          <Text style={styles.yshKpiValue}>{weekTotal}</Text>
+          <Text style={styles.yshKpiLabel}>Week min{'\n'}total</Text>
+        </View>
+      </View>
+
+      {/* Today's yoga breakdown — week sparkline */}
+      <Text style={styles.yshSubLabel}>THIS WEEK</Text>
+      <WeekSparkline values={weeklyMinutes} height={42} />
+
+      {/* Vitals · Before vs During */}
+      <Text style={styles.yshSubLabel}>VITALS · BEFORE vs DURING YOGA (TODAY)</Text>
+      <View style={styles.yshVitalsBox}>
+        <VitalRow icon="❤️" label="Resting BPM"  before={baseline.bpm}  during={during.bpm}  unit="bpm" higherIsBetter={false} />
+        <VitalRow icon="〰️" label="HRV (RMSSD)"   before={baseline.hrv}  during={during.hrv}  unit="ms"  higherIsBetter={true} />
+        <VitalRow icon="🫁" label="SpO₂"          before={baseline.spo2} during={during.spo2} unit="%"   higherIsBetter={true} />
+      </View>
+
+      {/* HRV lift trend */}
+      <Text style={styles.yshSubLabel}>HRV LIFT · 7 DAYS (DURING − BASELINE)</Text>
+      <WeekSparkline values={hrvLiftSeries} height={42} />
+      <Text style={styles.yshHint}>
+        Positive bars = practice lifted HRV above your resting baseline that day.
+      </Text>
+    </View>
+  );
+};
+
+// ─── Surya Namaskar text-only stage advancer ─────────────────────
+//
+// Replaces the cartoon image cycler. Advances one stage every 1.8 sec
+// showing only the Sanskrit name and stage number — closer to how a
+// yoga shala calls out the asanas verbally during a Surya Namaskar set.
+
+const SURYA_STAGES = [
+  '1. Pranamasana — palms at heart',
+  '2. Hasta Uttanasana — arms up, back arch',
+  '3. Padahastasana — forward fold',
+  '4. Ashwa Sanchalanasana — right leg back, low lunge',
+  '5. Dandasana — plank',
+  '6. Ashtanga Namaskara — knees-chest-chin',
+  '7. Bhujangasana — cobra',
+  '8. Adho Mukha Svanasana — downward dog',
+  '9. Ashwa Sanchalanasana — right leg forward',
+  '10. Padahastasana — forward fold',
+  '11. Hasta Uttanasana — arms up',
+  '12. Pranamasana — palms at heart',
+];
+
+const SuryaStageAdvancer: React.FC = () => {
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setIdx(i => (i + 1) % SURYA_STAGES.length), 1800);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <View style={{
+      alignItems: 'center', marginVertical: SPACING.md,
+      paddingVertical: SPACING.md, paddingHorizontal: SPACING.lg,
+      backgroundColor: COLORS.cardBg, borderRadius: 14,
+      borderWidth: 1, borderColor: 'rgba(212,160,23,0.3)',
+    }}>
+      <Text style={{ fontSize: 11, color: COLORS.muted, fontWeight: '700', letterSpacing: 1.5, marginBottom: 6 }}>
+        STAGE {idx + 1} / 12
+      </Text>
+      <Text style={{ fontSize: 16, color: COLORS.cream, fontWeight: '600', textAlign: 'center' }}>
+        {SURYA_STAGES[idx]}
+      </Text>
     </View>
   );
 };
@@ -340,8 +689,18 @@ const YogaDetailModal: React.FC<{ item: YogaItem; onClose: () => void }> = ({ it
     if (!running) return;
     tickRef.current = setInterval(() => {
       setRemaining(r => {
-        if (r <= 1) { setRunning(false); return 0; }
-        return r - 1;
+        const next = r - 1;
+        // Soft buzz every minute crossed (mindful interval marker).
+        if (next > 0 && next % 60 === 0) {
+          ring.buzz({ pattern: [120], intensity: 'soft' }).catch(() => {});
+        }
+        // Stronger buzz at session complete.
+        if (next <= 0) {
+          setRunning(false);
+          ring.buzz({ pattern: [250, 120, 250, 120, 400], intensity: 'medium' }).catch(() => {});
+          return 0;
+        }
+        return next;
       });
     }, 1000);
     return () => { if (tickRef.current) clearInterval(tickRef.current); };
@@ -365,6 +724,20 @@ const YogaDetailModal: React.FC<{ item: YogaItem; onClose: () => void }> = ({ it
             </View>
 
             <Text style={styles.detailBenefit}>{item.benefit}</Text>
+
+            {/* Pranayama → breath-orb visualizer (only).  Asana images
+                removed per user feedback — pure text-driven yoga, in the
+                Hindu tradition of guru-shishya word-of-mouth instruction. */}
+            {item.category === 'pranayama' && (
+              <View style={{ alignItems: 'center', marginVertical: SPACING.md }}>
+                <YogaPoseAnimation poseId={item.id} size={200} />
+              </View>
+            )}
+
+            {/* Surya Namaskar → text-only stage advancer (no figure) */}
+            {item.id === 'surya-namaskar' && (
+              <SuryaStageAdvancer />
+            )}
 
             <View style={styles.timerCard}>
               <Text style={styles.timerClock}>{mm}:{ss}</Text>
@@ -505,4 +878,67 @@ const styles = StyleSheet.create({
   },
   warnLabel: { fontSize: 10, color: COLORS.saffron, fontWeight: '700', letterSpacing: 1, marginBottom: 4 },
   warnText: { fontSize: 12, color: COLORS.cream, lineHeight: 17 },
+
+  // Log past button & modal
+  // ── Yoga Stats Header — Samsung-Health-style block ──
+  yshContainer: {
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
+    padding: SPACING.md, backgroundColor: COLORS.cardBg,
+    borderRadius: 16, borderWidth: 1, borderColor: COLORS.border,
+  },
+  yshHero: { marginBottom: SPACING.sm },
+  yshHeroLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '700', letterSpacing: 1.2, marginBottom: 2 },
+  yshHeroValue: { fontSize: 30, color: COLORS.gold, fontWeight: '800', lineHeight: 32 },
+  yshHeroGoal: { fontSize: 13, color: COLORS.muted, fontWeight: '500' },
+  yshProgressTrack: { height: 6, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 3, marginTop: 8, overflow: 'hidden' },
+  yshProgressFill: { height: '100%', backgroundColor: COLORS.gold },
+
+  yshKpiGrid: { flexDirection: 'row', marginTop: SPACING.sm, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10, paddingVertical: 8 },
+  yshKpiCell: { flex: 1, alignItems: 'center', paddingHorizontal: 4 },
+  yshKpiValue: { fontSize: 18, color: COLORS.cream, fontWeight: '700' },
+  yshKpiLabel: { fontSize: 9, color: COLORS.muted, fontWeight: '600', textAlign: 'center', marginTop: 3, letterSpacing: 0.3 },
+
+  yshSubLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '700', letterSpacing: 1.2, marginTop: SPACING.md, marginBottom: 4 },
+
+  yshVitalsBox: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 10, paddingVertical: 6, paddingHorizontal: 8,
+  },
+  yshVitalRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
+  yshVitalIcon: { fontSize: 16, width: 24 },
+  yshVitalLabel: { flex: 1, color: COLORS.cream, fontSize: 12, fontWeight: '600' },
+  yshVitalNum: { color: COLORS.muted, fontSize: 13, width: 40, textAlign: 'right' },
+  yshVitalArrow: { color: COLORS.muted, fontSize: 12, paddingHorizontal: 4 },
+  yshVitalDelta: { fontSize: 11, fontWeight: '700', width: 64, textAlign: 'right', color: COLORS.muted },
+  yshDeltaUp:   { color: '#3ddc84' },
+  yshDeltaDown: { color: '#FF8C42' },
+
+  yshHint: { fontSize: 10, color: COLORS.muted, fontStyle: 'italic', marginTop: 4 },
+
+  logBtn: {
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+    borderWidth: 1, borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.12)',
+  },
+  logBtnText: { color: COLORS.gold, fontSize: 11, fontWeight: '700' },
+  logOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  logCard: {
+    backgroundColor: COLORS.darkBg, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: SPACING.md, paddingBottom: SPACING.xl,
+  },
+  logHandle: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.md },
+  logTitle: { fontSize: 18, color: COLORS.cream, fontWeight: '700', marginBottom: 4 },
+  logHint:  { fontSize: 12, color: COLORS.muted, marginBottom: SPACING.md },
+  logFieldLabel: { fontSize: 11, color: COLORS.muted, fontWeight: '700', letterSpacing: 1, marginBottom: 4, marginTop: 8 },
+  logInput: {
+    backgroundColor: COLORS.cardBg, borderRadius: 10, padding: SPACING.sm,
+    color: COLORS.cream, fontSize: 16, borderWidth: 1, borderColor: COLORS.border,
+  },
+  logSubmit: {
+    backgroundColor: COLORS.gold, padding: SPACING.md, borderRadius: 10,
+    marginTop: SPACING.md, alignItems: 'center',
+  },
+  logSubmitText: { color: COLORS.deep, fontWeight: '700', fontSize: 15 },
+  logCancel: {
+    color: COLORS.muted, fontSize: 13, textAlign: 'center', marginTop: SPACING.sm,
+  },
 });

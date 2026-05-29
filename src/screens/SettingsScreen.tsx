@@ -16,7 +16,10 @@ import { COLORS, SPACING } from '../theme';
 const APP_VERSION = '1.0.9';
 
 export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
-  const { userProfile, setUserProfile, resetAll, deities, history, showToast } = useSadhana();
+  const {
+    userProfile, setUserProfile, resetAll, deities, history, showToast,
+    bleConnected, requestBlePair, disconnectBleRing,
+  } = useSadhana();
   const [editing, setEditing] = useState(false);
 
   const totalMalas = history.reduce((s, h) => s + h.malas, 0);
@@ -83,6 +86,29 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
             <Stat value={deities.length.toString()} label="Deities" />
             <Stat value={history.length.toString()} label="Sessions" />
           </View>
+        </View>
+
+        {/* Saadhana Ring (BLE) */}
+        <Text style={styles.sectionTitle}>Saadhana Ring</Text>
+        <View style={styles.ringRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowLabel}>
+              {bleConnected ? '🟢 Ring paired & listening' : '⚪️ No ring paired'}
+            </Text>
+            <Text style={styles.rowHint}>
+              {bleConnected
+                ? 'Hardware button auto-counts your malas'
+                : 'Tap to pair your physical Saadhana counter'}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.ringBtn, bleConnected && styles.ringBtnConnected]}
+            onPress={() => (bleConnected ? disconnectBleRing() : requestBlePair())}
+          >
+            <Text style={[styles.ringBtnText, bleConnected && styles.ringBtnTextConnected]}>
+              {bleConnected ? 'Disconnect' : 'Pair Bluetooth'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* About */}
@@ -298,6 +324,23 @@ const styles = StyleSheet.create({
   },
   rowLabel: { fontSize: 13, color: COLORS.cream },
   rowValue: { fontSize: 13, color: COLORS.muted },
+  rowHint:  { fontSize: 11, color: COLORS.muted, marginTop: 2 },
+
+  ringRow: {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: SPACING.md, marginBottom: SPACING.sm,
+    padding: SPACING.md, borderRadius: 12,
+    backgroundColor: COLORS.cardBg,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  ringBtn: {
+    paddingHorizontal: SPACING.md, paddingVertical: 8,
+    borderRadius: 8, borderWidth: 1, borderColor: COLORS.gold,
+    backgroundColor: 'rgba(212,160,23,0.12)',
+  },
+  ringBtnConnected: { borderColor: COLORS.muted, backgroundColor: 'rgba(255,255,255,0.06)' },
+  ringBtnText: { color: COLORS.gold, fontWeight: '700', fontSize: 12 },
+  ringBtnTextConnected: { color: COLORS.muted },
 
   dangerBtn: {
     margin: SPACING.md,

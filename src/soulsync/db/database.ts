@@ -115,6 +115,13 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       );
     `,
   },
+  {
+    version: 4,
+    sql: `
+      -- v4: bedtime onset — for the 9pm–12am quality-window sleep scoring
+      ALTER TABLE sleep_record ADD COLUMN bedtime_minute INTEGER;
+    `,
+  },
 ];
 
 const runMigrations = async (db: SQLite.SQLiteDatabase) => {

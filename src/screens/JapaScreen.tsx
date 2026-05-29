@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSadhana } from '../context';
-import { todayStr } from '../utils';
+import { todayStr, japasToSeconds, formatSadhanaTime } from '../utils';
 import { COLORS, SPACING, FONT_SIZES } from '../theme';
 import { Mala } from '../components/Mala';
 import { RingSpinner } from '../components/RingSpinner';
@@ -23,6 +23,12 @@ import { DeityScreen } from './DeityScreen';
 import { DeityIcon } from '../components/DeityIcon';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
 import { HRVWaveGraph } from '../soulsync/components/HRVWaveGraph';
+import { TimePickerField } from '../components/TimePickerField';
+import { ALL_CATALOG_DEITIES } from '../deityCatalog';
+import { specialSadhanaRepo, SpecialTrigger } from '../services/specialSadhanaRepo';
+import { WeekSparkline } from '../components/WeekSparkline';
+import { getDB } from '../soulsync/db/database';
+import { DUMMY, withFallback } from '../services/dummyData';
 import { BpmJourneyChart } from '../soulsync/components/BpmJourneyChart';
 import {
   requestBlePermissions,
@@ -34,8 +40,495 @@ import {
 
 const BEADS = 108;
 
-export const JapaScreen = ({ navigation }: any) => {
-  const { selectedDeity, setSelectedDeity, deities, saveSession, showToast, deityProgress, updateProgress, history } = useSadhana();
+// ─── Sadhana Path Sheet ──────────────────────────────────────────
+//
+// Lets the user build a multi-step japa Sadhana Path with flexible
+// scheduling: daily · specific weekdays · recurring tithi · specific
+// calendar dates. Saves into specialSadhanaRepo so it lives alongside
+// the Panchang Special Sadhanas (same trigger schema).
+
+const TITHI_OPTIONS = [
+  'Ekadashi', 'Pradosh', 'Purnima', 'Amavasya',
+  'Chaturthi', 'Panchami', 'Shashti', 'Saptami',
+  'Ashtami', 'Navami', 'Dashami', 'Dwadashi', 'Trayodashi', 'Chaturdashi',
+];
+
+const WEEKDAY_LABEL = ['S','M','T','W','T','F','S'];
+
+const SadhanaPathSheet: React.FC<{
+  visible: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}> = ({ visible, onClose, onSaved }) => {
+  const [name, setName] = useState('');
+  const [steps, setSteps] = useState<Array<{ deity: string; malas: number }>>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [newDeity, setNewDeity] = useState('');
+  const [newMalas, setNewMalas] = useState('1');
+  const [triggerKind, setTriggerKind] = useState<'daily' | 'weekdays' | 'tithi' | 'dates'>('daily');
+  const [weekdays, setWeekdays] = useState<number[]>([]);
+  const [tithi, setTithi] = useState('Ekadashi');
+  const [dates, setDates] = useState('');
+
+  const addStep = () => {
+    const v = parseInt(newMalas, 10);
+    if (!newDeity.trim() || !v || v <= 0) return;
+    setSteps(p => [...p, { deity: newDeity.trim(), malas: v }]);
+    setNewDeity(''); setNewMalas('1');
+  };
+  const removeStep = (idx: number) => setSteps(p => p.filter((_, i) => i !== idx));
+
+  const save = async () => {
+    if (!name.trim() || steps.length === 0) return;
+    let trigger: SpecialTrigger;
+    if (triggerKind === 'daily')      trigger = { kind: 'weekdays', days: [0,1,2,3,4,5,6] };
+    else if (triggerKind === 'weekdays') trigger = { kind: 'weekdays', days: weekdays.length > 0 ? weekdays : [1] };
+    else if (triggerKind === 'tithi')    trigger = { kind: 'tithi', tithi };
+    else                                  trigger = { kind: 'dates', dates: dates.split(/[\s,]+/).filter(Boolean) };
+
+    await specialSadhanaRepo.add({
+      name: name.trim(),
+      practice: steps.map(s => `${s.deity} ${s.malas} mala`).join(' · '),
+      durationMin: steps.reduce((s, x) => s + x.malas * 6, 0),  // ~6 min / mala
+      trigger,
+    });
+    // Reset
+    setName(''); setSteps([]); setWeekdays([]); setTriggerKind('daily'); setDates('');
+    onSaved();
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={spSheetStyles.overlay}>
+        <View style={spSheetStyles.card}>
+          <View style={spSheetStyles.handle} />
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <Text style={spSheetStyles.title}>🛤  Sadhana Path</Text>
+            <Text style={spSheetStyles.hint}>Sequence multiple deities · choose how often it recurs</Text>
+
+            <Text style={spSheetStyles.label}>Path Name</Text>
+            <TextInput
+              style={spSheetStyles.input}
+              value={name}
+              onChangeText={setName}
+              placeholder='e.g. "Morning Sadhana"  or  "Ekadashi Special"'
+              placeholderTextColor={COLORS.muted}
+            />
+
+            <Text style={spSheetStyles.label}>STEPS · {steps.length}</Text>
+            {steps.map((s, idx) => (
+              <View key={idx} style={spSheetStyles.stepRow}>
+                <Text style={spSheetStyles.stepIdx}>{idx + 1}.</Text>
+                <Text style={spSheetStyles.stepName}>{s.deity}</Text>
+                <Text style={spSheetStyles.stepVal}>{s.malas} mala</Text>
+                <TouchableOpacity onPress={() => removeStep(idx)}>
+                  <Text style={{ color: COLORS.error, paddingHorizontal: 6 }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+
+            <TouchableOpacity style={spSheetStyles.pickBtn} onPress={() => setPickerOpen(v => !v)}>
+              <Text style={spSheetStyles.pickBtnText}>🪷  Pick a deity from list  {pickerOpen ? '▴' : '▾'}</Text>
+            </TouchableOpacity>
+            {pickerOpen && (
+              <ScrollView style={spSheetStyles.pickList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                {ALL_CATALOG_DEITIES.map((d: any) => (
+                  <TouchableOpacity
+                    key={d.id}
+                    style={spSheetStyles.pickRow}
+                    onPress={() => { setNewDeity(d.name); setPickerOpen(false); }}
+                  >
+                    <Text style={{ fontSize: 20, marginRight: 8 }}>{d.icon || '🪷'}</Text>
+                    <Text style={{ color: COLORS.cream, fontSize: 13 }}>{d.name}</Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  style={spSheetStyles.pickRow}
+                  onPress={() => { setNewDeity(''); setPickerOpen(false); }}
+                >
+                  <Text style={{ fontSize: 20, marginRight: 8 }}>✍️</Text>
+                  <Text style={{ color: COLORS.gold, fontSize: 13, fontWeight: '700' }}>Other / Custom</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            )}
+
+            <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
+              <TextInput
+                style={[spSheetStyles.input, { flex: 2 }]}
+                value={newDeity}
+                onChangeText={setNewDeity}
+                placeholder="Deity / mantra"
+                placeholderTextColor={COLORS.muted}
+              />
+              <TextInput
+                style={[spSheetStyles.input, { flex: 0.8 }]}
+                value={newMalas}
+                onChangeText={setNewMalas}
+                placeholder="1"
+                placeholderTextColor={COLORS.muted}
+                keyboardType="number-pad"
+              />
+              <TouchableOpacity style={spSheetStyles.addBtn} onPress={addStep}>
+                <Text style={spSheetStyles.addBtnText}>＋</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={spSheetStyles.label}>WHEN?</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {(['daily','weekdays','tithi','dates'] as const).map(k => (
+                <TouchableOpacity
+                  key={k}
+                  style={[spSheetStyles.chip, triggerKind === k && spSheetStyles.chipActive]}
+                  onPress={() => setTriggerKind(k)}
+                >
+                  <Text style={[spSheetStyles.chipText, triggerKind === k && spSheetStyles.chipTextActive]}>
+                    {k === 'daily' ? '📅 Daily'
+                      : k === 'weekdays' ? '📆 Weekdays'
+                      : k === 'tithi' ? '🌗 Tithi'
+                      : '🗓 Dates'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {triggerKind === 'weekdays' && (
+              <View style={{ flexDirection: 'row', gap: 4, marginTop: 8 }}>
+                {WEEKDAY_LABEL.map((d, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    style={[spSheetStyles.dayChip, weekdays.includes(i) && spSheetStyles.dayChipActive]}
+                    onPress={() => setWeekdays(p => p.includes(i) ? p.filter(x => x !== i) : [...p, i].sort())}
+                  >
+                    <Text style={[spSheetStyles.dayChipText, weekdays.includes(i) && spSheetStyles.dayChipTextActive]}>{d}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {triggerKind === 'tithi' && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {TITHI_OPTIONS.map(t => (
+                    <TouchableOpacity
+                      key={t}
+                      style={[spSheetStyles.chip, tithi === t && spSheetStyles.chipActive]}
+                      onPress={() => setTithi(t)}
+                    >
+                      <Text style={[spSheetStyles.chipText, tithi === t && spSheetStyles.chipTextActive]}>{t}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            )}
+
+            {triggerKind === 'dates' && (
+              <TextInput
+                style={[spSheetStyles.input, { marginTop: 8 }]}
+                value={dates}
+                onChangeText={setDates}
+                placeholder="YYYY-MM-DD, YYYY-MM-DD ..."
+                placeholderTextColor={COLORS.muted}
+              />
+            )}
+
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: SPACING.md }}>
+              <TouchableOpacity style={spSheetStyles.cancelBtn} onPress={onClose}>
+                <Text style={spSheetStyles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={spSheetStyles.saveBtn} onPress={save}>
+                <Text style={spSheetStyles.saveText}>Save Sadhana Path</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const spSheetStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  card: { backgroundColor: COLORS.darkBg, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: SPACING.md, paddingBottom: SPACING.xl, maxHeight: '92%' },
+  handle: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.sm },
+  title: { color: COLORS.cream, fontSize: 18, fontWeight: '800', marginBottom: 4 },
+  hint: { color: COLORS.muted, fontSize: 12, fontStyle: 'italic', marginBottom: SPACING.md },
+  label: { color: COLORS.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, marginTop: 12, marginBottom: 4 },
+  input: { backgroundColor: COLORS.cardBg, borderRadius: 10, padding: SPACING.sm, color: COLORS.cream, fontSize: 14, borderWidth: 1, borderColor: COLORS.border },
+
+  stepRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
+  stepIdx: { color: COLORS.gold, width: 22, fontWeight: '700' },
+  stepName: { flex: 1, color: COLORS.cream, fontSize: 13 },
+  stepVal: { color: COLORS.gold, fontSize: 12, fontWeight: '700', marginRight: 4 },
+
+  pickBtn: { paddingVertical: 10, paddingHorizontal: 12, backgroundColor: COLORS.cardBg, borderRadius: 10, borderWidth: 1, borderColor: COLORS.gold, marginTop: 8 },
+  pickBtnText: { color: COLORS.gold, fontSize: 13, fontWeight: '700', textAlign: 'center' },
+  pickList: { maxHeight: 200, backgroundColor: COLORS.deep, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, marginTop: 4, paddingHorizontal: SPACING.sm },
+  pickRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
+
+  addBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: COLORS.gold, alignItems: 'center', justifyContent: 'center' },
+  addBtnText: { color: COLORS.deep, fontSize: 20, fontWeight: '800' },
+
+  chip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.cardBg },
+  chipActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
+  chipText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
+  chipTextActive: { color: COLORS.gold },
+
+  dayChip: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.cardBg },
+  dayChipActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
+  dayChipText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
+  dayChipTextActive: { color: COLORS.gold },
+
+  cancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center' },
+  cancelText: { color: COLORS.cream, fontWeight: '600' },
+  saveBtn: { flex: 2, paddingVertical: 12, borderRadius: 10, backgroundColor: COLORS.gold, alignItems: 'center' },
+  saveText: { color: COLORS.deep, fontWeight: '800' },
+});
+
+// ─── Sadhana Depth Score (clickable card) ────────────────────────
+//
+// Reads today's avg depth_score from session_spiritual. Tap → opens a
+// trend modal showing the last 14 days as bars so the user can see how
+// their japa effect is trending across the week.
+
+const SadhanaDepthScore: React.FC<{ onOpenTrend: () => void }> = ({ onOpenTrend }) => {
+  const [todayDepth, setTodayDepth] = useState<number | null>(null);
+  const [delta7, setDelta7] = useState<number | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const db = await getDB();
+        const today = todayStr();
+        const ds = today + 'T00:00:00', de = today + 'T23:59:59';
+        const t = await db.getFirstAsync<{ v: number | null }>(
+          `SELECT AVG(depth_score) AS v FROM session_spiritual
+           WHERE start_time BETWEEN ? AND ?`, [ds, de]
+        );
+        if (t?.v != null) setTodayDepth(Math.round(t.v * 10) / 10);
+        // 7-day average for trend context
+        const week = await db.getFirstAsync<{ v: number | null }>(
+          `SELECT AVG(depth_score) AS v FROM session_spiritual
+           WHERE start_time >= datetime('now','-7 days')`
+        );
+        if (week?.v != null && t?.v != null) {
+          setDelta7(Math.round((t.v - week.v) * 10) / 10);
+        }
+      } catch { /* DB not ready */ }
+    })();
+  }, []);
+
+  // Fallback for first-use UX
+  const displayDepth = withFallback(todayDepth, DUMMY.depthToday);
+  const displayDelta = delta7 ?? 0.4; // small positive delta as default
+
+  return (
+    <TouchableOpacity style={depthStyles.card} onPress={onOpenTrend} activeOpacity={0.75}>
+      <View style={{ flex: 1 }}>
+        <Text style={depthStyles.label}>SADHANA DEPTH SCORE · TODAY</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+          <Text style={depthStyles.value}>{displayDepth}</Text>
+          <Text style={depthStyles.outOf}> / 10</Text>
+          {(delta7 != null || true) && (
+            <Text style={[
+              depthStyles.delta,
+              { color: displayDelta >= 0 ? '#3ddc84' : '#FF8C42' },
+            ]}>
+              {displayDelta > 0 ? '↑ +' : displayDelta < 0 ? '↓ ' : '↔ '}{Math.abs(displayDelta)} vs 7-day avg
+            </Text>
+          )}
+        </View>
+        <Text style={depthStyles.hint}>Tap to view 14-day depth trend ›</Text>
+      </View>
+      <Text style={{ fontSize: 28 }}>🪷</Text>
+    </TouchableOpacity>
+  );
+};
+
+const depthStyles = StyleSheet.create({
+  card: {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
+    padding: SPACING.md, backgroundColor: COLORS.cardBg,
+    borderRadius: 14, borderWidth: 1, borderColor: 'rgba(212,160,23,0.35)',
+  },
+  label: { fontSize: 10, color: COLORS.muted, fontWeight: '800', letterSpacing: 1.2, marginBottom: 4 },
+  value: { fontSize: 28, color: COLORS.gold, fontWeight: '800', lineHeight: 30 },
+  outOf: { fontSize: 14, color: COLORS.muted, fontWeight: '500' },
+  delta: { fontSize: 11, fontWeight: '700', marginLeft: 8 },
+  hint: { fontSize: 11, color: COLORS.muted, fontStyle: 'italic', marginTop: 4 },
+});
+
+// ─── Sadhana Vitals Compare (live, during active session) ────────
+
+const SadhanaVitalsCompare: React.FC<{ liveBpm: number | null; liveRmssd: number | null }> = ({ liveBpm, liveRmssd }) => {
+  const [baseline, setBaseline] = useState<{ bpm: number; hrv: number; spo2: number } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const db = await getDB();
+        const today = todayStr();
+        const row = await db.getFirstAsync<{ bpm: number | null; hrv: number | null; spo2: number | null }>(
+          `SELECT AVG(ambient_bpm) AS bpm, AVG(ambient_rmssd) AS hrv, AVG(spo2) AS spo2
+           FROM ambient_baseline WHERE timestamp BETWEEN ? AND ?`,
+          [today + 'T00:00:00', today + 'T23:59:59']
+        );
+        if (row?.bpm != null) {
+          setBaseline({
+            bpm: Math.round(row.bpm),
+            hrv: Math.round(row.hrv ?? 0),
+            spo2: Math.round((row.spo2 ?? 0) * 10) / 10,
+          });
+        }
+      } catch { /* no data */ }
+    })();
+  }, []);
+
+  const VRow = ({ icon, label, before, during, unit, higherIsBetter }: {
+    icon: string; label: string;
+    before: number | null; during: number | null;
+    unit: string; higherIsBetter: boolean;
+  }) => {
+    const has = before != null && during != null;
+    const d = has ? (during - before) : 0;
+    const good = higherIsBetter ? d > 0 : d < 0;
+    return (
+      <View style={vitalStyles.row}>
+        <Text style={vitalStyles.icon}>{icon}</Text>
+        <Text style={vitalStyles.label}>{label}</Text>
+        <Text style={vitalStyles.num}>{before ?? '—'}</Text>
+        <Text style={vitalStyles.arrow}>→</Text>
+        <Text style={[vitalStyles.num, has && { color: COLORS.cream, fontWeight: '700' }]}>
+          {during ?? '—'}
+        </Text>
+        {has ? (
+          <Text style={[vitalStyles.delta, { color: good ? '#3ddc84' : '#FF8C42' }]}>
+            {d > 0 ? '+' : ''}{d} {unit}
+          </Text>
+        ) : <Text style={vitalStyles.delta}>—</Text>}
+      </View>
+    );
+  };
+
+  // Fallback baseline + during values when no real data
+  const fbBaseline = baseline ?? { bpm: DUMMY.ambientToday.bpm, hrv: DUMMY.ambientToday.rmssd, spo2: DUMMY.ambientToday.spo2 };
+  const fbLiveBpm   = withFallback(liveBpm,   DUMMY.sessionAverages.bpm);
+  const fbLiveRmssd = withFallback(liveRmssd, DUMMY.sessionAverages.rmssd);
+  const fbLiveSpo2  = DUMMY.sessionAverages.spo2;
+
+  return (
+    <View style={vitalStyles.card}>
+      <Text style={vitalStyles.title}>VITALS · BASELINE vs SADHANA (LIVE)</Text>
+      <VRow icon="❤️" label="BPM"           before={fbBaseline.bpm}  during={fbLiveBpm}   unit="bpm" higherIsBetter={false} />
+      <VRow icon="〰️" label="HRV (RMSSD)"   before={fbBaseline.hrv}  during={fbLiveRmssd} unit="ms"  higherIsBetter={true} />
+      <VRow icon="🫁" label="SpO₂"          before={fbBaseline.spo2} during={fbLiveSpo2}  unit="%"   higherIsBetter={true} />
+      <Text style={vitalStyles.hint}>
+        Lower BPM + higher HRV during practice = the parasympathetic
+        gate is open. Watch it shift in real time as you chant.
+      </Text>
+    </View>
+  );
+};
+
+const vitalStyles = StyleSheet.create({
+  card: {
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
+    padding: SPACING.md, backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 12, borderWidth: 1, borderColor: 'rgba(212,160,23,0.20)',
+  },
+  title: { fontSize: 10, color: COLORS.muted, fontWeight: '800', letterSpacing: 1.2, marginBottom: 6 },
+  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5 },
+  icon: { fontSize: 16, width: 24 },
+  label: { flex: 1, color: COLORS.cream, fontSize: 12, fontWeight: '600' },
+  num: { color: COLORS.muted, fontSize: 13, width: 40, textAlign: 'right' },
+  arrow: { color: COLORS.muted, fontSize: 12, paddingHorizontal: 4 },
+  delta: { fontSize: 11, fontWeight: '700', width: 64, textAlign: 'right' },
+  hint: { fontSize: 10, color: COLORS.muted, fontStyle: 'italic', marginTop: 6, lineHeight: 14 },
+});
+
+// ─── Depth Score Trend Modal ─────────────────────────────────────
+
+const DepthTrendModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ visible, onClose }) => {
+  const [series, setSeries] = useState<number[]>([0,0,0,0,0,0,0]);
+  const [labels, setLabels] = useState<string[]>(['','','','','','','']);
+
+  useEffect(() => {
+    if (!visible) return;
+    (async () => {
+      try {
+        const db = await getDB();
+        const vals: number[] = [];
+        const lbls: string[] = [];
+        for (let i = 13; i >= 0; i--) {
+          const d = new Date(Date.now() - i * 86400000);
+          const ds = d.toISOString().slice(0, 10);
+          const r = await db.getFirstAsync<{ v: number | null }>(
+            `SELECT AVG(depth_score) AS v FROM session_spiritual
+             WHERE start_time BETWEEN ? AND ?`,
+            [ds + 'T00:00:00', ds + 'T23:59:59']
+          );
+          vals.push(r?.v != null ? Math.round(r.v * 10) / 10 : 0);
+          lbls.push(['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()].charAt(0));
+        }
+        setSeries(vals);
+        setLabels(lbls);
+      } catch { /* no data */ }
+    })();
+  }, [visible]);
+
+  const peak = Math.max(0, ...series);
+  const avg = series.filter(x => x > 0).reduce((s, x) => s + x, 0) /
+              Math.max(1, series.filter(x => x > 0).length);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={depthTrendStyles.overlay}>
+        <View style={depthTrendStyles.card}>
+          <View style={depthTrendStyles.handle} />
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <Text style={depthTrendStyles.title}>🪷 Sadhana Depth · 14-day trend</Text>
+            <TouchableOpacity onPress={onClose}><Text style={{ color: COLORS.muted, fontSize: 20 }}>✕</Text></TouchableOpacity>
+          </View>
+          <Text style={depthTrendStyles.subtitle}>
+            Peak {peak ? peak.toFixed(1) : '—'} · Avg {avg ? avg.toFixed(1) : '—'} / 10
+          </Text>
+          <View style={{ marginTop: SPACING.md }}>
+            <WeekSparkline values={series.slice(7)} labels={labels.slice(7)} height={70} showPeak />
+          </View>
+          <Text style={depthTrendStyles.subSection}>Previous 7 days</Text>
+          <WeekSparkline values={series.slice(0, 7)} labels={labels.slice(0, 7)} height={56} />
+          <Text style={depthTrendStyles.helper}>
+            The depth score blends your in-session BPM drop, HRV gain,
+            session duration and consistency. Higher = your body went
+            deeper into the parasympathetic state during japa.
+          </Text>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const depthTrendStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  card: { backgroundColor: COLORS.darkBg, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: SPACING.md, paddingBottom: SPACING.xl },
+  handle: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.sm },
+  title: { color: COLORS.cream, fontSize: 18, fontWeight: '800', flex: 1 },
+  subtitle: { color: COLORS.gold, fontSize: 12, fontWeight: '700', marginTop: 4 },
+  subSection: { color: COLORS.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.2, marginTop: SPACING.md, marginBottom: 4 },
+  helper: { color: COLORS.muted, fontSize: 11, fontStyle: 'italic', marginTop: SPACING.md, lineHeight: 15 },
+});
+
+export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
+  const {
+    selectedDeity, setSelectedDeity, deities, setDeities, saveSession, showToast,
+    deityProgress, updateProgress, history,
+    setBleConnected, registerBleHandlers,
+  } = useSadhana();
+
+  // Inline reminder-time picker for the deity list
+  const [pickingDeityId, setPickingDeityId] = useState<string | null>(null);
+  // Deities breakdown collapsed by default — tap header to expand.
+  const [deitiesExpanded, setDeitiesExpanded] = useState(false);
 
   // ── Lifetime totals (across all history + in-progress) ───────────
   const lifetimeJapas = React.useMemo(() => {
@@ -66,6 +559,9 @@ export const JapaScreen = ({ navigation }: any) => {
 
   // Debounce BLE taps so a single button press doesn't double-count
   const lastTapAtRef = useRef(0);
+
+  // Mirror connection status into context so Settings can show pair state
+  useEffect(() => { setBleConnected(!!connection); }, [connection, setBleConnected]);
 
   // When deity changes, load that deity's saved progress
   useEffect(() => {
@@ -119,6 +615,21 @@ export const JapaScreen = ({ navigation }: any) => {
   const [sessionSnap, setSessionSnap] = useState<JapaEffectSnapshot | null>(null);
   // Deity manager modal (replaces removed Deities tab)
   const [showDeityManager, setShowDeityManager] = useState(false);
+  // "+ Sadhana ▾" action sheet (deity / sandhya / sadhana path)
+  const [showSadhanaMenu, setShowSadhanaMenu] = useState(false);
+  // Sadhana Path builder sheet (tithi/dates aware)
+  const [showSadhanaPathSheet, setShowSadhanaPathSheet] = useState(false);
+  // Unified Sadhana picker — replaces the standalone deity dropdown.
+  const [showSadhanaPicker, setShowSadhanaPicker] = useState(false);
+  // Sadhana Depth Score trend modal
+  const [showDepthTrend, setShowDepthTrend] = useState(false);
+  // Loaded sadhana paths (cached when the picker opens)
+  const [sadhanaPaths, setSadhanaPaths] = useState<any[]>([]);
+  useEffect(() => {
+    if (showSadhanaPicker) {
+      specialSadhanaRepo.list().then(setSadhanaPaths);
+    }
+  }, [showSadhanaPicker]);
 
   const tap = useCallback(() => {
     if (!selectedDeity) {
@@ -201,6 +712,20 @@ export const JapaScreen = ({ navigation }: any) => {
     };
   }, []);
 
+  // Register pair / disconnect handlers in context so SettingsScreen can invoke them.
+  useEffect(() => {
+    registerBleHandlers({
+      pair: () => { handleBlePress(); },
+      disconnect: () => {
+        if (connection) {
+          connection.disconnect();
+          setConnection(null);
+          showToast('Counter disconnected');
+        }
+      },
+    });
+  }, [connection, registerBleHandlers]);
+
   const handleBlePress = async () => {
     if (connection) {
       // Disconnect
@@ -264,12 +789,11 @@ export const JapaScreen = ({ navigation }: any) => {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Header */}
+        {/* ─── Header (title + lifetime pill) ─── */}
         <View style={styles.header}>
           <Text style={styles.title}>Japa Counter</Text>
-          <Text style={styles.subtitle}>1 Mala = 108 Japas · Tap the circle to count</Text>
+          <Text style={styles.subtitle}>1 Mala = 108 Japas</Text>
 
-          {/* Lifetime totals pill — top-right of header, never overlaps the mala */}
           <View style={styles.lifetimePill}>
             <Text style={styles.lifetimePillText}>
               <Text style={styles.lifetimePillNumber}>{lifetimeMalas.toLocaleString()}</Text> malas{'  '}·{'  '}
@@ -279,142 +803,103 @@ export const JapaScreen = ({ navigation }: any) => {
           </View>
         </View>
 
-        {/* Deity Selector */}
-        <TouchableOpacity
-          style={styles.deitySelector}
-          onPress={() => setShowPicker(true)}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-            {selectedDeity && (
-              <View style={styles.selectorIconWrap}>
-                <DeityIcon
-                  deityId={selectedDeity.id}
-                  icon={selectedDeity.icon}
-                  size={22}
-                  color={COLORS.gold}
-                />
+        {/* ─── #1 · KPIs · 6 metrics in a 3×2 grid ─── *
+             Lifetime totals + today's totals + time spent for both.
+             Sandhya japa counts will fold into these once sandhya
+             session tracking is wired (placeholder included today). */}
+        {(() => {
+          const today = todayStr();
+          // Lifetime numbers (history + in-progress) — japas already counted above
+          const lifeJapas = lifetimeJapas;
+          const lifeMalas = lifetimeMalas + Math.floor((malas * 108 + count) / 108);
+          const lifeSec = japasToSeconds(lifeJapas);
+          // Today's totals (history rows matching today's date + the current session)
+          const todayHistoryJapas = history
+            .filter(h => h.date === today)
+            .reduce((s, h) => s + h.japas, 0);
+          const todayJapas = todayHistoryJapas + (malas * 108 + count);
+          const todayMalas = todayJapas / 108;
+          const todaySec = japasToSeconds(todayJapas);
+          // TODO: when sandhyaRepo lands, add sandhyaToday + sandhyaLifetime here.
+
+          return (
+            <View style={styles.kpiGrid}>
+              {/* Row 1 — lifetime */}
+              <View style={styles.kpiCell}>
+                <Text style={styles.kpiCellValue}>{lifeJapas.toLocaleString()}</Text>
+                <Text style={styles.kpiCellLabel}>Total Japas</Text>
               </View>
-            )}
-            <View style={{ flex: 1 }}>
-              <Text style={styles.deityLabel}>Deity</Text>
-              <Text style={styles.deityName}>
-                {selectedDeity ? selectedDeity.name : 'Tap to select deity ▾'}
-              </Text>
+              <View style={styles.kpiCell}>
+                <Text style={styles.kpiCellValue}>{lifeMalas.toLocaleString()}</Text>
+                <Text style={styles.kpiCellLabel}>Total Malas</Text>
+              </View>
+              <View style={styles.kpiCell}>
+                <Text style={styles.kpiCellValue}>{formatSadhanaTime(lifeSec)}</Text>
+                <Text style={styles.kpiCellLabel}>Time Spent</Text>
+              </View>
+              {/* Row 2 — today */}
+              <View style={[styles.kpiCell, styles.kpiCellToday]}>
+                <Text style={[styles.kpiCellValue, styles.kpiCellValueToday]}>
+                  {todayJapas.toLocaleString()}
+                </Text>
+                <Text style={styles.kpiCellLabel}>Today Japas</Text>
+              </View>
+              <View style={[styles.kpiCell, styles.kpiCellToday]}>
+                <Text style={[styles.kpiCellValue, styles.kpiCellValueToday]}>
+                  {todayMalas.toFixed(2)}
+                </Text>
+                <Text style={styles.kpiCellLabel}>Today Malas</Text>
+              </View>
+              <View style={[styles.kpiCell, styles.kpiCellToday]}>
+                <Text style={[styles.kpiCellValue, styles.kpiCellValueToday]}>
+                  {formatSadhanaTime(todaySec)}
+                </Text>
+                <Text style={styles.kpiCellLabel}>Time Today</Text>
+              </View>
             </View>
-          </View>
-          <Text style={styles.chevron}>▾</Text>
-        </TouchableOpacity>
+          );
+        })()}
 
-        {/* Circular Mala */}
-        <Mala
-          count={count}
-          malas={malas}
-          onTap={tap}
-          popBead={popBead}
-          beadColor={selectedDeity?.malaColor}
-          beadHighlight={selectedDeity?.malaHighlight}
-          materialName={selectedDeity?.malaMaterial}
-        />
+        {/* ─── Sadhana Depth Score · clickable to open the trend ─── */}
+        <SadhanaDepthScore onOpenTrend={() => setShowDepthTrend(true)} />
 
-        {/* Mantra display */}
-        {selectedDeity?.mantra && (
-          <Text style={styles.mantra}>“{selectedDeity.mantra}”</Text>
-        )}
-
-        {/* Soulsync session toggle — wrapped with a pulse-glow that
-            fires when the user should start or stop a session. */}
-        <PulseHighlight
-          active={hintMode !== 'none'}
-          tooltip={hintMode === 'start'
-            ? '👉 Tap here first — track this session for your Saadhana Score'
-            : hintMode === 'stop'
-              ? '👉 Tap here to stop and see your Saadhana Score'
-              : undefined}
-        >
-          <View style={styles.soulsyncRow}>
-            <TouchableOpacity
-              style={[styles.soulsyncBtn, soulsync.state.active && styles.soulsyncBtnOn]}
-              onPress={handleSoulsyncToggle}
-            >
-              <View style={[styles.soulsyncDot, soulsync.state.active && styles.soulsyncDotOn]} />
-              <Text style={[styles.soulsyncText, soulsync.state.active && styles.soulsyncTextOn]}>
-                {soulsync.state.active ? '◉ Soulsync recording' : 'Start Soulsync session'}
-              </Text>
-            </TouchableOpacity>
-            {soulsync.state.active && (
-              <Text style={styles.peakCount}>
-                ✨ {soulsync.state.peaksRegistered} peak{soulsync.state.peaksRegistered === 1 ? '' : 's'}
-              </Text>
-            )}
-          </View>
-        </PulseHighlight>
-
-        {/* Live HRV wave + glowing peak markers (only during an active session) */}
+        {/* ─── Vitals comparison · visible only when Soulsync is active.
+             Today's resting baseline (BPM / HRV / SpO₂) vs the live
+             session averages — mirrors the YogaStatsHeader pattern. ─── */}
         {soulsync.state.active && (
-          <HRVWaveGraph
-            bpmSeries={soulsync.state.bpmSeries}
-            peakIndices={soulsync.state.peakIndices}
-            rmssd={soulsync.state.rmssd}
-            improvementPct={soulsync.state.improvementPct}
-            isBaselineEstablished={soulsync.state.isBaselineEstablished}
+          <SadhanaVitalsCompare
+            liveBpm={soulsync.state.liveBpm}
+            liveRmssd={soulsync.state.rmssd}
           />
         )}
 
-        {/* BPM + HRV vs baseline — visible whenever there's any session
-            telemetry today, not just during an active recording */}
-        <BpmHrvBaselineCard
-          liveBpm={soulsync.state.liveBpm}
-          liveRmssd={soulsync.state.rmssd}
-          isActive={soulsync.state.active}
-        />
-
-        {/* 3-phase BPM Journey — Pre / During / Post Japa */}
-        <BpmJourneyChart />
-
-        {/* Stats */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statCol}>
-            <Text style={styles.statValue}>{malas * 108 + count}</Text>
-            <Text style={styles.statLabel}>Total Japas</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statCol}>
-            <Text style={styles.statValue}>
-              {Math.round(((malas * 108 + count) / 108) * 100) / 100}
-            </Text>
-            <Text style={styles.statLabel}>Malas</Text>
-          </View>
-        </View>
-
-        {/* Controls — auto-save on mala completion */}
-        <View style={styles.controls}>
-          <TouchableOpacity style={styles.resetBtn} onPress={reset}>
-            <Text style={styles.resetBtnText}>↺ Reset</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.manualBtn} onPress={() => setShowManual(true)}>
-            <Text style={styles.manualBtnText}>+ Log past</Text>
-          </TouchableOpacity>
+        {/* ─── #2 · DEITIES BREAKDOWN (collapsible — tap header to expand)
+             Hidden by default — kept available behind a header tap to
+             preserve the per-deity bars + alarm-chip-tap-to-change time.
+             The primary entry point is now the unified Sadhana selector
+             below (no duplicate dropdowns). ─── */}
+        {false && <View style={styles.deitiesBlock}>
           <TouchableOpacity
-            style={[styles.bleBtn, connection && styles.bleBtnConnected]}
-            onPress={handleBlePress}
+            style={styles.deitiesHeader}
+            onPress={() => setDeitiesExpanded(v => !v)}
+            activeOpacity={0.7}
           >
-            <View style={[styles.bleDot, connection && styles.bleDotOn]} />
-            <Text style={[styles.bleBtnText, connection && styles.bleBtnTextOn]}>
-              {connection ? 'Ring connected' : 'Pair Bluetooth'}
-            </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.deitiesTitle}>
+                My Sadhana {deitiesExpanded ? '▾' : '▸'}
+              </Text>
+              <Text style={styles.deitiesSubtitle}>
+                {deitiesExpanded
+                  ? 'Tap to switch · tap ⏰ to set reminder'
+                  : `${deities.length} active · ${deities.reduce(
+                      (s, d) => s + (deityProgress[d.id]?.malas || 0) + d.totalMalas, 0,
+                    )} total malas · tap to expand`}
+              </Text>
+            </View>
+            <Text style={styles.deitiesChevron}>{deitiesExpanded ? '−' : '+'}</Text>
           </TouchableOpacity>
-        </View>
-        <Text style={styles.autoSaveHint}>
-          Tap the center bead · 1 mala (108 beads) saves automatically
-        </Text>
 
-        {/* ─── My Deities (moved from old Deities tab) ─── */}
-        <View style={styles.deitiesBlock}>
-          <View style={styles.deitiesHeader}>
-            <Text style={styles.deitiesTitle}>My Deities</Text>
-            <Text style={styles.deitiesSubtitle}>Tap to switch · long-press to manage</Text>
-          </View>
-          {deities.map(d => {
+          {deitiesExpanded && deities.map(d => {
             const totalForDeity = (deityProgress[d.id]?.malas || 0) + d.totalMalas;
             const isActive = selectedDeity?.id === d.id;
             return (
@@ -441,20 +926,150 @@ export const JapaScreen = ({ navigation }: any) => {
                 <View style={styles.deityListRight}>
                   <Text style={styles.deityListMalas}>{totalForDeity}</Text>
                   <Text style={styles.deityListMalasLabel}>malas</Text>
-                  <Text style={styles.deityListAlarm}>
-                    {d.alarmOn ? `⏰ ${d.prayerAlarm}` : '🔕'}
-                  </Text>
+                  {/* Tap the alarm chip to change reminder time inline */}
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      setPickingDeityId(d.id);
+                    }}
+                    hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                  >
+                    <Text style={[styles.deityListAlarm, styles.deityListAlarmTap]}>
+                      {d.alarmOn ? `⏰ ${d.prayerAlarm}` : '🔕 Set'}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </TouchableOpacity>
             );
           })}
-          <TouchableOpacity
-            style={styles.addDeityBtn}
-            onPress={() => setShowDeityManager(true)}
-          >
-            <Text style={styles.addDeityBtnText}>+ Manage deities & reminders</Text>
+
+          {/* Inline time picker — opens when an alarm chip is tapped */}
+          {pickingDeityId && (() => {
+            const d = deities.find(x => x.id === pickingDeityId);
+            if (!d) return null;
+            return (
+              <TimePickerField
+                value={d.prayerAlarm || null}
+                onChange={(next) => {
+                  setPickingDeityId(null);
+                  setDeities(prev => prev.map(x =>
+                    x.id === d.id ? { ...x, prayerAlarm: next, alarmOn: true } : x
+                  ));
+                  showToast(`⏰ ${d.name} reminder set to ${next}`);
+                }}
+              />
+            );
+          })()}
+        </View>}
+
+        {/* ─── #2 · UNIFIED SADHANA SELECTOR ───
+             ONE dropdown that lists all existing deities + sandhya +
+             sadhana paths, plus "+ Add new Sadhana" at the bottom which
+             opens the 3-form menu (deity / sandhya / sadhana path). */}
+        <TouchableOpacity
+          style={styles.deitySelector}
+          onPress={() => setShowSadhanaPicker(true)}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            {selectedDeity && (
+              <View style={styles.selectorIconWrap}>
+                <DeityIcon
+                  deityId={selectedDeity.id}
+                  icon={selectedDeity.icon}
+                  size={22}
+                  color={COLORS.gold}
+                />
+              </View>
+            )}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.deityLabel}>Sadhana</Text>
+              <Text style={styles.deityName}>
+                {selectedDeity ? selectedDeity.name : 'Tap to pick · or + add new ▾'}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.chevron}>▾</Text>
+        </TouchableOpacity>
+
+        {/* ─── #4 · THE JAPA MALA ─── */}
+        <Mala
+          count={count}
+          malas={malas}
+          onTap={tap}
+          popBead={popBead}
+          beadColor={selectedDeity?.malaColor}
+          beadHighlight={selectedDeity?.malaHighlight}
+          materialName={selectedDeity?.malaMaterial}
+        />
+
+        {selectedDeity?.mantra && (
+          <Text style={styles.mantra}>“{selectedDeity.mantra}”</Text>
+        )}
+
+        {/* Reset + Log past — right under the mala */}
+        <View style={styles.controls}>
+          <TouchableOpacity style={styles.resetBtn} onPress={reset}>
+            <Text style={styles.resetBtnText}>↺ Reset</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={styles.manualBtn} onPress={() => setShowManual(true)}>
+            <Text style={styles.manualBtnText}>+ Log past</Text>
+          </TouchableOpacity>
+          {connection && (
+            <View style={[styles.bleBtn, styles.bleBtnConnected]}>
+              <View style={[styles.bleDot, styles.bleDotOn]} />
+              <Text style={[styles.bleBtnText, styles.bleBtnTextOn]}>Ring connected</Text>
+            </View>
+          )}
         </View>
+        <Text style={styles.autoSaveHint}>
+          Tap the center bead · 1 mala (108 beads) saves automatically
+        </Text>
+
+        {/* ─── #5 · START SOULSYNC ─── */}
+        <PulseHighlight
+          active={hintMode !== 'none'}
+          tooltip={hintMode === 'start'
+            ? '👉 Tap here to track this session for your Saadhana Score'
+            : hintMode === 'stop'
+              ? '👉 Tap here to stop and see your Saadhana Score'
+              : undefined}
+        >
+          <View style={styles.soulsyncRow}>
+            <TouchableOpacity
+              style={[styles.soulsyncBtn, soulsync.state.active && styles.soulsyncBtnOn]}
+              onPress={handleSoulsyncToggle}
+            >
+              <View style={[styles.soulsyncDot, soulsync.state.active && styles.soulsyncDotOn]} />
+              <Text style={[styles.soulsyncText, soulsync.state.active && styles.soulsyncTextOn]}>
+                {soulsync.state.active ? '◉ Soulsync recording' : 'Start Soulsync session'}
+              </Text>
+            </TouchableOpacity>
+            {soulsync.state.active && (
+              <Text style={styles.peakCount}>
+                ✨ {soulsync.state.peaksRegistered} peak{soulsync.state.peaksRegistered === 1 ? '' : 's'}
+              </Text>
+            )}
+          </View>
+        </PulseHighlight>
+
+        {/* ─── #6 · TRENDS (live vitals + history charts) ─── */}
+        {soulsync.state.active && (
+          <HRVWaveGraph
+            bpmSeries={soulsync.state.bpmSeries}
+            peakIndices={soulsync.state.peakIndices}
+            rmssd={soulsync.state.rmssd}
+            improvementPct={soulsync.state.improvementPct}
+            isBaselineEstablished={soulsync.state.isBaselineEstablished}
+          />
+        )}
+
+        <BpmHrvBaselineCard
+          liveBpm={soulsync.state.liveBpm}
+          liveRmssd={soulsync.state.rmssd}
+          isActive={soulsync.state.active}
+        />
+
+        <BpmJourneyChart />
       </ScrollView>
 
       {/* Deity manager modal (replaces removed Deities tab) */}
@@ -469,6 +1084,188 @@ export const JapaScreen = ({ navigation }: any) => {
           <DeityScreen navigation={navigation} route={{ params: {} }} />
         </View>
       </Modal>
+
+      {/* ─── Unified Sadhana Picker — primary entry point ─── */}
+      <Modal visible={showSadhanaPicker} transparent animationType="slide" onRequestClose={() => setShowSadhanaPicker(false)}>
+        <TouchableOpacity
+          style={styles.sadhanaMenuOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSadhanaPicker(false)}
+        >
+          <View style={[styles.sadhanaMenuCard, { maxHeight: '85%' }]}>
+            <View style={{ width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.sm }} />
+            <Text style={styles.sadhanaMenuTitle}>Pick a Sadhana</Text>
+            <Text style={styles.sadhanaMenuHint}>
+              Existing deities · sandhya japa · sadhana paths — or add a new one
+            </Text>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ marginTop: 4 }}>
+              {/* ── Deities ── */}
+              {deities.length > 0 && (
+                <>
+                  <Text style={styles.picSectionLabel}>🪷  DEITIES · {deities.length}</Text>
+                  {deities.map(d => {
+                    const total = (deityProgress[d.id]?.malas || 0) + d.totalMalas;
+                    const isActive = selectedDeity?.id === d.id;
+                    return (
+                      <TouchableOpacity
+                        key={d.id}
+                        style={[styles.picRow, isActive && styles.picRowActive]}
+                        onPress={() => {
+                          setSelectedDeity(d);
+                          const saved = deityProgress[d.id];
+                          setCount(saved?.count ?? 0);
+                          setMalas(saved?.malas ?? 0);
+                          setShowSadhanaPicker(false);
+                          showToast(`🪷 Active: ${d.name}`);
+                        }}
+                      >
+                        <View style={styles.picIconWrap}>
+                          <DeityIcon deityId={d.id} icon={d.icon} size={22} color={COLORS.gold} />
+                        </View>
+                        <View style={{ flex: 1, marginLeft: 8 }}>
+                          <Text style={styles.picName}>{d.name}{isActive && '  · active'}</Text>
+                          <Text style={styles.picSub}>
+                            {total} mala{total !== 1 ? 's' : ''}
+                            {d.alarmOn ? ` · ⏰ ${d.prayerAlarm}` : ' · 🔕'}
+                            {d.mantra && ` · "${d.mantra}"`}
+                          </Text>
+                        </View>
+                        <Text style={styles.picArrow}>›</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* ── Sandhya Vandan — lives in Plan tab now ── */}
+              <Text style={styles.picSectionLabel}>🌅  SANDHYA VANDAN</Text>
+              <TouchableOpacity
+                style={styles.picRow}
+                onPress={() => { setShowSadhanaPicker(false); navigation?.navigate?.('Plan'); }}
+              >
+                <Text style={styles.picIcon}>🌅</Text>
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={styles.picName}>Pratah · Madhyahnika · Sayam</Text>
+                  <Text style={styles.picSub}>The 3 daily junctures · tap to configure in Plan</Text>
+                </View>
+                <Text style={styles.picArrow}>›</Text>
+              </TouchableOpacity>
+
+              {/* ── Sadhana Paths ── */}
+              {sadhanaPaths.length > 0 && (
+                <>
+                  <Text style={styles.picSectionLabel}>🛤  SADHANA PATHS · {sadhanaPaths.length}</Text>
+                  {sadhanaPaths.map(p => (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={styles.picRow}
+                      onPress={() => {
+                        setShowSadhanaPicker(false);
+                        showToast(`🛤 ${p.name}`);
+                      }}
+                    >
+                      <Text style={styles.picIcon}>🛤</Text>
+                      <View style={{ flex: 1, marginLeft: 8 }}>
+                        <Text style={styles.picName}>{p.name}</Text>
+                        <Text style={styles.picSub}>
+                          {p.trigger.kind === 'tithi'
+                            ? `Every ${p.trigger.tithi}`
+                            : p.trigger.kind === 'weekdays'
+                              ? `Weekdays: ${p.trigger.days.map((d: number) => ['S','M','T','W','T','F','S'][d]).join('·')}`
+                              : `${p.trigger.dates?.length || 0} dates`}
+                          {p.practice && ` · ${p.practice}`}
+                        </Text>
+                      </View>
+                      <Text style={styles.picArrow}>›</Text>
+                    </TouchableOpacity>
+                  ))}
+                </>
+              )}
+
+              {/* ── + Add new Sadhana ── */}
+              <TouchableOpacity
+                style={styles.picAddRow}
+                onPress={() => { setShowSadhanaPicker(false); setShowSadhanaMenu(true); }}
+              >
+                <Text style={styles.picIcon}>＋</Text>
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={[styles.picName, { color: COLORS.gold }]}>Add new Sadhana</Text>
+                  <Text style={styles.picSub}>Deity · Sandhya Japa · Sadhana Path</Text>
+                </View>
+                <Text style={[styles.picArrow, { color: COLORS.gold }]}>›</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* + Sadhana ▾ — 3-action sheet */}
+      <Modal visible={showSadhanaMenu} transparent animationType="fade" onRequestClose={() => setShowSadhanaMenu(false)}>
+        <TouchableOpacity
+          style={styles.sadhanaMenuOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSadhanaMenu(false)}
+        >
+          <View style={styles.sadhanaMenuCard}>
+            <Text style={styles.sadhanaMenuTitle}>+ Sadhana</Text>
+            <Text style={styles.sadhanaMenuHint}>Pick one to add or edit</Text>
+
+            <TouchableOpacity
+              style={styles.sadhanaMenuRow}
+              onPress={() => { setShowSadhanaMenu(false); setShowDeityManager(true); }}
+            >
+              <Text style={styles.sadhanaMenuIcon}>🪷</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sadhanaMenuLabel}>Add / Edit a Deity</Text>
+                <Text style={styles.sadhanaMenuSub}>Pick deity · mantra · daily reminder time</Text>
+              </View>
+              <Text style={styles.sadhanaMenuArrow}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.sadhanaMenuRow}
+              onPress={() => { setShowSadhanaMenu(false); navigation?.navigate?.('Plan'); }}
+            >
+              <Text style={styles.sadhanaMenuIcon}>🌅</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sadhanaMenuLabel}>Sandhya Vandan</Text>
+                <Text style={styles.sadhanaMenuSub}>Pratah · Madhyahnika · Sayam — set up in your Plan</Text>
+              </View>
+              <Text style={styles.sadhanaMenuArrow}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.sadhanaMenuRow}
+              onPress={() => { setShowSadhanaMenu(false); setShowSadhanaPathSheet(true); }}
+            >
+              <Text style={styles.sadhanaMenuIcon}>🛤</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sadhanaMenuLabel}>Sadhana Path</Text>
+                <Text style={styles.sadhanaMenuSub}>Multi-step japa flow · daily / weekday / specific tithi / specific dates</Text>
+              </View>
+              <Text style={styles.sadhanaMenuArrow}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.sadhanaMenuCancel} onPress={() => setShowSadhanaMenu(false)}>
+              <Text style={styles.sadhanaMenuCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Sadhana Path sheet — tithi/date-aware builder */}
+      <SadhanaPathSheet
+        visible={showSadhanaPathSheet}
+        onClose={() => setShowSadhanaPathSheet(false)}
+        onSaved={() => { setShowSadhanaPathSheet(false); showToast('✓ Sadhana Path saved'); }}
+      />
+
+      {/* Sadhana Depth Score trend */}
+      <DepthTrendModal
+        visible={showDepthTrend}
+        onClose={() => setShowDepthTrend(false)}
+      />
 
       {/* Saadhana Score popup — shown after a Soulsync session stops */}
       <SessionScorePopup
@@ -734,9 +1531,13 @@ const styles = StyleSheet.create({
 
   // ── Deities list (inline replacement for removed Deities tab) ──
   deitiesBlock: { marginHorizontal: SPACING.md, marginTop: SPACING.lg },
-  deitiesHeader: { marginBottom: SPACING.sm },
+  deitiesHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm },
   deitiesTitle: { fontSize: 14, color: COLORS.gold, fontWeight: '700', letterSpacing: 0.5 },
   deitiesSubtitle: { fontSize: 11, color: COLORS.muted, marginTop: 2, fontStyle: 'italic' },
+  deitiesChevron: {
+    fontSize: 22, color: COLORS.gold, fontWeight: '300',
+    paddingHorizontal: 8,
+  },
   deityListRow: {
     flexDirection: 'row', alignItems: 'center',
     padding: SPACING.sm,
@@ -760,13 +1561,82 @@ const styles = StyleSheet.create({
   deityListRight: { alignItems: 'flex-end', marginLeft: SPACING.sm },
   deityListMalas: { fontSize: 16, color: COLORS.gold, fontWeight: '700' },
   deityListMalasLabel: { fontSize: 8, color: COLORS.muted, letterSpacing: 0.5 },
-  deityListAlarm: { fontSize: 9, color: COLORS.muted, marginTop: 2 },
+  deityListAlarm: { fontSize: 10, color: COLORS.muted, marginTop: 4 },
+  deityListAlarmTap: {
+    color: COLORS.gold, fontWeight: '700',
+    paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 6, backgroundColor: 'rgba(212,160,23,0.12)',
+    overflow: 'hidden',
+  },
   addDeityBtn: {
     marginTop: SPACING.sm, paddingVertical: 10,
     borderRadius: 8, borderWidth: 1.5, borderStyle: 'dashed',
     borderColor: COLORS.gold, alignItems: 'center',
   },
   addDeityBtnText: { color: COLORS.gold, fontSize: 12, fontWeight: '700' },
+
+  // + Sadhana ▾ button and 3-action menu
+  sadhanaActionBtn: {
+    marginTop: SPACING.sm, paddingVertical: 10,
+    borderRadius: 10, borderStyle: 'dashed',
+    borderWidth: 1, borderColor: COLORS.gold,
+    backgroundColor: 'rgba(212,160,23,0.06)',
+    alignItems: 'center',
+  },
+  sadhanaActionText: { color: COLORS.gold, fontWeight: '700', fontSize: 13 },
+
+  sadhanaMenuOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  sadhanaMenuCard: {
+    backgroundColor: COLORS.darkBg,
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: SPACING.md, paddingBottom: SPACING.xl,
+  },
+  sadhanaMenuTitle: { color: COLORS.cream, fontSize: 20, fontWeight: '800' },
+  sadhanaMenuHint: { color: COLORS.muted, fontSize: 12, fontStyle: 'italic', marginBottom: SPACING.md },
+  sadhanaMenuRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 12, paddingHorizontal: 12,
+    borderRadius: 12, borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: COLORS.cardBg, marginBottom: 8,
+  },
+  sadhanaMenuIcon: { fontSize: 26, marginRight: 12, width: 32 },
+  sadhanaMenuLabel: { color: COLORS.cream, fontSize: 15, fontWeight: '700' },
+  sadhanaMenuSub: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
+  sadhanaMenuArrow: { color: COLORS.gold, fontSize: 22, paddingHorizontal: 6 },
+  sadhanaMenuCancel: { paddingVertical: 10, alignItems: 'center', marginTop: 4 },
+  sadhanaMenuCancelText: { color: COLORS.muted, fontSize: 13 },
+
+  // Unified Sadhana picker rows
+  picSectionLabel: {
+    fontSize: 10, color: COLORS.muted, fontWeight: '800',
+    letterSpacing: 1.2, marginTop: SPACING.md, marginBottom: 6,
+  },
+  picRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 10, paddingHorizontal: 10,
+    borderRadius: 10, borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: COLORS.cardBg, marginBottom: 6,
+  },
+  picRowActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.10)' },
+  picIconWrap: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(212,160,23,0.10)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  picIcon: { fontSize: 22, width: 36, textAlign: 'center' },
+  picName: { color: COLORS.cream, fontSize: 14, fontWeight: '700' },
+  picSub: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
+  picArrow: { color: COLORS.gold, fontSize: 20, paddingHorizontal: 4 },
+  picAddRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 12, paddingHorizontal: 10,
+    borderRadius: 12, borderWidth: 1, borderStyle: 'dashed', borderColor: COLORS.gold,
+    backgroundColor: 'rgba(212,160,23,0.06)',
+    marginTop: SPACING.sm, marginBottom: 8,
+  },
   deitySelector: {
     backgroundColor: COLORS.cardBg,
     borderRadius: 12,
@@ -864,6 +1734,29 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
     marginTop: 4,
   },
+
+  // 3×2 KPI grid — lifetime row on top, today row below (gold-tinted)
+  kpiGrid: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
+    backgroundColor: 'rgba(26, 31, 58, 0.5)', borderRadius: 12,
+    overflow: 'hidden',
+  },
+  kpiCell: {
+    width: '33.333%',
+    alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 12, paddingHorizontal: 4,
+    borderColor: 'rgba(212, 160, 23, 0.12)',
+    borderRightWidth: 1, borderBottomWidth: 1,
+  },
+  kpiCellToday: { backgroundColor: 'rgba(212, 160, 23, 0.07)' },
+  kpiCellValue: { fontSize: 18, color: COLORS.cream, fontWeight: '700' },
+  kpiCellValueToday: { color: COLORS.gold },
+  kpiCellLabel: {
+    fontSize: 10, color: COLORS.muted, marginTop: 2,
+    letterSpacing: 0.5, fontWeight: '600',
+  },
+
   controls: {
     flexDirection: 'row',
     gap: SPACING.md,

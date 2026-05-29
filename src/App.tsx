@@ -15,18 +15,21 @@ import {
 } from 'react-native-safe-area-context';
 import { SadhanaProvider, useSadhana } from './context';
 import { DashboardScreen } from './screens/DashboardScreen';
-import { JapaScreen } from './screens/JapaScreen';
-import { SandhyaScreen } from './screens/SandhyaScreen';
+// JapaSandhyaWrapper removed — Sandhya now lives entirely under Plan tab
 import { FestivalScreen } from './screens/FestivalScreen';
 import { HistoryScreen } from './screens/HistoryScreen';
 import { ExerciseScreen } from './screens/ExerciseScreen';
+import { SankalpaScreen } from './screens/SankalpaScreen';
+import { JapaScreen } from './screens/JapaScreen';
 import { OnboardingScreen } from './screens/OnboardingScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
-import { YogaScreen } from './screens/YogaScreen';
 import { MeditationScreen } from './screens/MeditationScreen';
+import { YogaMeditationWrapper } from './screens/YogaMeditationWrapper';
 import { AnxietyReliefPopup } from './soulsync/components/AnxietyReliefPopup';
 import { AggressionReliefPopup } from './soulsync/components/AggressionReliefPopup';
+import { DailyRecommendationsPopup } from './soulsync/components/DailyRecommendationsPopup';
 import { PrayerReminderPopup } from './soulsync/components/PrayerReminderPopup';
+import { VoiceAssistant } from './components/VoiceAssistant';
 import * as Notifications from 'expo-notifications';
 import { Deity } from './types';
 import { COLORS } from './theme';
@@ -59,6 +62,13 @@ const TabNavigator = () => {
         },
       }}
     >
+      {/* Tab order follows the Panchakosha (5 sheaths) — outer body
+          to inner cosmos:  Body → Breath → Mind → Wisdom → Bliss.
+            Exercise  = annamaya  (body/food sheath)
+            Yoga      = pranamaya (breath/life-force sheath)
+            Japa      = manomaya  (mind sheath — Sandhya lives here too)
+            Meditate  = vijnanamaya (wisdom sheath)
+            Festivals = anandamaya (bliss/cosmic sheath) */}
       <Tab.Screen
         name="Dashboard"
         component={DashboardScreen}
@@ -68,35 +78,13 @@ const TabNavigator = () => {
         }}
       />
       <Tab.Screen
-        name="Japa"
-        component={JapaScreen}
+        name="Plan"
+        component={SankalpaScreen}
         options={{
-          tabBarLabel: 'Japa',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📿</Text>,
-        }}
-      />
-      <Tab.Screen
-        name="Sandhya"
-        component={SandhyaScreen}
-        options={{
-          tabBarLabel: 'Sandhya',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🪷</Text>,
-        }}
-      />
-      <Tab.Screen
-        name="Yoga"
-        component={YogaScreen}
-        options={{
-          tabBarLabel: 'Yoga',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🧘‍♀️</Text>,
-        }}
-      />
-      <Tab.Screen
-        name="Meditation"
-        component={MeditationScreen}
-        options={{
-          tabBarLabel: 'Meditate',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🪷</Text>,
+          // Hidden from the bottom tab bar — accessible only via the
+          // "Plan your routine" CTA on the Home tab. Keeps the bar lean.
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: 'none' },
         }}
       />
       <Tab.Screen
@@ -108,10 +96,37 @@ const TabNavigator = () => {
         }}
       />
       <Tab.Screen
-        name="Festivals"
+        name="Yoga"
+        component={YogaMeditationWrapper}
+        options={{
+          tabBarLabel: 'Yoga & Meditate',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🧘‍♀️</Text>,
+        }}
+      />
+      <Tab.Screen
+        name="Japa"
+        component={JapaScreen}
+        options={{
+          tabBarLabel: 'Japa',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📿</Text>,
+        }}
+      />
+      {/* Meditation kept as a HIDDEN route so the anxiety / aggression relief
+          popups can still navigate to it directly with an `openId` param.
+          Visually merged into the Yoga tab via YogaMeditationWrapper above. */}
+      <Tab.Screen
+        name="Meditation"
+        component={MeditationScreen}
+        options={{
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: 'none' },
+        }}
+      />
+      <Tab.Screen
+        name="Panchang"
         component={FestivalScreen}
         options={{
-          tabBarLabel: 'Festivals',
+          tabBarLabel: 'Panchang',
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🛕</Text>,
         }}
       />
@@ -119,8 +134,8 @@ const TabNavigator = () => {
         name="History"
         component={HistoryScreen}
         options={{
-          tabBarLabel: 'Insights',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📈</Text>,
+          tabBarLabel: 'My Reports',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📊</Text>,
         }}
       />
     </Tab.Navigator>
@@ -203,10 +218,17 @@ const AppContent = () => {
         <TabNavigator />
       </NavigationContainer>
       <SettingsButton onPress={() => setShowSettings(true)} />
+      {/* Voice assistant — multilingual, elder-friendly */}
+      <VoiceAssistant navRef={navRef} />
       <Modal visible={showSettings} animationType="slide" onRequestClose={() => setShowSettings(false)}>
         <SettingsScreen onClose={() => setShowSettings(false)} />
       </Modal>
       {toast && <Toast message={toast} />}
+
+      {/* ── Daily body↔soul recommendations popup (once per day) ── */}
+      <DailyRecommendationsPopup
+        onNavigate={(tab, params) => navRef.current?.navigate?.(tab, params)}
+      />
 
       {/* ── Anxiety flow:
             1. Ring buzzes (in AnxietyDetector.fire)

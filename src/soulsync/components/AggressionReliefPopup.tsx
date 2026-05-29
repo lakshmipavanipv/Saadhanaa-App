@@ -43,13 +43,16 @@ export const AggressionReliefPopup: React.FC<Props> = ({
             <Text style={styles.buzzText}>📳 Ring buzzed · agitation detected</Text>
           </View>
 
-          <Text style={styles.title}>Pause. Cool down.</Text>
+          <Text style={styles.title}>I'm with you 💛</Text>
           <Text style={styles.message}>
-            We noticed agitation in your body — rapid movement and pulse surge.{'\n'}
-            Step away for 2 minutes. Try one of these.
+            My dear friend, your body is carrying some heat right now —{'\n'}
+            and that's okay. You're human. You're allowed to feel this.{'\n\n'}
+            Relax for yourself. Not for anyone else. Just for <Text style={styles.messageEmphasis}>you</Text>.{'\n\n'}
+            Step away for 2 minutes. The moment that triggered you{'\n'}
+            will still be there — but you'll meet it with a clearer heart.
           </Text>
 
-          <Text style={styles.chooseLabel}>Choose a cooling practice:</Text>
+          <Text style={styles.chooseLabel}>A gentle cooling practice — pick one ♡</Text>
 
           {COOLING_OPTIONS.map(t => (
             <TouchableOpacity
@@ -68,7 +71,7 @@ export const AggressionReliefPopup: React.FC<Props> = ({
           ))}
 
           <TouchableOpacity style={styles.dismissBtn} onPress={onDismiss}>
-            <Text style={styles.dismissText}>I'm settled — dismiss</Text>
+            <Text style={styles.dismissText}>I'm okay now — thank you 🙏</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -102,9 +105,12 @@ const styles = StyleSheet.create({
     textAlign: 'center', marginBottom: 6,
   },
   message: {
-    fontSize: 13, color: COLORS.cream, lineHeight: 19,
+    fontSize: 13, color: COLORS.cream, lineHeight: 20,
     textAlign: 'center', marginBottom: SPACING.md,
     paddingHorizontal: SPACING.sm,
+  },
+  messageEmphasis: {
+    color: COLORS.gold, fontWeight: '700', fontStyle: 'italic',
   },
   chooseLabel: {
     fontSize: 11, color: COLORS.muted, fontWeight: '700',

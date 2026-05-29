@@ -24,6 +24,15 @@ interface SadhanaContextType {
   resetAll: () => Promise<void>;
   deityProgress: Record<string, { count: number; malas: number }>;
   updateProgress: (deityId: string, count: number, malas: number) => void;
+
+  // ── BLE Ring (shared so Settings can pair without owning the modal) ──
+  bleConnected: boolean;
+  setBleConnected: (v: boolean) => void;
+  /** JapaScreen registers its actual pair / disconnect implementations here
+   *  on mount so SettingsScreen can invoke them. Noop until registered. */
+  registerBleHandlers: (h: { pair: () => void; disconnect: () => void }) => void;
+  requestBlePair: () => void;
+  disconnectBleRing: () => void;
 }
 
 const SadhanaContext = createContext<SadhanaContextType | undefined>(undefined);
@@ -190,6 +199,19 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
   };
 
+  // ── BLE state (shared so SettingsScreen can pair) ──
+  const [bleConnected, setBleConnected] = useState(false);
+  const bleHandlersRef = useRef<{ pair: () => void; disconnect: () => void }>({
+    pair: () => showToast('Open Japa tab first to enable ring pairing'),
+    disconnect: () => {},
+  });
+  const registerBleHandlers = useCallback(
+    (h: { pair: () => void; disconnect: () => void }) => { bleHandlersRef.current = h; },
+    []
+  );
+  const requestBlePair    = useCallback(() => bleHandlersRef.current.pair(),       []);
+  const disconnectBleRing = useCallback(() => bleHandlersRef.current.disconnect(), []);
+
   const value: SadhanaContextType = {
     deities,
     setDeities,
@@ -210,6 +232,11 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     resetAll,
     deityProgress,
     updateProgress,
+    bleConnected,
+    setBleConnected,
+    registerBleHandlers,
+    requestBlePair,
+    disconnectBleRing,
   };
 
   return <SadhanaContext.Provider value={value}>{children}</SadhanaContext.Provider>;

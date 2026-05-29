@@ -22,7 +22,11 @@ export interface Deity {
   notificationIds?: Record<number, string>;
 }
 
-export type BodyActivity = 'yoga' | 'swim' | 'run' | 'jog' | 'cycle' | 'walk' | 'gym';
+// Yoga is stored as a BodyActivity (so the Yoga screen's "Log past" still
+// writes via exerciseRepo) but is INTENTIONALLY hidden from the Exercise
+// tab — yoga has its own dedicated screen and is not a cardio/strength
+// workout in the user's mental model.
+export type BodyActivity = 'walk' | 'run' | 'jog' | 'cycle' | 'swim' | 'gym' | 'hiit' | 'yoga';
 export type SoulActivity = 'meditation' | 'japa' | 'sandhya';
 
 export interface UserGoals {

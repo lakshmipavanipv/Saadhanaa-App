@@ -281,7 +281,7 @@ export const OnboardingScreen = () => {
               🏃 Body goals (pick all that apply)
             </Text>
             <View style={styles.chipRow}>
-              {(['yoga','swim','run','jog','cycle','walk','gym'] as BodyActivity[]).map(a => {
+              {(['walk','run','jog','cycle','swim','gym','hiit'] as BodyActivity[]).map(a => {
                 const on = bodyActivities.includes(a);
                 return (
                   <TouchableOpacity

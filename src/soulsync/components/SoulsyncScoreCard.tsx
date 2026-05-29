@@ -45,7 +45,7 @@ const colorFor = (score: number): string => {
   return '#ff8c42';
 };
 
-const computeScores = async (): Promise<ScorePack> => {
+export const computeScores = async (): Promise<ScorePack> => {
   const dash = await computeHealthDashboard();
   const [bpm, hrv, spo2, tempC] = dash.metrics;
 
@@ -119,7 +119,7 @@ export const SoulsyncScoreCard: React.FC = () => {
 
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>Body & Soul Score</Text>
+      <Text style={styles.title}>Commitment Score</Text>
 
       <View style={styles.bigRow}>
         <Text style={[styles.bigNumber, { color: overallColor }]}>

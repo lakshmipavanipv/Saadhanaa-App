@@ -60,8 +60,8 @@ export const SaadhanaScoreCard: React.FC = () => {
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Body & Soul Health</Text>
-        <Text style={styles.subtitle}>Your body baseline vs your soul sadhana state</Text>
+        <Text style={styles.title}>Your Vitals Baseline</Text>
+        <Text style={styles.subtitle}>How sadhana is improving your overall health · 7-day vs current</Text>
       </View>
 
       {/* Big Saadhana Score number */}

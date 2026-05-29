@@ -130,3 +130,59 @@ export const rescheduleDeityReminders = async (
   const ids = await scheduleDeityReminders(deity);
   return { notificationIds: ids };
 };
+
+// ─── Routine-item reminders (Plan tab) ────────────────────────────
+
+/**
+ * Schedule a recurring reminder for a Plan routine item. Returns the
+ * notification IDs keyed by day-of-week so the caller can cancel/update
+ * them later (mirrors the deity reminder pattern).
+ */
+export const scheduleRoutineReminder = async (params: {
+  title: string;
+  body?: string;
+  time: string;                       // 'HH:MM'
+  frequency: 'daily' | number[];      // 0..6
+  routineId: string;
+}): Promise<Record<number, string>> => {
+  const { title, body, time, frequency, routineId } = params;
+  const days = frequency === 'daily' ? [0, 1, 2, 3, 4, 5, 6] : frequency;
+  const { hour, minute } = parseHHMM(time);
+
+  const ids: Record<number, string> = {};
+  for (const day of days) {
+    const weekday = day + 1;
+    try {
+      const id = await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body: body || 'Your committed practice time',
+          sound: 'default',
+          data: { routineId, type: 'plan-reminder' },
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+          weekday,
+          hour,
+          minute,
+          channelId: 'prayer-reminders',
+        } as any,
+      });
+      ids[day] = id;
+    } catch (e) {
+      console.warn(`[notifications] routine schedule failed day=${day}:`, e);
+    }
+  }
+  return ids;
+};
+
+/** Cancel routine reminders by their stored IDs. */
+export const cancelRoutineReminder = async (
+  ids?: Record<number, string>
+): Promise<void> => {
+  if (!ids) return;
+  for (const id of Object.values(ids)) {
+    try { await Notifications.cancelScheduledNotificationAsync(id); }
+    catch { /* ignored */ }
+  }
+};

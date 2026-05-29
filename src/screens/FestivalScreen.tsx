@@ -15,6 +15,8 @@ import { getDaysUntil, formatShortDate } from '../utils';
 import { COLORS, SPACING } from '../theme';
 import { Calendar } from '../components/Calendar';
 import { FamilyMembersCard } from '../components/FamilyMembersCard';
+import { specialSadhanaRepo, SpecialSadhana, SpecialTrigger } from '../services/specialSadhanaRepo';
+import { TextInput as RNTextInput } from 'react-native';
 import { getUserLocation, UserLocation } from '../services/location';
 import { computeSunTimes, fmtHHMM, SunTimes } from '../services/sunTimes';
 import { buildCalendar, CalendarItem } from '../services/calendarAggregator';
@@ -41,6 +43,8 @@ export const FestivalScreen = () => {
   const [reminders, setReminders] = useState<ReminderState>({});
   const [selected, setSelected] = useState<PanchangFestival | null>(null);
   const [view, setView] = useState<'calendar' | 'list'>('calendar');
+  // Panchang top segment filter
+  const [section, setSection] = useState<'tithi' | 'shradha' | 'festivals' | 'special'>('festivals');
 
   // ── Live data: user location, today's sunrise/sunset, merged calendar ──
   const [loc, setLoc] = useState<UserLocation | null>(null);
@@ -192,8 +196,10 @@ export const FestivalScreen = () => {
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>Festival Calendar</Text>
-          <Text style={styles.subtitle}>Tap any date to view festival details</Text>
+          <Text style={styles.title}>Panchang</Text>
+          <Text style={styles.subtitle}>
+            पञ्चाङ्ग · Hindu calendar · tithi · shradha · festivals · special sadhana
+          </Text>
         </View>
 
         {/* ── Live sunrise / sunset for the user's location ── */}
@@ -218,13 +224,73 @@ export const FestivalScreen = () => {
           </View>
         )}
 
-        {/* ── Family · Tithi Shraddha manager ── */}
-        <FamilyMembersCard />
+        {/* ── Top segmented filter — replaces flat festival list ── */}
+        <View style={styles.segmentBar}>
+          {([
+            { id: 'tithi',     label: 'Tithi',     icon: '🌗' },
+            { id: 'shradha',   label: 'Shradha',   icon: '🕯️' },
+            { id: 'festivals', label: 'Festivals', icon: '🛕' },
+            { id: 'special',   label: 'Special',   icon: '✨' },
+          ] as const).map(s => (
+            <TouchableOpacity
+              key={s.id}
+              style={[styles.segmentBtn, section === s.id && styles.segmentBtnActive]}
+              onPress={() => setSection(s.id)}
+            >
+              <Text style={[styles.segmentLabel, section === s.id && styles.segmentLabelActive]}>
+                {s.icon}  {s.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-        <TimezoneNote />
+        {/* ── Shradha section ── */}
+        {section === 'shradha' && (
+          <>
+            <FamilyMembersCard />
+            <TimezoneNote />
+          </>
+        )}
 
+        {/* ── Tithi section — upcoming Ekadashi / Pradosh / Purnima / Amavasya ── */}
+        {section === 'tithi' && (() => {
+          const KEY_TITHIS = ['Ekadashi','Pradosh','Purnima','Amavasya'];
+          const upcoming = filtered.filter(f =>
+            f.tithi && KEY_TITHIS.some(k => f.tithi!.includes(k))
+          ).slice(0, 12);
+          return (
+            <View style={styles.tithiBox}>
+              <Text style={styles.tithiHelper}>
+                Key tithis — observe a fast / extra japa on these dates.
+              </Text>
+              {upcoming.length === 0 ? (
+                <Text style={styles.emptyHint}>No upcoming key tithis loaded yet.</Text>
+              ) : upcoming.map(t => (
+                <TouchableOpacity
+                  key={t.id}
+                  style={styles.tithiRow}
+                  onPress={() => setSelected(t)}
+                >
+                  <Text style={styles.tithiIcon}>🌗</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.tithiName}>{t.name}</Text>
+                    <Text style={styles.tithiSub}>{t.tithi}</Text>
+                  </View>
+                  <Text style={styles.tithiDate}>{formatShortDate(t.date)}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          );
+        })()}
 
-        {/* View Toggle */}
+        {/* ── Special Sadhana section — custom sadhanas tied to tithi/days/dates ── */}
+        {section === 'special' && (
+          <SpecialSadhanaBuilder />
+        )}
+
+        {/* ── Festivals section — original calendar/list ── */}
+        {section === 'festivals' && (
+        <>
         <View style={styles.viewToggle}>
           <TouchableOpacity
             style={[styles.toggleBtn, view === 'calendar' && styles.toggleBtnActive]}
@@ -277,6 +343,8 @@ export const FestivalScreen = () => {
               );
             })}
           </View>
+        )}
+        </>
         )}
       </ScrollView>
 
@@ -610,6 +678,216 @@ const SunStat: React.FC<{
   </View>
 );
 
+// ─── Special Sadhana Builder ─────────────────────────────────────
+//
+// Lets the user design a sadhana observed on a tithi (e.g. Ekadashi),
+// specific weekdays, or fixed calendar dates. Saves to the
+// specialSadhanaRepo.
+
+const TITHI_OPTIONS = [
+  'Ekadashi', 'Pradosh', 'Purnima', 'Amavasya',
+  'Pratipada', 'Dwitiya', 'Tritiya', 'Chaturthi', 'Panchami', 'Shashti',
+  'Saptami', 'Ashtami', 'Navami', 'Dashami', 'Dwadashi', 'Trayodashi', 'Chaturdashi',
+];
+
+const DAYS_LABEL = ['S','M','T','W','T','F','S'];
+
+const SpecialSadhanaBuilder: React.FC = () => {
+  const [items, setItems] = useState<SpecialSadhana[]>([]);
+  const [creating, setCreating] = useState(false);
+  // form state
+  const [name, setName] = useState('');
+  const [practice, setPractice] = useState('');
+  const [duration, setDuration] = useState('30');
+  const [time, setTime] = useState('');
+  const [triggerKind, setTriggerKind] = useState<'tithi' | 'weekdays' | 'dates'>('tithi');
+  const [tithi, setTithi] = useState('Ekadashi');
+  const [weekdays, setWeekdays] = useState<number[]>([]);
+  const [dates, setDates] = useState('');
+
+  const refresh = async () => setItems(await specialSadhanaRepo.list());
+  useEffect(() => { refresh(); }, []);
+
+  const reset = () => {
+    setName(''); setPractice(''); setDuration('30'); setTime('');
+    setTriggerKind('tithi'); setTithi('Ekadashi'); setWeekdays([]); setDates('');
+  };
+
+  const save = async () => {
+    if (!name.trim()) return;
+    let trigger: SpecialTrigger;
+    if (triggerKind === 'tithi')       trigger = { kind: 'tithi', tithi };
+    else if (triggerKind === 'weekdays') trigger = { kind: 'weekdays', days: weekdays.length > 0 ? weekdays : [1] };
+    else trigger = { kind: 'dates', dates: dates.split(/[\s,]+/).filter(Boolean) };
+    await specialSadhanaRepo.add({
+      name: name.trim(),
+      practice: practice.trim() || undefined,
+      durationMin: parseInt(duration, 10) || undefined,
+      time: time.trim() || undefined,
+      trigger,
+    });
+    reset();
+    setCreating(false);
+    refresh();
+  };
+
+  const remove = async (id: string) => {
+    await specialSadhanaRepo.remove(id);
+    refresh();
+  };
+
+  const describeTrigger = (t: SpecialTrigger): string => {
+    if (t.kind === 'tithi') return `Every ${t.tithi}`;
+    if (t.kind === 'weekdays') return `Every ${t.days.map(d => DAYS_LABEL[d]).join('·')}`;
+    return `On ${t.dates.slice(0, 3).join(', ')}${t.dates.length > 3 ? ` +${t.dates.length - 3}` : ''}`;
+  };
+
+  return (
+    <View style={styles.specialBox}>
+      <Text style={styles.specialIntro}>
+        Special sadhanas observed on specific tithis, weekdays, or dates —
+        e.g. "Mahamrityunjaya on every Pradosh" or "108 names on Mondays".
+      </Text>
+
+      {/* List of saved special sadhanas */}
+      {items.length > 0 && (
+        <View style={{ marginBottom: SPACING.sm }}>
+          {items.map(it => (
+            <View key={it.id} style={styles.specialRow}>
+              <Text style={styles.specialIcon}>✨</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.specialName}>{it.name}</Text>
+                <Text style={styles.specialMeta}>
+                  {describeTrigger(it.trigger)}
+                  {it.practice && ` · ${it.practice}`}
+                  {it.durationMin && ` · ${it.durationMin} min`}
+                  {it.time && ` · ⏰ ${it.time}`}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => remove(it.id)}>
+                <Text style={styles.specialDelete}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Add new */}
+      {!creating ? (
+        <TouchableOpacity style={styles.specialAddBtn} onPress={() => setCreating(true)}>
+          <Text style={styles.specialAddText}>+ Add a special sadhana</Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.specialForm}>
+          <Text style={styles.specialFieldLabel}>Name</Text>
+          <RNTextInput
+            style={styles.specialInput}
+            value={name}
+            onChangeText={setName}
+            placeholder='e.g. "Pradosh Shiva Sadhana"'
+            placeholderTextColor={COLORS.muted}
+          />
+          <Text style={styles.specialFieldLabel}>Practice (deity / mantra / what to do)</Text>
+          <RNTextInput
+            style={styles.specialInput}
+            value={practice}
+            onChangeText={setPractice}
+            placeholder='e.g. "Mahamrityunjaya 11 malas"'
+            placeholderTextColor={COLORS.muted}
+          />
+          <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.specialFieldLabel}>Duration (min)</Text>
+              <RNTextInput
+                style={styles.specialInput}
+                value={duration}
+                onChangeText={setDuration}
+                keyboardType="number-pad"
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.specialFieldLabel}>Time (optional)</Text>
+              <RNTextInput
+                style={styles.specialInput}
+                value={time}
+                onChangeText={setTime}
+                placeholder="HH:MM"
+                placeholderTextColor={COLORS.muted}
+              />
+            </View>
+          </View>
+
+          <Text style={styles.specialFieldLabel}>When?</Text>
+          <View style={styles.triggerRow}>
+            {(['tithi','weekdays','dates'] as const).map(k => (
+              <TouchableOpacity
+                key={k}
+                style={[styles.triggerChip, triggerKind === k && styles.triggerChipActive]}
+                onPress={() => setTriggerKind(k)}
+              >
+                <Text style={[styles.triggerText, triggerKind === k && styles.triggerTextActive]}>
+                  {k === 'tithi' ? '🌗 Tithi' : k === 'weekdays' ? '📅 Days' : '🗓 Dates'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {triggerKind === 'tithi' && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: SPACING.sm }}>
+              <View style={{ flexDirection: 'row', gap: 6, paddingHorizontal: 2 }}>
+                {TITHI_OPTIONS.map(t => (
+                  <TouchableOpacity
+                    key={t}
+                    style={[styles.tithiChip, tithi === t && styles.tithiChipActive]}
+                    onPress={() => setTithi(t)}
+                  >
+                    <Text style={[styles.tithiChipText, tithi === t && styles.tithiChipTextActive]}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          )}
+
+          {triggerKind === 'weekdays' && (
+            <View style={styles.weekdayRow}>
+              {DAYS_LABEL.map((d, i) => (
+                <TouchableOpacity
+                  key={i}
+                  style={[styles.dayChip, weekdays.includes(i) && styles.dayChipActive]}
+                  onPress={() =>
+                    setWeekdays(p => p.includes(i) ? p.filter(x => x !== i) : [...p, i].sort())
+                  }
+                >
+                  <Text style={[styles.dayChipText, weekdays.includes(i) && styles.dayChipTextActive]}>{d}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {triggerKind === 'dates' && (
+            <RNTextInput
+              style={styles.specialInput}
+              value={dates}
+              onChangeText={setDates}
+              placeholder='YYYY-MM-DD list (comma or space separated)'
+              placeholderTextColor={COLORS.muted}
+            />
+          )}
+
+          <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm }}>
+            <TouchableOpacity style={styles.specialCancel} onPress={() => { setCreating(false); reset(); }}>
+              <Text style={styles.specialCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.specialSave} onPress={save}>
+              <Text style={styles.specialSaveText}>Save</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+};
+
 const styles = StyleSheet.create({
   // ── New sunrise/sunset hero card ──
   sunCard: {
@@ -665,6 +943,102 @@ const styles = StyleSheet.create({
   tzNoteIcon: { fontSize: 18 },
   tzNoteTitle: { fontSize: 12, color: COLORS.saffron, fontWeight: '700' },
   tzNoteBody: { fontSize: 11, color: COLORS.muted, marginTop: 2, lineHeight: 15 },
+  // Top segmented filter (Tithi / Shradha / Festivals / Special)
+  segmentBar: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 6,
+    paddingHorizontal: SPACING.md, marginBottom: SPACING.md,
+  },
+  segmentBtn: {
+    flex: 1, minWidth: 78,
+    paddingVertical: 8, paddingHorizontal: 8, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.cardBg,
+    alignItems: 'center',
+  },
+  segmentBtnActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
+  segmentLabel: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
+  segmentLabelActive: { color: COLORS.gold },
+
+  // Tithi list
+  tithiBox: {
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
+    padding: SPACING.md, backgroundColor: COLORS.cardBg,
+    borderRadius: 14, borderWidth: 1, borderColor: COLORS.border,
+  },
+  tithiHelper: { fontSize: 12, color: COLORS.muted, fontStyle: 'italic', marginBottom: SPACING.sm },
+  emptyHint: { fontSize: 12, color: COLORS.muted, fontStyle: 'italic', textAlign: 'center', paddingVertical: SPACING.md },
+  tithiRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  tithiIcon: { fontSize: 22, marginRight: 10, width: 30 },
+  tithiName: { color: COLORS.cream, fontSize: 13, fontWeight: '700' },
+  tithiSub: { color: COLORS.muted, fontSize: 11, marginTop: 1 },
+  tithiDate: { color: COLORS.gold, fontSize: 12, fontWeight: '700' },
+
+  // Special Sadhana builder
+  specialBox: {
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
+    padding: SPACING.md, backgroundColor: COLORS.cardBg,
+    borderRadius: 14, borderWidth: 1, borderColor: COLORS.border,
+  },
+  specialIntro: { fontSize: 12, color: COLORS.cream, lineHeight: 17, marginBottom: SPACING.sm, fontStyle: 'italic' },
+  specialRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  specialIcon: { fontSize: 20, marginRight: 10, width: 28 },
+  specialName: { color: COLORS.cream, fontSize: 13, fontWeight: '700' },
+  specialMeta: { color: COLORS.muted, fontSize: 11, marginTop: 1 },
+  specialDelete: { color: COLORS.error, fontSize: 14, paddingHorizontal: 8 },
+  specialAddBtn: {
+    paddingVertical: 12, borderRadius: 10, alignItems: 'center',
+    borderWidth: 1, borderStyle: 'dashed', borderColor: COLORS.gold,
+    backgroundColor: 'rgba(212,160,23,0.06)',
+  },
+  specialAddText: { color: COLORS.gold, fontWeight: '700', fontSize: 13 },
+  specialForm: { marginTop: 4 },
+  specialFieldLabel: { fontSize: 11, color: COLORS.muted, fontWeight: '700', letterSpacing: 1, marginTop: 8, marginBottom: 4 },
+  specialInput: {
+    backgroundColor: COLORS.deep, borderRadius: 10, padding: SPACING.sm,
+    color: COLORS.cream, fontSize: 14, borderWidth: 1, borderColor: COLORS.border,
+  },
+  triggerRow: { flexDirection: 'row', gap: 6, marginBottom: SPACING.sm },
+  triggerChip: {
+    flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.deep,
+    alignItems: 'center',
+  },
+  triggerChipActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
+  triggerText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
+  triggerTextActive: { color: COLORS.gold },
+  tithiChip: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14,
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.deep,
+  },
+  tithiChipActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
+  tithiChipText: { color: COLORS.muted, fontSize: 11, fontWeight: '600' },
+  tithiChipTextActive: { color: COLORS.gold },
+  weekdayRow: { flexDirection: 'row', gap: 4, marginBottom: SPACING.sm },
+  dayChip: {
+    width: 36, height: 36, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.deep,
+  },
+  dayChipActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
+  dayChipText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
+  dayChipTextActive: { color: COLORS.gold },
+  specialCancel: {
+    flex: 1, paddingVertical: 10, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.border, alignItems: 'center',
+  },
+  specialCancelText: { color: COLORS.cream, fontWeight: '600', fontSize: 13 },
+  specialSave: {
+    flex: 2, paddingVertical: 10, borderRadius: 10,
+    backgroundColor: COLORS.gold, alignItems: 'center',
+  },
+  specialSaveText: { color: COLORS.deep, fontWeight: '700', fontSize: 13 },
+
   viewToggle: {
     flexDirection: 'row',
     paddingHorizontal: SPACING.md,

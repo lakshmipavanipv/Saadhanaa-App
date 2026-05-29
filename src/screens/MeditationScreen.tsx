@@ -14,14 +14,23 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, Animated,
+  StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, Animated, TextInput,
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
+import { soulActivityRepo } from '../services/soulActivityRepo';
+import { useSadhana } from '../context';
+import { WeekSparkline } from '../components/WeekSparkline';
+import { getDB } from '../soulsync/db/database';
+import { HRVWaveGraph } from '../soulsync/components/HRVWaveGraph';
+import { BpmHrvBaselineCard } from '../soulsync/components/BpmHrvBaselineCard';
+import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
+import { todayStr } from '../utils';
+import { DUMMY, withFallback } from '../services/dummyData';
 
 type Intent = 'quick' | 'calm' | 'deep' | 'mantra' | 'cooling';
 
-interface Technique {
+export interface Technique {
   id: string;
   name: string;
   subtitle: string;
@@ -37,7 +46,7 @@ interface Technique {
   contraindications?: string;
 }
 
-const TECHNIQUES: Technique[] = [
+export const MEDITATION_CATALOG: Technique[] = [
   // ── QUICK RELIEF — anxiety SOS ──
   {
     id: 'box-breath',
@@ -243,64 +252,9 @@ const TECHNIQUES: Technique[] = [
     ],
   },
 
-  // ── MANTRA JAPA ──
-  {
-    id: 'gayatri-japa',
-    name: 'Gayatri Mantra Japa',
-    subtitle: 'The mother of all mantras',
-    intent: 'mantra',
-    durationSec: 600,
-    instructions: [
-      'Sit facing east, spine tall',
-      'Optionally hold your mala or use Saadhana Ring',
-      'Chant slowly, with feeling',
-      '108 repetitions = 1 mala',
-    ],
-    mantra: {
-      sanskrit: 'ॐ भूर्भुवः स्वः । तत्सवितुर्वरेण्यं । भर्गो देवस्य धीमहि । धियो यो नः प्रचोदयात् ।',
-      transliteration: 'Om Bhur Bhuvah Svah · Tat Savitur Varenyam · Bhargo Devasya Dhimahi · Dhiyo Yo Nah Pracodayat',
-      meaning: 'We meditate on the divine light of Savitr. May He inspire our intellect.',
-      targetCount: 108,
-    },
-  },
-  {
-    id: 'maha-mrityunjaya',
-    name: 'Maha Mrityunjaya',
-    subtitle: 'Healing & protection · Shiva mantra',
-    intent: 'mantra',
-    durationSec: 600,
-    instructions: [
-      'Chant slowly, dwelling on each syllable',
-      'Particularly powerful for anxiety, illness, fear',
-      '108 or 1008 repetitions',
-    ],
-    mantra: {
-      sanskrit: 'ॐ त्र्यम्बकं यजामहे सुगन्धिं पुष्टिवर्धनम् । उर्वारुकमिव बन्धनान्मृत्योर्मुक्षीय मामृतात् ।',
-      transliteration: 'Om Tryambakam Yajamahe · Sugandhim Pushti-Vardhanam · Urvarukam-iva Bandhanan · Mrityor-Mukshiya Maamritat',
-      meaning: 'We meditate on the three-eyed One who nourishes all. May He release us from death into immortality, like a ripe cucumber from the vine.',
-      targetCount: 108,
-    },
-  },
-  {
-    id: 'om-meditation',
-    name: 'Om / Pranava Meditation',
-    subtitle: 'The primordial sound',
-    intent: 'mantra',
-    durationSec: 600,
-    instructions: [
-      'Sit comfortably, spine tall',
-      'Take 3 deep breaths',
-      'On exhale, chant Om — long: "Aaa-Ooo-Mmm-silence"',
-      'Feel the vibration in the throat (Aaa), chest (Ooo), skull (Mmm)',
-      '10–20 rounds, then sit in the silence',
-    ],
-    mantra: {
-      sanskrit: 'ॐ',
-      transliteration: 'Aum / Om',
-      meaning: 'The sound of universal vibration. Beginning and end of every mantra.',
-      targetCount: 108,
-    },
-  },
+  // ── Mantra Japa entries moved to Deities (Japa tab) — Gayatri, Maha
+  // Mrityunjaya and Om Pranava are accessed by selecting the deity whose
+  // mantra they are. Meditation tab is now breath-work + body-scan only.
 ];
 
 const INTENTS: { id: Intent | 'all'; label: string; icon: string; sub: string }[] = [
@@ -309,7 +263,7 @@ const INTENTS: { id: Intent | 'all'; label: string; icon: string; sub: string }[
   { id: 'cooling', label: 'Cooling',      icon: '❄️', sub: 'For anger / agitation' },
   { id: 'calm',    label: 'Daily Calm',   icon: '🌊', sub: 'Preventive practice (10-15 min)' },
   { id: 'deep',    label: 'Deep Rest',    icon: '🌙', sub: 'Body scan, yoga nidra (20-30 min)' },
-  { id: 'mantra',  label: 'Mantra Japa',  icon: '📿', sub: 'Peace-focused mantras' },
+  // 'mantra' chip removed — mantra japa lives in the Japa / Deities tab.
 ];
 
 interface Props {
@@ -320,16 +274,199 @@ interface Props {
 
 const fmtSec = (s: number): string => s >= 60 ? `${Math.round(s / 60)} min` : `${s} sec`;
 
+// ─── Meditation Stats Header (mirrors YogaStatsHeader) ───────────
+
+const MEDITATION_GOAL_MIN = 10;
+
+const MeditationStatsHeader: React.FC = () => {
+  const [minutesToday, setMinutesToday] = useState(0);
+  const [weeklyMinutes, setWeeklyMinutes] = useState<number[]>([0,0,0,0,0,0,0]);
+  const [sessionsToday, setSessionsToday] = useState(0);
+  const [avgDepth, setAvgDepth] = useState<number | null>(null);
+  const [baseline, setBaseline] = useState<{ bpm: number; hrv: number; spo2: number } | null>(null);
+  const [during, setDuring] = useState<{ bpm: number; hrv: number; spo2: number } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const today = todayStr();
+      // Minutes today + 7-day series — from soulActivityRepo (meditation activity)
+      const all = await soulActivityRepo.list();
+      const todayMins = all
+        .filter(e => e.activity === 'meditation' && e.date === today)
+        .reduce((s, e) => s + e.durationMin, 0);
+      setMinutesToday(todayMins);
+      const series: number[] = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+        series.push(all
+          .filter(e => e.activity === 'meditation' && e.date === d)
+          .reduce((s, e) => s + e.durationMin, 0));
+      }
+      setWeeklyMinutes(series);
+
+      // Sessions / depth / baseline / during from soulsync DB
+      try {
+        const db = await getDB();
+        const ds = today + 'T00:00:00', de = today + 'T23:59:59';
+        const sess = await db.getAllAsync<{ session_id: string; depth_score: number | null }>(
+          `SELECT session_id, depth_score FROM session_spiritual WHERE start_time BETWEEN ? AND ?`,
+          [ds, de]
+        );
+        setSessionsToday(sess.length);
+        const dv = sess.map(x => x.depth_score).filter((v): v is number => v != null);
+        setAvgDepth(dv.length > 0 ? Math.round((dv.reduce((s,x)=>s+x,0) / dv.length) * 10) / 10 : null);
+
+        const baseRow = await db.getFirstAsync<{ bpm: number | null; hrv: number | null; spo2: number | null }>(
+          `SELECT AVG(ambient_bpm) AS bpm, AVG(ambient_rmssd) AS hrv, AVG(spo2) AS spo2
+           FROM ambient_baseline WHERE timestamp BETWEEN ? AND ?`,
+          [ds, de]
+        );
+        if (baseRow?.bpm != null) {
+          setBaseline({
+            bpm: Math.round(baseRow.bpm),
+            hrv: Math.round(baseRow.hrv ?? 0),
+            spo2: Math.round((baseRow.spo2 ?? 0) * 10) / 10,
+          });
+        }
+
+        if (sess.length > 0) {
+          const ids = sess.map(s => s.session_id);
+          const ph = ids.map(() => '?').join(',');
+          const teleRow = await db.getFirstAsync<{ bpm: number | null; hrv: number | null; spo2: number | null }>(
+            `SELECT AVG(bpm) AS bpm, AVG(rmssd_ms) AS hrv, AVG(spo2) AS spo2
+             FROM session_telemetry WHERE session_id IN (${ph})`,
+            ids
+          );
+          if (teleRow?.bpm != null) {
+            setDuring({
+              bpm: Math.round(teleRow.bpm),
+              hrv: Math.round(teleRow.hrv ?? 0),
+              spo2: Math.round((teleRow.spo2 ?? 0) * 10) / 10,
+            });
+          }
+        }
+      } catch { /* no data */ }
+    })();
+  }, []);
+
+  // ── Fallback to dummy data when no real session data has landed ──
+  const fbMinutesToday = withFallback(minutesToday, 8);
+  const fbWeeklyMinutes = withFallback(weeklyMinutes, DUMMY.sadhanaWeek);
+  const fbSessionsToday = withFallback(sessionsToday, DUMMY.sessionsToday);
+  const fbAvgDepth      = withFallback(avgDepth, DUMMY.avgSessionDepthToday);
+  const fbBaseline      = baseline ?? { bpm: DUMMY.ambientToday.bpm, hrv: DUMMY.ambientToday.rmssd, spo2: DUMMY.ambientToday.spo2 };
+  const fbDuring        = during   ?? { bpm: DUMMY.sessionAverages.bpm, hrv: DUMMY.sessionAverages.rmssd, spo2: DUMMY.sessionAverages.spo2 };
+
+  const goalPct = Math.min(100, Math.round((fbMinutesToday / MEDITATION_GOAL_MIN) * 100));
+  const weekTotal = fbWeeklyMinutes.reduce((a, b) => a + b, 0);
+
+  const VRow = ({ icon, label, before, during, unit, higherIsBetter }: any) => {
+    const has = before != null && during != null;
+    const delta = has ? (during - before) : 0;
+    const good = higherIsBetter ? delta > 0 : delta < 0;
+    return (
+      <View style={mshStyles.vRow}>
+        <Text style={mshStyles.vIcon}>{icon}</Text>
+        <Text style={mshStyles.vLabel}>{label}</Text>
+        <Text style={mshStyles.vNum}>{before ?? '—'}</Text>
+        <Text style={mshStyles.vArrow}>→</Text>
+        <Text style={[mshStyles.vNum, has && { color: COLORS.cream, fontWeight: '700' }]}>{during ?? '—'}</Text>
+        {has ? (
+          <Text style={[mshStyles.vDelta, { color: good ? '#3ddc84' : '#FF8C42' }]}>
+            {delta > 0 ? '+' : ''}{delta} {unit}
+          </Text>
+        ) : <Text style={mshStyles.vDelta}>—</Text>}
+      </View>
+    );
+  };
+
+  return (
+    <View style={mshStyles.container}>
+      <Text style={mshStyles.heroLabel}>MEDITATION MINUTES TODAY</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+        <Text style={mshStyles.heroValue}>{fbMinutesToday}</Text>
+        <Text style={mshStyles.heroGoal}> / {MEDITATION_GOAL_MIN} min goal</Text>
+      </View>
+      <View style={mshStyles.progressTrack}>
+        <View style={[mshStyles.progressFill, { width: `${goalPct}%` }]} />
+      </View>
+
+      <View style={mshStyles.kpiGrid}>
+        <View style={mshStyles.kpiCell}>
+          <Text style={mshStyles.kpiValue}>{fbSessionsToday}</Text>
+          <Text style={mshStyles.kpiLabel}>Sessions{'\n'}today</Text>
+        </View>
+        <View style={mshStyles.kpiCell}>
+          <Text style={mshStyles.kpiValue}>{fbAvgDepth}</Text>
+          <Text style={mshStyles.kpiLabel}>Avg depth{'\n'}score</Text>
+        </View>
+        <View style={mshStyles.kpiCell}>
+          <Text style={mshStyles.kpiValue}>{weekTotal}</Text>
+          <Text style={mshStyles.kpiLabel}>Week min{'\n'}total</Text>
+        </View>
+      </View>
+
+      <Text style={mshStyles.subLabel}>THIS WEEK</Text>
+      <WeekSparkline values={weeklyMinutes} height={42} />
+
+      <Text style={mshStyles.subLabel}>VITALS · BEFORE vs DURING MEDITATION (TODAY)</Text>
+      <View style={mshStyles.vBox}>
+        <VRow icon="❤️" label="Resting BPM"  before={fbBaseline.bpm}  during={fbDuring.bpm}  unit="bpm" higherIsBetter={false} />
+        <VRow icon="〰️" label="HRV (RMSSD)"   before={fbBaseline.hrv}  during={fbDuring.hrv}  unit="ms"  higherIsBetter={true} />
+        <VRow icon="🫁" label="SpO₂"          before={fbBaseline.spo2} during={fbDuring.spo2} unit="%"   higherIsBetter={true} />
+      </View>
+    </View>
+  );
+};
+
+const mshStyles = StyleSheet.create({
+  container: {
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
+    padding: SPACING.md, backgroundColor: COLORS.cardBg,
+    borderRadius: 16, borderWidth: 1, borderColor: COLORS.border,
+  },
+  heroLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '700', letterSpacing: 1.2, marginBottom: 2 },
+  heroValue: { fontSize: 30, color: COLORS.gold, fontWeight: '800', lineHeight: 32 },
+  heroGoal: { fontSize: 13, color: COLORS.muted, fontWeight: '500' },
+  progressTrack: { height: 6, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 3, marginTop: 8, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: COLORS.gold },
+  kpiGrid: { flexDirection: 'row', marginTop: SPACING.sm, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10, paddingVertical: 8 },
+  kpiCell: { flex: 1, alignItems: 'center', paddingHorizontal: 4 },
+  kpiValue: { fontSize: 18, color: COLORS.cream, fontWeight: '700' },
+  kpiLabel: { fontSize: 9, color: COLORS.muted, fontWeight: '600', textAlign: 'center', marginTop: 3 },
+  subLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '700', letterSpacing: 1.2, marginTop: SPACING.md, marginBottom: 4 },
+  vBox: { backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 10, paddingVertical: 6, paddingHorizontal: 8 },
+  vRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5 },
+  vIcon: { fontSize: 16, width: 24 },
+  vLabel: { flex: 1, color: COLORS.cream, fontSize: 12, fontWeight: '600' },
+  vNum: { color: COLORS.muted, fontSize: 13, width: 40, textAlign: 'right' },
+  vArrow: { color: COLORS.muted, fontSize: 12, paddingHorizontal: 4 },
+  vDelta: { fontSize: 11, fontWeight: '700', width: 64, textAlign: 'right', color: COLORS.muted },
+});
+
 export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
+  const { showToast } = useSadhana();
+  const soulsync = useSoulsyncSession();
   const [filter, setFilter] = useState<Intent | 'all'>('all');
   const [selected, setSelected] = useState<Technique | null>(null);
+  const [showLog, setShowLog] = useState(false);
+  const [logMin, setLogMin] = useState('');
+  const [logDate, setLogDate] = useState(new Date().toISOString().slice(0, 10));
+
+  const submitLog = async () => {
+    const m = parseInt(logMin, 10);
+    if (!m || m <= 0) { showToast('Enter minutes'); return; }
+    await soulActivityRepo.add({ activity: 'meditation', durationMin: m, date: logDate });
+    showToast(`✓ Logged ${m} min meditation on ${logDate}`);
+    setShowLog(false); setLogMin('');
+  };
 
   // Deep-link: if route?.params?.openId is set (e.g. from anxiety overlay),
   // auto-open that technique.
   useEffect(() => {
     const openId = route?.params?.openId;
     if (openId) {
-      const t = TECHNIQUES.find(t => t.id === openId);
+      const t = MEDITATION_CATALOG.find(t => t.id === openId);
       if (t) {
         setSelected(t);
         navigation?.setParams?.({ openId: undefined });
@@ -337,21 +474,48 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   }, [route?.params?.openId]);
 
-  const filtered = filter === 'all' ? TECHNIQUES : TECHNIQUES.filter(t => t.intent === filter);
-  const quickRelief = TECHNIQUES.filter(t => t.intent === 'quick');
+  const filtered = filter === 'all' ? MEDITATION_CATALOG : MEDITATION_CATALOG.filter(t => t.intent === filter);
+  const quickRelief = MEDITATION_CATALOG.filter(t => t.intent === 'quick');
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={styles.title}>Meditation</Text>
-          <Text style={styles.subtitle}>Anxiety relief · daily calm · mantra japa</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Meditation</Text>
+              <Text style={styles.subtitle}>Anxiety relief · daily calm · breath work</Text>
+            </View>
+            <TouchableOpacity style={styles.logBtn} onPress={() => setShowLog(true)}>
+              <Text style={styles.logBtnText}>+ Log past</Text>
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {/* Samsung-Health-style header: minutes today, sessions, depth,
+            week trend + before/during vitals comparison */}
+        <MeditationStatsHeader />
 
         {/* Soulsync — start before meditation to capture HRV / BPM */}
         <SoulsyncSessionBar
           practice="meditation"
           onViewInsights={() => navigation?.navigate?.('History')}
+        />
+
+        {/* Live trend while a Soulsync session is active */}
+        {soulsync.state.active && (
+          <HRVWaveGraph
+            bpmSeries={soulsync.state.bpmSeries}
+            peakIndices={soulsync.state.peakIndices}
+            rmssd={soulsync.state.rmssd}
+            improvementPct={soulsync.state.improvementPct}
+            isBaselineEstablished={soulsync.state.isBaselineEstablished}
+          />
+        )}
+        <BpmHrvBaselineCard
+          liveBpm={soulsync.state.liveBpm}
+          liveRmssd={soulsync.state.rmssd}
+          isActive={soulsync.state.active}
         />
 
         {/* SOS — quick relief block (always visible at top) */}
@@ -395,6 +559,40 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
       {selected && (
         <TechniqueModal technique={selected} onClose={() => setSelected(null)} />
       )}
+
+      {/* Log past meditation modal */}
+      <Modal visible={showLog} transparent animationType="slide" onRequestClose={() => setShowLog(false)}>
+        <View style={styles.logOverlay}>
+          <View style={styles.logCard}>
+            <View style={styles.logHandle} />
+            <Text style={styles.logTitle}>Log past meditation</Text>
+            <Text style={styles.logHint}>Add minutes you've already practised.</Text>
+            <Text style={styles.logFieldLabel}>Minutes</Text>
+            <TextInput
+              style={styles.logInput}
+              value={logMin}
+              onChangeText={setLogMin}
+              placeholder="0"
+              placeholderTextColor={COLORS.muted}
+              keyboardType="number-pad"
+            />
+            <Text style={styles.logFieldLabel}>Date</Text>
+            <TextInput
+              style={styles.logInput}
+              value={logDate}
+              onChangeText={setLogDate}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={COLORS.muted}
+            />
+            <TouchableOpacity style={styles.logSubmit} onPress={submitLog}>
+              <Text style={styles.logSubmitText}>Log this</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowLog(false)}>
+              <Text style={styles.logCancel}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -658,4 +856,32 @@ const styles = StyleSheet.create({
   stepRow: { flexDirection: 'row', paddingVertical: 4 },
   stepBullet: { color: COLORS.gold, fontSize: 14, marginRight: 6 },
   stepText: { flex: 1, fontSize: 13, color: COLORS.cream, lineHeight: 18 },
+
+  // Log past button + modal (parallels Yoga/Japa "Log past")
+  logBtn: {
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+    borderWidth: 1, borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.12)',
+  },
+  logBtnText: { color: COLORS.gold, fontSize: 11, fontWeight: '700' },
+  logOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  logCard: {
+    backgroundColor: COLORS.darkBg, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: SPACING.md, paddingBottom: SPACING.xl,
+  },
+  logHandle: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.md },
+  logTitle: { fontSize: 18, color: COLORS.cream, fontWeight: '700', marginBottom: 4 },
+  logHint:  { fontSize: 12, color: COLORS.muted, marginBottom: SPACING.md },
+  logFieldLabel: { fontSize: 11, color: COLORS.muted, fontWeight: '700', letterSpacing: 1, marginBottom: 4, marginTop: 8 },
+  logInput: {
+    backgroundColor: COLORS.cardBg, borderRadius: 10, padding: SPACING.sm,
+    color: COLORS.cream, fontSize: 16, borderWidth: 1, borderColor: COLORS.border,
+  },
+  logSubmit: {
+    backgroundColor: COLORS.gold, padding: SPACING.md, borderRadius: 10,
+    marginTop: SPACING.md, alignItems: 'center',
+  },
+  logSubmitText: { color: COLORS.deep, fontWeight: '700', fontSize: 15 },
+  logCancel: {
+    color: COLORS.muted, fontSize: 13, textAlign: 'center', marginTop: SPACING.sm,
+  },
 });
