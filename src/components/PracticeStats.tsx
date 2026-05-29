@@ -39,7 +39,7 @@ import { routineRepo } from '../services/routineRepo';
 import { WeekSparkline } from './WeekSparkline';
 import { todayStr } from '../utils';
 
-type Practice = 'yoga' | 'meditation';
+type Practice = 'yoga' | 'meditation' | 'japa';
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -62,12 +62,19 @@ interface StatsBoxProps {
   minutesToday: number;
   goalMinutes: number;
   depthScore: number;
+  /** Optional second metric shown inside the time tile — used on the
+   *  Japa screen to surface "japa count today" alongside the minutes. */
+  subMetric?: { label: string; value: string | number };
 }
 
 export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
-  practice, minutesToday, goalMinutes, depthScore,
+  practice, minutesToday, goalMinutes, depthScore, subMetric,
 }) => {
-  const label = practice === 'yoga' ? 'YOGA' : 'MEDITATION';
+  const label = practice === 'yoga'
+    ? 'YOGA'
+    : practice === 'meditation'
+      ? 'MEDITATION'
+      : 'JAPA';
   const goalPct = Math.min(100, Math.round((minutesToday / Math.max(1, goalMinutes)) * 100));
   const scoreColor = colorForScore(depthScore);
 
@@ -84,6 +91,14 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
           <View style={[statBoxStyles.progressFill, { width: `${goalPct}%` }]} />
         </View>
         <Text style={statBoxStyles.heroPct}>{goalPct}% of today's goal</Text>
+
+        {/* Optional sub-metric (japa count today, mala count, etc.) */}
+        {subMetric && (
+          <View style={statBoxStyles.subMetricRow}>
+            <Text style={statBoxStyles.subMetricLabel}>{subMetric.label}</Text>
+            <Text style={statBoxStyles.subMetricValue}>{subMetric.value}</Text>
+          </View>
+        )}
       </View>
 
       {/* Tile B — Sadhana Depth Score with HORIZONTAL DASHED bar */}
@@ -197,11 +212,11 @@ export const SessionList: React.FC<SessionListProps> = ({ practice }) => {
         let weekMin = 0;
         for (let i = 6; i >= 0; i--) {
           const d = dayStr(i);
+          const activityName = practice === 'yoga'
+            ? 'yoga'
+            : practice === 'meditation' ? 'meditation' : 'japa';
           weekMin += all
-            .filter((e: any) =>
-              (practice === 'yoga' ? e.activity === 'yoga' : e.activity === 'meditation') &&
-              e.date === d
-            )
+            .filter((e: any) => e.activity === activityName && e.date === d)
             .reduce((s: number, e: any) => s + (e.durationMin || 0), 0);
         }
 
@@ -228,7 +243,11 @@ export const SessionList: React.FC<SessionListProps> = ({ practice }) => {
   useEffect(() => {
     (async () => {
       const list = await routineRepo.list();
-      const cats = practice === 'yoga' ? ['yoga'] : ['meditate', 'sandhya'];
+      const cats = practice === 'yoga'
+        ? ['yoga']
+        : practice === 'meditation'
+          ? ['meditate', 'sandhya']
+          : ['japa', 'sandhya'];
       const names = list
         .filter(r => cats.includes(r.category) && r.steps && r.steps.length > 0)
         .map(r => r.name);
@@ -244,7 +263,9 @@ export const SessionList: React.FC<SessionListProps> = ({ practice }) => {
         return (
           <View key={s.id} style={sessionStyles.card}>
             <View style={sessionStyles.cardHeader}>
-              <Text style={sessionStyles.cardIcon}>{practice === 'yoga' ? '🧘‍♀️' : '🪷'}</Text>
+              <Text style={sessionStyles.cardIcon}>
+                {practice === 'yoga' ? '🧘‍♀️' : practice === 'japa' ? '📿' : '🪷'}
+              </Text>
               <View style={{ flex: 1 }}>
                 <Text style={sessionStyles.cardName} numberOfLines={2}>{sessionName}</Text>
                 <Text style={sessionStyles.cardSub}>{s.minutes} min · today</Text>
@@ -340,7 +361,9 @@ export const BeforeAfterVitals: React.FC<BeforeAfterProps> = ({ practice, isActi
 
   const title = practice === 'yoga'
     ? 'VITALS · BEFORE vs DURING YOGA'
-    : 'VITALS · BEFORE vs DURING MEDITATION';
+    : practice === 'japa'
+      ? 'VITALS · BEFORE vs DURING JAPA'
+      : 'VITALS · BEFORE vs DURING MEDITATION';
 
   return (
     <View style={beforeAfterStyles.card}>
@@ -414,6 +437,15 @@ const statBoxStyles = StyleSheet.create({
     fontSize: 11, color: COLORS.muted, fontStyle: 'italic',
     marginTop: SPACING.sm, lineHeight: 16,
   },
+
+  // Sub-metric row inside the time tile (e.g. "japa count today: 324")
+  subMetricRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
+    paddingTop: SPACING.sm, marginTop: SPACING.sm,
+    borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)',
+  },
+  subMetricLabel: { fontSize: 12, color: COLORS.muted, fontWeight: '700', letterSpacing: 0.5 },
+  subMetricValue: { fontSize: 24, color: COLORS.cream, fontWeight: '800' },
 
   // Horizontal dashed bar (12 segments)
   dashedRow: {

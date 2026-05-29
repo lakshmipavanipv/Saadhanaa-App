@@ -16,20 +16,19 @@ import { COLORS, SPACING, FONT_SIZES } from '../theme';
 import { Mala } from '../components/Mala';
 import { RingSpinner } from '../components/RingSpinner';
 import { PulseHighlight } from '../components/PulseHighlight';
-import { BpmHrvBaselineCard } from '../soulsync/components/BpmHrvBaselineCard';
 import { SessionScorePopup } from '../soulsync/components/SessionScorePopup';
 import { computeJapaEffect, JapaEffectSnapshot } from '../soulsync/analytics/JapaEffect';
 import { DeityScreen } from './DeityScreen';
 import { DeityIcon } from '../components/DeityIcon';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
-import { HRVWaveGraph } from '../soulsync/components/HRVWaveGraph';
 import { TimePickerField } from '../components/TimePickerField';
 import { ALL_CATALOG_DEITIES } from '../deityCatalog';
 import { specialSadhanaRepo, SpecialTrigger } from '../services/specialSadhanaRepo';
 import { WeekSparkline } from '../components/WeekSparkline';
 import { getDB } from '../soulsync/db/database';
 import { DUMMY, withFallback } from '../services/dummyData';
-import { BpmJourneyChart } from '../soulsync/components/BpmJourneyChart';
+import { PracticeStatsBox, SessionList, BeforeAfterVitals } from '../components/PracticeStats';
+import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import {
   requestBlePermissions,
   scanForDevices,
@@ -548,6 +547,31 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   // ── Soulsync ring-telemetry session (mock until hardware arrives) ──
   const soulsync = useSoulsyncSession();
 
+  // ── Active Sadhana Path tracking (auto-advance through steps) ──
+  // When the user picks a Sadhana Path (Ganapathi 1 mala → Guru 1 mala →
+  // Ishta 5 malas …), we remember the current step index and the path
+  // record. The tap() handler below checks: after a mala completes, if
+  // the step's mala goal has been reached, auto-advance to the NEXT
+  // step's deity and continue counting toward the overall path goal.
+  const [activePath, setActivePath] = useState<any | null>(null);          // a SpecialSadhana row
+  const [activeStepIndex, setActiveStepIndex] = useState<number>(0);
+  const [activeStepMalas, setActiveStepMalas] = useState<number>(0);       // malas done at current step
+
+  // Sadhana Depth Score for the top stats box (live from JapaEffect).
+  // Falls back to the dummy DUMMY.soulDepthScore until the user has
+  // logged a session today (≈ same pattern as Yoga / Meditation).
+  const [japaDepthScore, setJapaDepthScore] = useState<number>(DUMMY.soulDepthScore);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await computeJapaEffect();
+        if (!cancelled && snap?.score != null) setJapaDepthScore(snap.score);
+      } catch { /* keep dummy */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // ── BLE state ──
   const [showBleModal, setShowBleModal] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -667,11 +691,52 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
         setTimeout(() => setHintMode(m => m === 'stop' ? 'none' : m), 8000);
       }
       showToast(`🪷 1 mala saved for ${selectedDeity.name}`);
+
+      // ── Sadhana Path auto-advance ──
+      // If a Sadhana Path is active, check whether the current step's
+      // mala goal has been reached. If yes, advance to the next step
+      // and switch selectedDeity automatically. The user keeps tapping
+      // beads while the deity (and the goal at the back) silently rolls
+      // over. When the final step finishes, we surface a completion
+      // toast and clear the active path.
+      if (activePath?.steps?.length) {
+        const step = activePath.steps[activeStepIndex];
+        const goalMalas = step?.malas ?? 1;
+        const stepDoneMalas = activeStepMalas + 1;
+        if (stepDoneMalas >= goalMalas) {
+          // Advance to next step
+          const nextIdx = activeStepIndex + 1;
+          if (nextIdx < activePath.steps.length) {
+            const nextStep = activePath.steps[nextIdx];
+            // Resolve the deity for the next step from the catalog
+            const nextDeity = deities.find(
+              d => d.name.toLowerCase() === String(nextStep.deity).toLowerCase()
+            );
+            if (nextDeity) {
+              setSelectedDeity(nextDeity);
+              showToast(
+                `🪷 Step ${activeStepIndex + 1} done — moving to ${nextDeity.name}`
+              );
+            }
+            setActiveStepIndex(nextIdx);
+            setActiveStepMalas(0);
+          } else {
+            // Final step complete — clear path
+            showToast(`✨ Sadhana Path "${activePath.name}" complete!`);
+            setActivePath(null);
+            setActiveStepIndex(0);
+            setActiveStepMalas(0);
+          }
+        } else {
+          setActiveStepMalas(stepDoneMalas);
+        }
+      }
     } else {
       setCount(next);
       updateProgress(selectedDeity.id, next, malas);
     }
-  }, [selectedDeity, saveSession, showToast, count, malas, updateProgress, soulsync]);
+  }, [selectedDeity, saveSession, showToast, count, malas, updateProgress, soulsync,
+       activePath, activeStepIndex, activeStepMalas, deities, setSelectedDeity]);
 
   // ── Intercept Soulsync toggle: when stopping, compute score + popup ──
   const handleSoulsyncToggle = useCallback(async () => {
@@ -789,178 +854,41 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* ─── Header (title + lifetime pill) ─── */}
+        {/* ─── Header (title only — lifetime pill removed in v43) ─── */}
         <View style={styles.header}>
           <Text style={styles.title}>Japa Counter</Text>
           <Text style={styles.subtitle}>1 Mala = 108 Japas</Text>
-
-          <View style={styles.lifetimePill}>
-            <Text style={styles.lifetimePillText}>
-              <Text style={styles.lifetimePillNumber}>{lifetimeMalas.toLocaleString()}</Text> malas{'  '}·{'  '}
-              <Text style={styles.lifetimePillNumber}>{lifetimeJapas.toLocaleString()}</Text> japas
-            </Text>
-            <Text style={styles.lifetimePillSubtext}>lifetime</Text>
-          </View>
         </View>
 
-        {/* ─── #1 · KPIs · 6 metrics in a 3×2 grid ─── *
-             Lifetime totals + today's totals + time spent for both.
-             Sandhya japa counts will fold into these once sandhya
-             session tracking is wired (placeholder included today). */}
+        {/* ─── Top stats — same pattern as Yoga / Meditation:
+              • Time today + japa count today
+              • Sadhana Depth Score with horizontal dashed bar ─── */}
         {(() => {
           const today = todayStr();
-          // Lifetime numbers (history + in-progress) — japas already counted above
-          const lifeJapas = lifetimeJapas;
-          const lifeMalas = lifetimeMalas + Math.floor((malas * 108 + count) / 108);
-          const lifeSec = japasToSeconds(lifeJapas);
-          // Today's totals (history rows matching today's date + the current session)
           const todayHistoryJapas = history
             .filter(h => h.date === today)
             .reduce((s, h) => s + h.japas, 0);
           const todayJapas = todayHistoryJapas + (malas * 108 + count);
-          const todayMalas = todayJapas / 108;
           const todaySec = japasToSeconds(todayJapas);
-          // TODO: when sandhyaRepo lands, add sandhyaToday + sandhyaLifetime here.
-
+          const todayMin = Math.round(todaySec / 60);
           return (
-            <View style={styles.kpiGrid}>
-              {/* Row 1 — lifetime */}
-              <View style={styles.kpiCell}>
-                <Text style={styles.kpiCellValue}>{lifeJapas.toLocaleString()}</Text>
-                <Text style={styles.kpiCellLabel}>Total Japas</Text>
-              </View>
-              <View style={styles.kpiCell}>
-                <Text style={styles.kpiCellValue}>{lifeMalas.toLocaleString()}</Text>
-                <Text style={styles.kpiCellLabel}>Total Malas</Text>
-              </View>
-              <View style={styles.kpiCell}>
-                <Text style={styles.kpiCellValue}>{formatSadhanaTime(lifeSec)}</Text>
-                <Text style={styles.kpiCellLabel}>Time Spent</Text>
-              </View>
-              {/* Row 2 — today */}
-              <View style={[styles.kpiCell, styles.kpiCellToday]}>
-                <Text style={[styles.kpiCellValue, styles.kpiCellValueToday]}>
-                  {todayJapas.toLocaleString()}
-                </Text>
-                <Text style={styles.kpiCellLabel}>Today Japas</Text>
-              </View>
-              <View style={[styles.kpiCell, styles.kpiCellToday]}>
-                <Text style={[styles.kpiCellValue, styles.kpiCellValueToday]}>
-                  {todayMalas.toFixed(2)}
-                </Text>
-                <Text style={styles.kpiCellLabel}>Today Malas</Text>
-              </View>
-              <View style={[styles.kpiCell, styles.kpiCellToday]}>
-                <Text style={[styles.kpiCellValue, styles.kpiCellValueToday]}>
-                  {formatSadhanaTime(todaySec)}
-                </Text>
-                <Text style={styles.kpiCellLabel}>Time Today</Text>
-              </View>
-            </View>
+            <PracticeStatsBox
+              practice="japa"
+              minutesToday={withFallback(todayMin, 12)}
+              goalMinutes={20}
+              depthScore={japaDepthScore}
+              subMetric={{ label: 'JAPA COUNT TODAY', value: todayJapas.toLocaleString() }}
+            />
           );
         })()}
 
-        {/* ─── Sadhana Depth Score · clickable to open the trend ─── */}
-        <SadhanaDepthScore onOpenTrend={() => setShowDepthTrend(true)} />
+        {/* One card per session today — name (Sadhana Path or "Session N · japa"),
+              minutes, depth score, week sparkline of scores, week total */}
+        <SessionList practice="japa" />
 
-        {/* ─── Vitals comparison · visible only when Soulsync is active.
-             Today's resting baseline (BPM / HRV / SpO₂) vs the live
-             session averages — mirrors the YogaStatsHeader pattern. ─── */}
-        {soulsync.state.active && (
-          <SadhanaVitalsCompare
-            liveBpm={soulsync.state.liveBpm}
-            liveRmssd={soulsync.state.rmssd}
-          />
-        )}
-
-        {/* ─── #2 · DEITIES BREAKDOWN (collapsible — tap header to expand)
-             Hidden by default — kept available behind a header tap to
-             preserve the per-deity bars + alarm-chip-tap-to-change time.
-             The primary entry point is now the unified Sadhana selector
-             below (no duplicate dropdowns). ─── */}
-        {false && <View style={styles.deitiesBlock}>
-          <TouchableOpacity
-            style={styles.deitiesHeader}
-            onPress={() => setDeitiesExpanded(v => !v)}
-            activeOpacity={0.7}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={styles.deitiesTitle}>
-                My Sadhana {deitiesExpanded ? '▾' : '▸'}
-              </Text>
-              <Text style={styles.deitiesSubtitle}>
-                {deitiesExpanded
-                  ? 'Tap to switch · tap ⏰ to set reminder'
-                  : `${deities.length} active · ${deities.reduce(
-                      (s, d) => s + (deityProgress[d.id]?.malas || 0) + d.totalMalas, 0,
-                    )} total malas · tap to expand`}
-              </Text>
-            </View>
-            <Text style={styles.deitiesChevron}>{deitiesExpanded ? '−' : '+'}</Text>
-          </TouchableOpacity>
-
-          {deitiesExpanded && deities.map(d => {
-            const totalForDeity = (deityProgress[d.id]?.malas || 0) + d.totalMalas;
-            const isActive = selectedDeity?.id === d.id;
-            return (
-              <TouchableOpacity
-                key={d.id}
-                style={[styles.deityListRow, isActive && styles.deityListRowActive]}
-                onPress={() => {
-                  setSelectedDeity(d);
-                  const saved = deityProgress[d.id];
-                  setCount(saved?.count ?? 0);
-                  setMalas(saved?.malas ?? 0);
-                }}
-              >
-                <View style={styles.deityListIconWrap}>
-                  <DeityIcon deityId={d.id} icon={d.icon} size={24} color={COLORS.gold} />
-                </View>
-                <View style={{ flex: 1, marginLeft: SPACING.sm }}>
-                  <Text style={styles.deityListName}>{d.name}</Text>
-                  <Text style={styles.deityListMantra} numberOfLines={1}>"{d.mantra}"</Text>
-                  <View style={styles.deityListBarTrack}>
-                    <View style={[styles.deityListBarFill, { width: `${Math.min(100, totalForDeity * 4)}%` }]} />
-                  </View>
-                </View>
-                <View style={styles.deityListRight}>
-                  <Text style={styles.deityListMalas}>{totalForDeity}</Text>
-                  <Text style={styles.deityListMalasLabel}>malas</Text>
-                  {/* Tap the alarm chip to change reminder time inline */}
-                  <TouchableOpacity
-                    onPress={(e) => {
-                      e.stopPropagation?.();
-                      setPickingDeityId(d.id);
-                    }}
-                    hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-                  >
-                    <Text style={[styles.deityListAlarm, styles.deityListAlarmTap]}>
-                      {d.alarmOn ? `⏰ ${d.prayerAlarm}` : '🔕 Set'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-
-          {/* Inline time picker — opens when an alarm chip is tapped */}
-          {pickingDeityId && (() => {
-            const d = deities.find(x => x.id === pickingDeityId);
-            if (!d) return null;
-            return (
-              <TimePickerField
-                value={d!.prayerAlarm || null}
-                onChange={(next) => {
-                  setPickingDeityId(null);
-                  setDeities(prev => prev.map(x =>
-                    x.id === d!.id ? { ...x, prayerAlarm: next, alarmOn: true } : x
-                  ));
-                  showToast(`⏰ ${d!.name} reminder set to ${next}`);
-                }}
-              />
-            );
-          })()}
-        </View>}
+        {/* Deities breakdown moved to the very bottom of this screen in v43 —
+            shown below the Soul Sync trends so it doesn't compete with the
+            primary "Pick a Sadhana" entry point. */}
 
         {/* ─── #2 · UNIFIED SADHANA SELECTOR ───
              ONE dropdown that lists all existing deities + sandhya +
@@ -1052,24 +980,99 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
           </View>
         </PulseHighlight>
 
-        {/* ─── #6 · TRENDS (live vitals + history charts) ─── */}
-        {soulsync.state.active && (
-          <HRVWaveGraph
-            bpmSeries={soulsync.state.bpmSeries}
-            peakIndices={soulsync.state.peakIndices}
-            rmssd={soulsync.state.rmssd}
-            improvementPct={soulsync.state.improvementPct}
-            isBaselineEstablished={soulsync.state.isBaselineEstablished}
-          />
-        )}
-
-        <BpmHrvBaselineCard
-          liveBpm={soulsync.state.liveBpm}
-          liveRmssd={soulsync.state.rmssd}
+        {/* ─── #6 · TRENDS — live heart + lung while active, before/after table on stop ─── */}
+        <LiveVitalsTrends
+          bpmSeries={soulsync.state.bpmSeries}
+          liveSpo2={soulsync.state.liveSpo2}
           isActive={soulsync.state.active}
         />
+        <BeforeAfterVitals practice="japa" isActive={soulsync.state.active} />
 
-        <BpmJourneyChart />
+        {/* ─── #7 · OVERALL DEITIES BREAKDOWN — japa count per deity all-time.
+              Sits at the very bottom of the screen so the primary "Pick a
+              Sadhana" + counter + soulsync flow stays uncluttered above. ─── */}
+        <View style={styles.deitiesBlock}>
+          <TouchableOpacity
+            style={styles.deitiesHeader}
+            onPress={() => setDeitiesExpanded(v => !v)}
+            activeOpacity={0.7}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.deitiesTitle}>
+                Overall Deity Breakdown {deitiesExpanded ? '▾' : '▸'}
+              </Text>
+              <Text style={styles.deitiesSubtitle}>
+                {deitiesExpanded
+                  ? 'Tap a deity to switch · tap ⏰ to set reminder'
+                  : `${deities.length} active · ${deities.reduce(
+                      (s, d) => s + (deityProgress[d.id]?.malas || 0) + d.totalMalas, 0,
+                    )} total malas · tap to expand`}
+              </Text>
+            </View>
+            <Text style={styles.deitiesChevron}>{deitiesExpanded ? '−' : '+'}</Text>
+          </TouchableOpacity>
+
+          {deitiesExpanded && deities.map(d => {
+            const totalForDeity = (deityProgress[d.id]?.malas || 0) + d.totalMalas;
+            const isActive = selectedDeity?.id === d.id;
+            return (
+              <TouchableOpacity
+                key={d.id}
+                style={[styles.deityListRow, isActive && styles.deityListRowActive]}
+                onPress={() => {
+                  setSelectedDeity(d);
+                  const saved = deityProgress[d.id];
+                  setCount(saved?.count ?? 0);
+                  setMalas(saved?.malas ?? 0);
+                }}
+              >
+                <View style={styles.deityListIconWrap}>
+                  <DeityIcon deityId={d.id} icon={d.icon} size={24} color={COLORS.gold} />
+                </View>
+                <View style={{ flex: 1, marginLeft: SPACING.sm }}>
+                  <Text style={styles.deityListName}>{d.name}</Text>
+                  <Text style={styles.deityListMantra} numberOfLines={1}>"{d.mantra}"</Text>
+                  <View style={styles.deityListBarTrack}>
+                    <View style={[styles.deityListBarFill, { width: `${Math.min(100, totalForDeity * 4)}%` }]} />
+                  </View>
+                </View>
+                <View style={styles.deityListRight}>
+                  <Text style={styles.deityListMalas}>{totalForDeity}</Text>
+                  <Text style={styles.deityListMalasLabel}>malas</Text>
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      setPickingDeityId(d.id);
+                    }}
+                    hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                  >
+                    <Text style={[styles.deityListAlarm, styles.deityListAlarmTap]}>
+                      {d.alarmOn ? `⏰ ${d.prayerAlarm}` : '🔕 Set'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+
+          {/* Inline time picker — opens when an alarm chip is tapped */}
+          {pickingDeityId && (() => {
+            const d = deities.find(x => x.id === pickingDeityId);
+            if (!d) return null;
+            return (
+              <TimePickerField
+                value={d!.prayerAlarm || null}
+                onChange={(next) => {
+                  setPickingDeityId(null);
+                  setDeities(prev => prev.map(x =>
+                    x.id === d!.id ? { ...x, prayerAlarm: next, alarmOn: true } : x
+                  ));
+                  showToast(`⏰ ${d!.name} reminder set to ${next}`);
+                }}
+              />
+            );
+          })()}
+        </View>
       </ScrollView>
 
       {/* Deity manager modal (replaces removed Deities tab) */}
@@ -1161,8 +1164,24 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
                       key={p.id}
                       style={styles.picRow}
                       onPress={() => {
+                        // Activate the Sadhana Path. The first step's deity
+                        // becomes the selected deity; the tap handler will
+                        // auto-advance through subsequent steps as the user
+                        // completes each step's mala goal.
+                        setActivePath(p);
+                        setActiveStepIndex(0);
+                        setActiveStepMalas(0);
+                        const firstStep = p.steps?.[0];
+                        const firstDeity = firstStep
+                          ? deities.find(d => d.name.toLowerCase() === String(firstStep.deity).toLowerCase())
+                          : null;
+                        if (firstDeity) {
+                          setSelectedDeity(firstDeity);
+                          showToast(`🛤 ${p.name} · started with ${firstDeity.name}`);
+                        } else {
+                          showToast(`🛤 ${p.name} · pick a deity first`);
+                        }
                         setShowSadhanaPicker(false);
-                        showToast(`🛤 ${p.name}`);
                       }}
                     >
                       <Text style={styles.picIcon}>🛤</Text>
