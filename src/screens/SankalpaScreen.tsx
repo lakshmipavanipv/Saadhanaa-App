@@ -485,7 +485,7 @@ export const SankalpaScreen = ({ navigation }: any) => {
         {aiPlan && (
           <View style={styles.aiPlanCard}>
             <View style={styles.aiPlanHeaderRow}>
-              <Text style={styles.aiPlanTitle}>🌿  YOUR WELL-BEING PLAN — TUNED TODAY</Text>
+              <Text style={styles.aiPlanTitle}>🌿  AI INSIGHTS · YOUR WELL-BEING PLAN</Text>
               <Text style={styles.aiPlanTotal}>{aiPlan.totalMin} min</Text>
             </View>
             <Text style={styles.aiPlanSub}>
@@ -782,34 +782,10 @@ export const SankalpaScreen = ({ navigation }: any) => {
           );
         })}
 
-        {/* AI Recommends */}
-        <Text style={styles.sectionLabel}>💡 AI SUGGESTS — BASED ON YOUR ROUTINE</Text>
-        <View style={styles.recCard}>
-          {totalCommittedMin === 0 && (
-            <Text style={styles.recText}>
-              Start small: <Text style={styles.recBold}>"15 min walk daily + 5 min box breath"</Text>{'\n'}
-              Anchor the day with one body + one soul practice.
-            </Text>
-          )}
-          {totalCommittedMin > 0 && totalCommittedMin < 30 && (
-            <Text style={styles.recText}>
-              Beautiful start at {totalCommittedMin} min. Consider adding a 10-min{' '}
-              <Text style={styles.recBold}>evening practice</Text> — body settles into sleep more cleanly.
-            </Text>
-          )}
-          {totalCommittedMin >= 30 && totalCommittedMin < 60 && (
-            <Text style={styles.recText}>
-              {totalCommittedMin} min is a strong daily commitment. To deepen, add{' '}
-              <Text style={styles.recBold}>Sandhya twilight reminders</Text> so body & soul rhythm-sync to the sun.
-            </Text>
-          )}
-          {totalCommittedMin >= 60 && (
-            <Text style={styles.recText}>
-              {totalCommittedMin} min/day is profound. Don't overcommit — protect{' '}
-              <Text style={styles.recBold}>recovery days</Text> so the practice stays joyful, not heavy.
-            </Text>
-          )}
-        </View>
+        {/* v49: the duplicate "💡 AI SUGGESTS" block was removed.  The
+            top "AI INSIGHTS · YOUR WELL-BEING PLAN" card already covers
+            the same encouragement-by-total-minutes story with richer
+            data (vitals + age + 7-day history). */}
       </ScrollView>
 
       {/* Add item sheet */}
