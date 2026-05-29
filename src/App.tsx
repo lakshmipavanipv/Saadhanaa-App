@@ -152,7 +152,10 @@ const Toast = ({ message }: { message: string }) => {
 };
 
 const AppContent = () => {
-  const { isLoading, toast, userProfile, deities, setSelectedDeity } = useSadhana();
+  const {
+    isLoading, toast, userProfile, deities, setSelectedDeity,
+    pendingRoute, setPendingRoute,
+  } = useSadhana();
   const [showSettings, setShowSettings] = useState(false);
   // Listen for emotional events — routes to the right overlay
   const { activeEvent, dismiss } = useEmotionalState();
@@ -200,6 +203,21 @@ const AppContent = () => {
     setShowAnxietyPopup(false);
     setForceOverlay(false);
   }, [activeEvent?.id, activeEvent?.trigger]);
+
+  // ── Pending-route consumer ──────────────────────────────────────
+  // Onboarding sets `pendingRoute = 'Plan'` when the user picks "Plan
+  // your well-being now". When userProfile flips to onboarded the
+  // TabNavigator mounts and the navRef becomes valid on next tick — we
+  // fire the navigation then and clear the intent so it doesn't replay.
+  React.useEffect(() => {
+    if (!pendingRoute || !userProfile?.onboarded) return;
+    // Wait one tick so the navigator + ref are fully attached.
+    const t = setTimeout(() => {
+      try { navRef.current?.navigate?.(pendingRoute); } catch { /* noop */ }
+      setPendingRoute(null);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [pendingRoute, userProfile?.onboarded, setPendingRoute]);
 
   if (isLoading) {
     return <SplashScreen label="Awakening your body & soul" />;

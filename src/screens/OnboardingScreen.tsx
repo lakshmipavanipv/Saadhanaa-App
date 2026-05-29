@@ -29,6 +29,7 @@ import {
 import { useSadhana } from '../context';
 import { UserProfile } from '../types';
 import { COLORS, SPACING } from '../theme';
+import { WellBeingHero } from '../components/WellBeingHero';
 import { otpClient } from '../soulsync/auth/otpClient';
 import { BodyActivity, SoulActivity, UserGoals } from '../types';
 import {
@@ -69,7 +70,7 @@ const RELIGIONS: { id: Religion; label: string; icon: string }[] = [
 ];
 
 export const OnboardingScreen = () => {
-  const { setUserProfile, showToast } = useSadhana();
+  const { setUserProfile, setPendingRoute, showToast } = useSadhana();
   const [step, setStep] = useState<Step>('welcome');
 
   // Identity
@@ -179,10 +180,14 @@ export const OnboardingScreen = () => {
       ...(religion && { religion }),
       goals,
     };
+    // Stash the navigation intent BEFORE flipping `onboarded` so App.tsx
+    // sees it the moment the TabNavigator mounts.  App.tsx watches
+    // `pendingRoute` + the navRef and calls navigate() on first tick.
+    if (goToPlan) setPendingRoute('Plan');
     setUserProfile(profile);
     showToast(
       goToPlan
-        ? `Welcome, ${profile.name}! Let's plan your routine 🌿`
+        ? `Welcome, ${profile.name}! Let's plan your well-being 🌿`
         : `Welcome, ${profile.name}! 🙏`
     );
     // After this, the App container re-renders to TabNavigator because
@@ -255,50 +260,18 @@ export const OnboardingScreen = () => {
   );
 };
 
-// ─── Welcome — animated lotus + brand · auto-advances ────────────
+// ─── Welcome — reuses the shared WellBeingHero (also used on Home tab) ──
 
 const Welcome = ({ onDone }: { onDone: () => void }) => {
-  // Animation drivers — gentle breathing + slow rotating outer ring.
-  const breath = useRef(new Animated.Value(0)).current;
-  const rotate = useRef(new Animated.Value(0)).current;
-  const fade   = useRef(new Animated.Value(0)).current;
-
   useEffect(() => {
-    // Infinite breathing pulse for the lotus + glow
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(breath, { toValue: 1, duration: 2400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(breath, { toValue: 0, duration: 2400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ])
-    ).start();
-    // Slow infinity-style rotation on the outer ring
-    Animated.loop(
-      Animated.timing(rotate, { toValue: 1, duration: 12000, easing: Easing.linear, useNativeDriver: true })
-    ).start();
-    // Fade in title block
-    Animated.timing(fade, { toValue: 1, duration: 900, useNativeDriver: true }).start();
-
-    // Auto-advance after 2.5s — no button required.
+    // Auto-advance after 2.5 s — no button required.
     const t = setTimeout(onDone, 2500);
     return () => clearTimeout(t);
   }, []);
 
-  const scale   = breath.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1.06] });
-  const glow    = breath.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] });
-  const spin    = rotate.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
-
   return (
-    <View style={welcomeStyles.root}>
-      <Animated.View style={[welcomeStyles.ring, { transform: [{ rotate: spin }] }]} />
-      <Animated.View style={[welcomeStyles.glow, { opacity: glow }]} />
-      <Animated.View style={[welcomeStyles.lotusWrap, { transform: [{ scale }] }]}>
-        <Text style={welcomeStyles.lotus}>🪷</Text>
-      </Animated.View>
-
-      <Animated.View style={[welcomeStyles.titleBlock, { opacity: fade }]}>
-        <Text style={welcomeStyles.brand}>BODY &amp; SOUL</Text>
-        <Text style={welcomeStyles.tagline}>Where vitals meet sadhana</Text>
-      </Animated.View>
+    <View style={{ paddingTop: 60 }}>
+      <WellBeingHero />
     </View>
   );
 };

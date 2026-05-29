@@ -25,6 +25,12 @@ interface SadhanaContextType {
   deityProgress: Record<string, { count: number; malas: number }>;
   updateProgress: (deityId: string, count: number, malas: number) => void;
 
+  /** One-shot navigation intent set by Onboarding when the user picks
+   *  "Plan your well-being now". App.tsx reads it after the TabNavigator
+   *  mounts and navigates to that tab, then clears it. */
+  pendingRoute: string | null;
+  setPendingRoute: (r: string | null) => void;
+
   // ── BLE Ring (shared so Settings can pair without owning the modal) ──
   bleConnected: boolean;
   setBleConnected: (v: boolean) => void;
@@ -46,6 +52,7 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [toast, setToast] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [pendingRoute, setPendingRoute] = useState<string | null>(null);
   const [deityProgress, setDeityProgress] = useState<Record<string, { count: number; malas: number }>>({});
   const toastRef = useRef<NodeJS.Timeout | null>(null);
   // Prevents the empty-initial-state useEffect from wiping saved storage
@@ -229,6 +236,8 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     isLoading,
     userProfile,
     setUserProfile,
+    pendingRoute,
+    setPendingRoute,
     resetAll,
     deityProgress,
     updateProgress,

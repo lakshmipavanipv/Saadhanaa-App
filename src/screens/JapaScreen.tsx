@@ -27,7 +27,7 @@ import { specialSadhanaRepo, SpecialTrigger } from '../services/specialSadhanaRe
 import { WeekSparkline } from '../components/WeekSparkline';
 import { getDB } from '../soulsync/db/database';
 import { DUMMY, withFallback } from '../services/dummyData';
-import { PracticeStatsBox, SessionList, BeforeAfterVitals } from '../components/PracticeStats';
+import { PracticeStatsBox, BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import {
   requestBlePermissions,
@@ -878,13 +878,10 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
               goalMinutes={20}
               depthScore={japaDepthScore}
               subMetric={{ label: 'JAPA COUNT TODAY', value: todayJapas.toLocaleString() }}
+              compact
             />
           );
         })()}
-
-        {/* One card per session today — name (Sadhana Path or "Session N · japa"),
-              minutes, depth score, week sparkline of scores, week total */}
-        <SessionList practice="japa" />
 
         {/* Deities breakdown moved to the very bottom of this screen in v43 —
             shown below the Soul Sync trends so it doesn't compete with the

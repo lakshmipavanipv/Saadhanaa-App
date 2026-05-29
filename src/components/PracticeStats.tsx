@@ -65,10 +65,15 @@ interface StatsBoxProps {
   /** Optional second metric shown inside the time tile — used on the
    *  Japa screen to surface "japa count today" alongside the minutes. */
   subMetric?: { label: string; value: string | number };
+  /** Compact single-box layout — used by the Japa screen so the bead
+   *  counter fits on the same fold without scrolling.  Renders the
+   *  three KPIs (time / sub-metric / depth) on one row with both bars
+   *  stacked tightly underneath. ~120 pt tall instead of ~280. */
+  compact?: boolean;
 }
 
 export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
-  practice, minutesToday, goalMinutes, depthScore, subMetric,
+  practice, minutesToday, goalMinutes, depthScore, subMetric, compact,
 }) => {
   const label = practice === 'yoga'
     ? 'YOGA'
@@ -78,6 +83,44 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
   const goalPct = Math.min(100, Math.round((minutesToday / Math.max(1, goalMinutes)) * 100));
   const scoreColor = colorForScore(depthScore);
 
+  // ── Compact single-box mode (Japa screen) ──
+  if (compact) {
+    return (
+      <View style={statBoxStyles.wrap}>
+        <View style={[statBoxStyles.box, statBoxStyles.compactBox]}>
+          <Text style={statBoxStyles.compactTitle}>{label} · TODAY</Text>
+
+          {/* Three KPIs side-by-side */}
+          <View style={statBoxStyles.compactKpiRow}>
+            <View style={statBoxStyles.compactKpiCell}>
+              <Text style={statBoxStyles.compactKpiValue}>{minutesToday}</Text>
+              <Text style={statBoxStyles.compactKpiLabel}>min{'\n'}/ {goalMinutes}</Text>
+            </View>
+            {subMetric && (
+              <View style={statBoxStyles.compactKpiCell}>
+                <Text style={statBoxStyles.compactKpiValue}>{subMetric.value}</Text>
+                <Text style={statBoxStyles.compactKpiLabel}>{subMetric.label.toLowerCase().replace('japa count today','japas\ntoday').replace('today','').trim()}</Text>
+              </View>
+            )}
+            <View style={statBoxStyles.compactKpiCell}>
+              <Text style={[statBoxStyles.compactKpiValue, { color: scoreColor }]}>{depthScore}</Text>
+              <Text style={statBoxStyles.compactKpiLabel}>depth{'\n'}/ 100</Text>
+            </View>
+          </View>
+
+          {/* Both bars stacked tight underneath */}
+          <View style={[statBoxStyles.progressTrack, { marginTop: 4, height: 6 }]}>
+            <View style={[statBoxStyles.progressFill, { width: `${goalPct}%` }]} />
+          </View>
+          <View style={{ marginTop: 4 }}>
+            <DashedBar value={depthScore} color={scoreColor} compact />
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Full mode (Yoga / Meditation screens) ──
   return (
     <View style={statBoxStyles.wrap}>
       {/* Tile A — time-today hero with solid progress bar */}
@@ -119,7 +162,9 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
 };
 
 // Horizontal dashed bar — 12 segments fill from left to right based on score
-const DashedBar: React.FC<{ value: number; color: string }> = ({ value, color }) => {
+const DashedBar: React.FC<{ value: number; color: string; compact?: boolean }> = ({
+  value, color, compact,
+}) => {
   const SEGMENTS = 12;
   const filled = Math.round((value / 100) * SEGMENTS);
   return (
@@ -129,6 +174,7 @@ const DashedBar: React.FC<{ value: number; color: string }> = ({ value, color })
           key={i}
           style={[
             statBoxStyles.dashedSeg,
+            compact && { height: 8 },
             { backgroundColor: i < filled ? color : 'rgba(255,255,255,0.08)' },
           ]}
         />
@@ -446,6 +492,22 @@ const statBoxStyles = StyleSheet.create({
   },
   subMetricLabel: { fontSize: 12, color: COLORS.muted, fontWeight: '700', letterSpacing: 0.5 },
   subMetricValue: { fontSize: 24, color: COLORS.cream, fontWeight: '800' },
+
+  // ── Compact single-box mode (Japa screen) ──
+  compactBox: { paddingVertical: 12, paddingHorizontal: 14 },
+  compactTitle: {
+    fontSize: 11, color: COLORS.gold, fontWeight: '800', letterSpacing: 1.2,
+    marginBottom: 8,
+  },
+  compactKpiRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end',
+  },
+  compactKpiCell: { flex: 1, alignItems: 'center' },
+  compactKpiValue: { fontSize: 28, color: COLORS.cream, fontWeight: '800', lineHeight: 30 },
+  compactKpiLabel: {
+    fontSize: 10, color: COLORS.muted, fontWeight: '700',
+    textAlign: 'center', marginTop: 2, lineHeight: 12,
+  },
 
   // Horizontal dashed bar (12 segments)
   dashedRow: {

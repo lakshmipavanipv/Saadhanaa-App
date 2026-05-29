@@ -29,7 +29,7 @@ import { COLORS, SPACING } from '../theme';
 import { AIInsightsCard } from '../soulsync/components/AIInsightsCard';
 import { SolutionMatrixCard } from '../soulsync/components/SolutionMatrixCard';
 import { MicroSadhanaCard } from '../soulsync/components/MicroSadhanaCard';
-import { BodySoulLogo } from '../soulsync/components/BodySoulLogo';
+import { WellBeingHero } from '../components/WellBeingHero';
 import { SoulsyncScoreCard, computeScores } from '../soulsync/components/SoulsyncScoreCard';
 import { computeHealthDashboard } from '../soulsync/analytics/HealthDashboard';
 import { computeSleepScore } from '../soulsync/analytics/SleepScore';
@@ -389,9 +389,13 @@ export const DashboardScreen = ({ navigation }: any) => {
   return (
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        {/* Header — animated BODY & SOUL logo replaces the static greeting */}
+        {/* Header — same animated lotus + halo + rotating dashed ring
+            + "BODY & SOUL" wordmark from the Onboarding welcome screen,
+            in compact mode so it fits as a tab header. Below it sits the
+            personal greeting and date so the Home tab still opens with a
+            warm "hi, today is …" feel. */}
         <View style={styles.header}>
-          <BodySoulLogo width={240} />
+          <WellBeingHero compact />
           <Text style={styles.personalLine}>{getPersonalLine(userProfile?.name)}</Text>
           <Text style={styles.date}>{formatDate(todayStr())}</Text>
         </View>
