@@ -160,6 +160,10 @@ const AppContent = () => {
   // ── Prayer reminder popup state ──────────────────────────────
   const [prayerDeity, setPrayerDeity] = useState<Deity | null>(null);
 
+  // Track active tab so we can hide UI chrome (settings cog) while on
+  // the Plan tab — the Plan screen wants a cleaner, less cluttered top.
+  const [activeRoute, setActiveRoute] = useState<string>('Dashboard');
+
   // Subscribe to incoming notifications. When a prayer-reminder
   // notification fires (foreground or user tap), show the big popup.
   React.useEffect(() => {
@@ -198,7 +202,7 @@ const AppContent = () => {
   }, [activeEvent?.id, activeEvent?.trigger]);
 
   if (isLoading) {
-    return <SplashScreen label="Awakening your sadhana" />;
+    return <SplashScreen label="Awakening your body & soul" />;
   }
 
   if (!userProfile?.onboarded) {
@@ -214,10 +218,18 @@ const AppContent = () => {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.deep} translucent />
-      <NavigationContainer ref={navRef}>
+      <NavigationContainer
+        ref={navRef}
+        onStateChange={(state) => {
+          // Read the focused route name from the tab navigator so we can
+          // conditionally hide the settings cog when the user is on Plan.
+          const route = state?.routes?.[state.index ?? 0]?.name;
+          if (route) setActiveRoute(route);
+        }}
+      >
         <TabNavigator />
       </NavigationContainer>
-      <SettingsButton onPress={() => setShowSettings(true)} />
+      {activeRoute !== 'Plan' && <SettingsButton onPress={() => setShowSettings(true)} />}
       {/* Voice assistant — multilingual, elder-friendly */}
       <VoiceAssistant navRef={navRef} />
       <Modal visible={showSettings} animationType="slide" onRequestClose={() => setShowSettings(false)}>

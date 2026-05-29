@@ -133,7 +133,7 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
           </Text>
         </TouchableOpacity>
 
-        <Text style={styles.footer}>🪷 Sadhana · Made with devotion</Text>
+        <Text style={styles.footer}>🪷 Body &amp; Soul · Made with devotion</Text>
       </ScrollView>
 
       {editing && userProfile && (

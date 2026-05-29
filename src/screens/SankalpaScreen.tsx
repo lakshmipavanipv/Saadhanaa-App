@@ -21,6 +21,7 @@ import { useSadhana } from '../context';
 import { routineRepo, RoutineItem, RoutineCategory } from '../services/routineRepo';
 import { routineParser } from '../soulsync/ai/RoutineParser';
 import { vitalsPlanEngine, VitalsPlan } from '../soulsync/ai/VitalsPlanEngine';
+import { FamilyMembersCard } from '../components/FamilyMembersCard';
 import { TimePickerField } from '../components/TimePickerField';
 import { YOGA_CATALOG } from './YogaScreen';
 import { EXERCISE_CATALOG } from './ExerciseScreen';
@@ -77,10 +78,20 @@ const OTHER_ENTRY: CatalogEntry = {
   defaultMin: 15,
 };
 
+// Tithi options (special sadhana days — reused for both the Tithi category
+// step picker and the shared form below).
+const TITHI_OPTIONS: CatalogEntry[] = [
+  { id: 'ekadashi',  icon: '🌗', name: 'Ekadashi',  sub: 'Every 11th lunar day · fast + japa', defaultMin: 30 },
+  { id: 'pradosh',   icon: '🌘', name: 'Pradosh',   sub: 'Shiva tithi · evening worship',      defaultMin: 30 },
+  { id: 'purnima',   icon: '🌕', name: 'Purnima',   sub: 'Full moon · meditation',             defaultMin: 30 },
+  { id: 'amavasya',  icon: '🌑', name: 'Amavasya',  sub: 'New moon · pitru tarpana',           defaultMin: 30 },
+  { id: 'sankashti', icon: '🐘', name: 'Sankashti', sub: 'Ganesha tithi · 4th day after full', defaultMin: 30 },
+];
+
 // Per-category unit for custom-path steps
 const STEP_UNIT_FOR: Record<RoutineCategory, 'min' | 'malas'> = {
   yoga: 'min', exercise: 'min', meditate: 'min', sandhya: 'min',
-  festival: 'min', japa: 'malas',
+  shraadha: 'min', tithi: 'min', festival: 'min', japa: 'malas',
 };
 
 // Per-category label for the step-picker dropdown button
@@ -90,6 +101,8 @@ const STEP_PICKER_LABEL: Record<RoutineCategory, string> = {
   exercise: 'Pick a workout',
   meditate: 'Pick a meditation technique',
   sandhya:  'Pick a sandhya juncture',
+  shraadha: 'Add a family member',
+  tithi:    'Pick a special tithi',
   festival: 'Pick a festival',
 };
 
@@ -107,6 +120,8 @@ const STEP_OPTIONS_FOR: Record<RoutineCategory, () => CatalogEntry[]> = {
     { id: 'madhyahnika', icon: '🌞', name: 'Madhyahnika Sandhya', sub: 'Noon juncture',   defaultMin: 10 },
     { id: 'sayam',       icon: '🌇', name: 'Sayam Sandhya',       sub: 'Dusk juncture',   defaultMin: 10 },
   ],
+  shraadha: () => [],   // Shraadha uses the FamilyMembersCard form directly
+  tithi:    () => TITHI_OPTIONS,
   festival: () => CATALOG_FOR.festival(),
 };
 
@@ -121,6 +136,8 @@ const CUSTOM_PATH_LABEL: Record<RoutineCategory, string> = {
   exercise: 'Sadhana Path — multi-step body circuit',
   meditate: 'Sadhana Path — multi-stage meditation flow',
   sandhya:  'Sadhana Path — custom sandhya sequence',
+  shraadha: 'Sadhana Path — custom shraadha rites',
+  tithi:    'Sadhana Path — custom tithi observance',
   festival: 'Sadhana Path — custom festival ritual',
   japa:     'Sadhana Path — Ganapathi → Guru → Ishta → ...',
 };
@@ -152,6 +169,11 @@ const CATALOG_FOR: Record<RoutineCategory, () => CatalogEntry[]> = {
     { id: 'madhyahnika', icon: '🌞', name: 'Madhyahnika Sandhya', sub: 'Noon juncture',      defaultMin: 10 },
     { id: 'sayam',       icon: '🌇', name: 'Sayam Sandhya',       sub: 'Dusk juncture',      defaultMin: 10 },
   ],
+  // Shraadha is "people" data — handled by the FamilyMembersCard form
+  // rendered inline in the category card. No flat catalog needed.
+  shraadha: () => [],
+  // Tithi reuses the shared list above (Ekadashi, Pradosh, etc.).
+  tithi: () => TITHI_OPTIONS,
   festival: () => [
     { id: 'ekadashi',  icon: '🛕', name: 'Ekadashi (every 11th tithi)', sub: 'Fast + special japa', defaultMin: 30 },
     { id: 'pradosh',   icon: '🛕', name: 'Pradosh (Shiva tithi)',       sub: 'Evening Shiva worship', defaultMin: 30 },
@@ -161,14 +183,17 @@ const CATALOG_FOR: Record<RoutineCategory, () => CatalogEntry[]> = {
   ],
 };
 
-// Category meta for cards (suggestions removed — now drawn from real catalogs)
+// Category meta for cards. Order = display order in the "My Goals" list.
+// shraadha + tithi sit between meditate and festival.
 const CATEGORY_META: Record<RoutineCategory, { label: string; icon: string; color: string }> = {
-  exercise: { label: 'Exercise', icon: '🏃',   color: '#4ea8de' },
-  yoga:     { label: 'Yoga',     icon: '🧘‍♀️', color: '#FFB800' },
-  japa:     { label: 'Japa',     icon: '📿',   color: '#FF8C42' },
-  sandhya:  { label: 'Sandhya Vandan',  icon: '🌅',   color: '#FFD9A8' },
-  meditate: { label: 'Meditate', icon: '🪷',   color: '#c084fc' },
-  festival: { label: 'Festivals', icon: '🛕',  color: '#f472b6' },
+  exercise: { label: 'Exercise',         icon: '🏃',   color: '#4ea8de' },
+  yoga:     { label: 'Yoga',             icon: '🧘‍♀️', color: '#FFB800' },
+  japa:     { label: 'Japa',             icon: '📿',   color: '#FF8C42' },
+  sandhya:  { label: 'Sandhya Vandan',   icon: '🌅',   color: '#FFD9A8' },
+  meditate: { label: 'Meditate',         icon: '🪷',   color: '#c084fc' },
+  shraadha: { label: 'Shraadha',         icon: '🕯️',   color: '#a78bfa' },
+  tithi:    { label: 'Tithi observance', icon: '🌗',   color: '#94a3b8' },
+  festival: { label: 'Festivals',        icon: '🛕',  color: '#f472b6' },
 };
 
 // ─── Cross-platform Time + Reminder block ────────────────────────
@@ -310,7 +335,8 @@ export const SankalpaScreen = ({ navigation }: any) => {
 
   const byCategory = React.useMemo(() => {
     const acc: Record<RoutineCategory, RoutineItem[]> = {
-      exercise: [], yoga: [], japa: [], meditate: [], sandhya: [], festival: [],
+      exercise: [], yoga: [], japa: [], meditate: [], sandhya: [],
+      shraadha: [], tithi: [], festival: [],
     };
     for (const e of items) acc[e.category].push(e);
     return acc;
@@ -405,18 +431,6 @@ export const SankalpaScreen = ({ navigation }: any) => {
             </TouchableOpacity>
           </View>
         </View>
-
-        {/* One-time activity hint */}
-        <TouchableOpacity
-          style={styles.adhocHint}
-          onPress={() => navigation?.navigate?.('Japa')}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.adhocHintText}>
-            <Text style={{ fontWeight: '700' }}>One-off practice?</Text> Open Japa tab → pick any deity → start.
-            Plan is only for recurring commitments. ›
-          </Text>
-        </TouchableOpacity>
 
         {/* AI chat strip */}
         <View style={styles.chatCard}>
@@ -635,7 +649,22 @@ export const SankalpaScreen = ({ navigation }: any) => {
                 <Text style={styles.catChevron}>{expanded ? '−' : '+'}</Text>
               </TouchableOpacity>
 
-              {expanded && (
+              {expanded && cat === 'shraadha' && (
+                // Shraadha reuses the existing family-members form that
+                // already lives in FestivalScreen. Same code path so
+                // entries computed here flow through to the panchang
+                // calendar via the shared familyRepo + buildCalendar.
+                <View style={[styles.catExpanded, { paddingHorizontal: 0 }]}>
+                  <Text style={styles.shraadhaHint}>
+                    Add family members whose annual shraddha you observe. The app
+                    auto-computes the tithi from death-date + city and schedules
+                    a reminder for the next observance.
+                  </Text>
+                  <FamilyMembersCard />
+                </View>
+              )}
+
+              {expanded && cat !== 'shraadha' && (
                 <View style={styles.catExpanded}>
                   {catItems.map(it => (
                     <View key={it.id}>
@@ -976,12 +1005,19 @@ const AddItemSheet: React.FC<{
             placeholderTextColor={COLORS.muted}
           />
 
-          {/* Custom-path step editor — only when "Other" is picked */}
+          {/* Custom-path step editor — only when "Other" is picked.
+              Redesigned (v40): each step lives inside its OWN bordered
+              card so the sequence is visually clear. The "Add step N+1"
+              section is a separate bordered sub-card containing the
+              picker dropdown stacked directly above the name/value
+              input row — picker + input share the same column so the
+              UI flows naturally top → bottom. */}
           {isCustomPath && (
             <View style={styles.stepEditor}>
               <Text style={styles.stepEditorLabel}>
-                STEPS ({steps.length})
-                {steps.length > 0 && ` · total ${stepsTotal} ${stepUnit}`}
+                {steps.length === 0
+                  ? `BUILD YOUR ${meta.label.toUpperCase()} PATH`
+                  : `STEPS (${steps.length}) · TOTAL ${stepsTotal} ${stepUnit.toUpperCase()}`}
               </Text>
               {steps.length === 0 && (
                 <Text style={styles.stepEmpty}>
@@ -990,105 +1026,122 @@ const AddItemSheet: React.FC<{
                     : 'Add poses or moves one by one — sequence them in the order you practice.'}
                 </Text>
               )}
+
+              {/* Existing steps — each in its own bordered card */}
               {steps.map((s, idx) => (
-                <View key={idx} style={styles.stepRow2}>
-                  <Text style={styles.stepIdx}>{idx + 1}.</Text>
-                  <Text style={styles.stepName} numberOfLines={1}>{s.name}</Text>
-                  <Text style={styles.stepValue}>{s.value} {stepUnit}</Text>
-                  <TouchableOpacity onPress={() => removeStep(idx)}>
+                <View key={idx} style={styles.stepCard}>
+                  <View style={styles.stepCardBadge}>
+                    <Text style={styles.stepCardBadgeText}>{idx + 1}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.stepCardName} numberOfLines={2}>{s.name}</Text>
+                    <Text style={styles.stepCardValue}>{s.value} {stepUnit}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => removeStep(idx)} hitSlop={{top:8,right:8,bottom:8,left:8}}>
                     <Text style={styles.stepRemove}>✕</Text>
                   </TouchableOpacity>
                 </View>
               ))}
-              {/* Step picker dropdown — available for ALL categories so the
-                  user can build the Sadhana Path quickly from the existing
-                  library. "Other / Custom" appears at the bottom so a free
-                  name can still be typed in the row below. */}
-              <TouchableOpacity
-                style={styles.deityDropdownBtn}
-                onPress={() => setShowDeityPicker(v => !v)}
-              >
-                <Text style={styles.deityDropdownText}>
-                  🪷  {STEP_PICKER_LABEL[category]}  {showDeityPicker ? '▴' : '▾'}
+
+              {/* "Add step N" section — picker on top, input below.
+                  Sits in its own bordered card so it's clearly the
+                  workbench for the NEXT step. */}
+              <View style={styles.addStepCard}>
+                <Text style={styles.addStepLabel}>
+                  + ADD STEP {steps.length + 1}
                 </Text>
-              </TouchableOpacity>
-              {showDeityPicker && (
-                <ScrollView
-                  style={styles.deityPickerScroll}
-                  showsVerticalScrollIndicator={false}
-                  nestedScrollEnabled
+
+                {/* Picker dropdown — full-width, aligned with step inputs below */}
+                <TouchableOpacity
+                  style={styles.pickerBtn}
+                  onPress={() => setShowDeityPicker(v => !v)}
                 >
-                  {STEP_OPTIONS_FOR[category]().map(opt => (
+                  <Text style={styles.pickerBtnText}>
+                    🪷  {STEP_PICKER_LABEL[category]}
+                  </Text>
+                  <Text style={styles.pickerBtnChevron}>
+                    {showDeityPicker ? '▴' : '▾'}
+                  </Text>
+                </TouchableOpacity>
+
+                {showDeityPicker && (
+                  <ScrollView
+                    style={styles.deityPickerScroll}
+                    showsVerticalScrollIndicator={false}
+                    nestedScrollEnabled
+                  >
+                    {STEP_OPTIONS_FOR[category]().map(opt => (
+                      <TouchableOpacity
+                        key={opt.id}
+                        style={styles.deityPickerRow}
+                        onPress={() => {
+                          setNewStepName(opt.name);
+                          if (stepUnit === 'min' && opt.defaultMin)
+                            setNewStepValue(String(opt.defaultMin));
+                          setShowDeityPicker(false);
+                        }}
+                      >
+                        <Text style={styles.deityPickerIcon}>{opt.icon}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.deityPickerName}>{opt.name}</Text>
+                          {!!opt.sub && (
+                            <Text style={styles.deityPickerMantra} numberOfLines={1}>{opt.sub}</Text>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    ))}
                     <TouchableOpacity
-                      key={opt.id}
-                      style={styles.deityPickerRow}
+                      style={[styles.deityPickerRow, { borderBottomWidth: 0 }]}
                       onPress={() => {
-                        setNewStepName(opt.name);
-                        if (stepUnit === 'min' && opt.defaultMin)
-                          setNewStepValue(String(opt.defaultMin));
+                        setNewStepName('');
                         setShowDeityPicker(false);
                       }}
                     >
-                      <Text style={styles.deityPickerIcon}>{opt.icon}</Text>
+                      <Text style={styles.deityPickerIcon}>✍️</Text>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.deityPickerName}>{opt.name}</Text>
-                        {!!opt.sub && (
-                          <Text style={styles.deityPickerMantra} numberOfLines={1}>{opt.sub}</Text>
-                        )}
+                        <Text style={[styles.deityPickerName, { color: COLORS.gold }]}>
+                          Other / Custom
+                        </Text>
+                        <Text style={styles.deityPickerMantra}>
+                          Type your own {category === 'japa' ? 'deity or mantra' : 'name'} below
+                        </Text>
                       </View>
                     </TouchableOpacity>
-                  ))}
-                  {/* "Other / Custom" entry — clears the input so user types freely */}
-                  <TouchableOpacity
-                    style={[styles.deityPickerRow, { borderBottomWidth: 0 }]}
-                    onPress={() => {
-                      setNewStepName('');
-                      setShowDeityPicker(false);
-                    }}
-                  >
-                    <Text style={styles.deityPickerIcon}>✍️</Text>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.deityPickerName, { color: COLORS.gold }]}>
-                        Other / Custom
-                      </Text>
-                      <Text style={styles.deityPickerMantra}>
-                        Type your own {category === 'japa' ? 'deity or mantra' : 'name'} below
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                </ScrollView>
-              )}
+                  </ScrollView>
+                )}
 
-              <View style={styles.stepAddRow}>
-                <TextInput
-                  style={[styles.sheetInput, { flex: 2 }]}
-                  value={newStepName}
-                  onChangeText={setNewStepName}
-                  placeholder={
-                    category === 'japa' ? 'Deity / mantra' :
-                    category === 'yoga' ? 'Asana / pranayama' :
-                    category === 'meditate' ? 'Technique' :
-                    'Step name'
-                  }
-                  placeholderTextColor={COLORS.muted}
-                />
-                <TextInput
-                  style={[styles.sheetInput, { flex: 0.8 }]}
-                  value={newStepValue}
-                  onChangeText={setNewStepValue}
-                  placeholder={stepUnit === 'malas' ? '1' : '5'}
-                  placeholderTextColor={COLORS.muted}
-                  keyboardType="number-pad"
-                />
-                <TouchableOpacity style={styles.stepAddBtn} onPress={addStep}>
-                  <Text style={styles.stepAddBtnText}>＋</Text>
-                </TouchableOpacity>
+                {/* Name + value inputs — aligned beneath the picker */}
+                <View style={styles.stepInputRow}>
+                  <TextInput
+                    style={[styles.sheetInput, { flex: 2 }]}
+                    value={newStepName}
+                    onChangeText={setNewStepName}
+                    placeholder={
+                      category === 'japa' ? 'Deity / mantra' :
+                      category === 'yoga' ? 'Asana / pranayama' :
+                      category === 'meditate' ? 'Technique' :
+                      'Step name'
+                    }
+                    placeholderTextColor={COLORS.muted}
+                  />
+                  <TextInput
+                    style={[styles.sheetInput, { flex: 0.8 }]}
+                    value={newStepValue}
+                    onChangeText={setNewStepValue}
+                    placeholder={stepUnit === 'malas' ? '1' : '5'}
+                    placeholderTextColor={COLORS.muted}
+                    keyboardType="number-pad"
+                  />
+                  <TouchableOpacity style={styles.stepAddBtn} onPress={addStep}>
+                    <Text style={styles.stepAddBtnText}>＋</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.stepHint}>
+                  {stepUnit === 'malas'
+                    ? '1 mala = 108 japas · pick from list or type your own'
+                    : 'minutes per step · pick from list or type your own'}
+                </Text>
               </View>
-              <Text style={styles.stepHint}>
-                {stepUnit === 'malas'
-                  ? '1 mala = 108 japas · Pick from list or type your own'
-                  : 'minutes per step · Pick from list or type your own'}
-              </Text>
             </View>
           )}
 
@@ -1380,15 +1433,6 @@ const styles = StyleSheet.create({
   todaySub:  { color: COLORS.muted, fontSize: 11, marginTop: 1 },
   todayDelete: { color: COLORS.muted, fontSize: 16, paddingHorizontal: 6 },
 
-  adhocHint: {
-    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
-    padding: SPACING.sm + 2,
-    backgroundColor: 'rgba(78, 168, 222, 0.10)',
-    borderRadius: 10,
-    borderWidth: 1, borderColor: 'rgba(78,168,222,0.30)',
-  },
-  adhocHintText: { color: COLORS.cream, fontSize: 12, lineHeight: 17 },
-
   itemBell: { color: COLORS.gold, fontSize: 11 },
   prepBox: {
     marginTop: 4, marginLeft: 8, marginBottom: 8,
@@ -1484,6 +1528,13 @@ const styles = StyleSheet.create({
   aiPlanRationaleLine: { fontSize: 11, color: COLORS.cream, lineHeight: 16, marginBottom: 2 },
   aiPlanProvenance: { fontSize: 10, color: COLORS.muted, marginTop: 6, fontStyle: 'italic' },
 
+  // Hint shown inside the Shraadha category card before FamilyMembersCard
+  shraadhaHint: {
+    fontSize: 12, color: COLORS.muted, fontStyle: 'italic',
+    lineHeight: 17, paddingHorizontal: SPACING.md,
+    marginTop: SPACING.sm, marginBottom: SPACING.sm,
+  },
+
   // Add / Edit sheets
   sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   sheet: {
@@ -1533,17 +1584,48 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2, marginBottom: 6,
   },
   stepEmpty: { fontSize: 11, color: COLORS.muted, fontStyle: 'italic', marginBottom: 8 },
-  stepRow2: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 6, gap: 6,
-    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)',
+
+  // ── Each existing step in its own bordered card (v40 redesign) ──
+  stepCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 10, paddingHorizontal: 10,
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 10,
+    borderWidth: 1, borderColor: 'rgba(212,160,23,0.30)',
+    marginBottom: 8,
   },
-  stepIdx: { color: COLORS.gold, fontSize: 12, fontWeight: '700', width: 18 },
-  stepName: { color: COLORS.cream, fontSize: 13, flex: 1 },
-  stepValue: { color: COLORS.gold, fontSize: 11, fontWeight: '700' },
-  stepRemove: { color: COLORS.error, fontSize: 14, paddingHorizontal: 6 },
-  stepAddRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8,
+  stepCardBadge: {
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: COLORS.gold, alignItems: 'center', justifyContent: 'center',
+  },
+  stepCardBadgeText: { color: COLORS.deep, fontSize: 12, fontWeight: '800' },
+  stepCardName:  { color: COLORS.cream, fontSize: 13, fontWeight: '600' },
+  stepCardValue: { color: COLORS.gold, fontSize: 11, fontWeight: '700', marginTop: 2 },
+  stepRemove: { color: COLORS.error, fontSize: 16, paddingHorizontal: 6 },
+
+  // ── "Add step N" sub-card — picker on top, input row below ──
+  addStepCard: {
+    marginTop: 4, padding: 10,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 10,
+    borderWidth: 1, borderStyle: 'dashed',
+    borderColor: 'rgba(212,160,23,0.45)',
+  },
+  addStepLabel: {
+    fontSize: 10, color: COLORS.gold, fontWeight: '800',
+    letterSpacing: 1.2, marginBottom: 8,
+  },
+  pickerBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 12, paddingHorizontal: 12,
+    backgroundColor: COLORS.deep, borderRadius: 8,
+    borderWidth: 1, borderColor: COLORS.gold,
+    marginBottom: 8,
+  },
+  pickerBtnText: { color: COLORS.gold, fontSize: 13, fontWeight: '700', flex: 1 },
+  pickerBtnChevron: { color: COLORS.gold, fontSize: 12, fontWeight: '700' },
+  stepInputRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
   },
   stepAddBtn: {
     width: 42, height: 42, borderRadius: 21,

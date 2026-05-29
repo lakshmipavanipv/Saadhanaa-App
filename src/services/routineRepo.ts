@@ -10,7 +10,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type RoutineCategory =
-  | 'exercise' | 'yoga' | 'japa' | 'meditate' | 'sandhya' | 'festival';
+  | 'exercise' | 'yoga' | 'japa' | 'meditate' | 'sandhya'
+  | 'shraadha' | 'tithi' | 'festival';
 
 export interface RoutineItem {
   id: string;
@@ -101,7 +102,8 @@ export const routineRepo = {
   async byCategory(): Promise<Record<RoutineCategory, RoutineItem[]>> {
     const all = await load();
     const acc: Record<RoutineCategory, RoutineItem[]> = {
-      exercise: [], yoga: [], japa: [], meditate: [], sandhya: [], festival: [],
+      exercise: [], yoga: [], japa: [], meditate: [], sandhya: [],
+      shraadha: [], tithi: [], festival: [],
     };
     for (const e of all) acc[e.category].push(e);
     return acc;

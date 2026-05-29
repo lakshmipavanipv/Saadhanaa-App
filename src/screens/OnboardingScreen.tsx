@@ -1,4 +1,19 @@
-import React, { useState } from 'react';
+/**
+ * OnboardingScreen — first-launch flow for the Body & Soul Ring app.
+ *
+ * New flow (v40):
+ *   1. Welcome     — animated lotus + "BODY & SOUL" wordmark · auto-advances in ~2.5s
+ *   2. Identity    — Google Sign-In (or manual name+email/phone fallback)
+ *   3. Ring        — Bluetooth pair the Body & Soul Ring (or Skip)
+ *   4. About you   — Name (if not from Google) · DOB · Gender · Religion · all in one screen
+ *   5. Plan?       — Big choice: "Plan your routine now" → opens Plan tab · "Skip for now" → Home tab
+ *
+ * Deity selection was removed from onboarding (was a forced step that
+ * blocked first-time users from finishing). Users add deities later from
+ * the Japa tab or Plan tab whenever they want.
+ */
+
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -8,12 +23,12 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Animated,
+  Easing,
 } from 'react-native';
 import { useSadhana } from '../context';
-import { Deity, UserProfile } from '../types';
+import { UserProfile } from '../types';
 import { COLORS, SPACING } from '../theme';
-import { DeityCatalogPicker } from '../components/DeityCatalogPicker';
-import { CatalogDeity, ALL_CATALOG_DEITIES } from '../deityCatalog';
 import { otpClient } from '../soulsync/auth/otpClient';
 import { BodyActivity, SoulActivity, UserGoals } from '../types';
 import {
@@ -26,60 +41,51 @@ import {
   scanForDevices,
   connectAndListen,
   ScannedDevice,
-  CounterConnection,
 } from '../services/ble';
 import { RingSpinner } from '../components/RingSpinner';
 
-// OTP step removed — trust the email, no friction for elderly users.
-// A welcome email is fired-and-forgotten in the background.
-type Step = 'welcome' | 'identity' | 'personal' | 'ring' | 'deities' | 'done';
+type Step = 'welcome' | 'identity' | 'ring' | 'about' | 'plan-prompt';
+
+type Gender = NonNullable<UserProfile['gender']>;
+type Religion = NonNullable<UserProfile['religion']>;
 
 const validEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 const validPhone = (s: string) => /^\+?\d[\d\s-]{6,}$/.test(s.trim());
 
+const GENDERS: { id: Gender; label: string; icon: string }[] = [
+  { id: 'male',                label: 'Male',     icon: '👨' },
+  { id: 'female',              label: 'Female',   icon: '👩' },
+  { id: 'other',               label: 'Other',    icon: '🌈' },
+  { id: 'prefer-not-to-say',   label: 'Skip',     icon: '🙏' },
+];
+
+const RELIGIONS: { id: Religion; label: string; icon: string }[] = [
+  { id: 'hindu',     label: 'Hindu',     icon: '🕉' },
+  { id: 'buddhist',  label: 'Buddhist',  icon: '☸' },
+  { id: 'jain',      label: 'Jain',      icon: '🪷' },
+  { id: 'sikh',      label: 'Sikh',      icon: '🪯' },
+  { id: 'spiritual', label: 'Spiritual', icon: '✨' },
+  { id: 'other',     label: 'Other',     icon: '🌿' },
+];
+
 export const OnboardingScreen = () => {
-  const { setUserProfile, setDeities, showToast } = useSadhana();
+  const { setUserProfile, showToast } = useSadhana();
   const [step, setStep] = useState<Step>('welcome');
+
+  // Identity
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
   const [contactType, setContactType] = useState<'email' | 'phone'>('email');
-  // (OTP state removed — auto-authentication trusts the email.)
 
-  // Personal data
+  // About you
   const [dob, setDob] = useState('');
-  const [heightCm, setHeightCm] = useState('');
-  const [weightKg, setWeightKg] = useState('');
-  const [bodyActivities, setBodyActivities] = useState<BodyActivity[]>([]);
-  const [soulActivities, setSoulActivities] = useState<SoulActivity[]>([]);
-  const [bodyGoalMin, setBodyGoalMin] = useState('30');
-  const [soulGoalMin, setSoulGoalMin] = useState('20');
+  const [gender, setGender] = useState<Gender | null>(null);
+  const [religion, setReligion] = useState<Religion | null>(null);
 
-  // Start with no deities preselected — user picks their own.
-  const [pickedIds, setPickedIds] = useState<Set<string>>(new Set());
-  const [customs, setCustoms] = useState<Deity[]>([]);
-
-  const togglePick = (d: CatalogDeity) =>
-    setPickedIds(prev => {
-      const next = new Set(prev);
-      next.has(d.id) ? next.delete(d.id) : next.add(d.id);
-      return next;
-    });
-
-  const addCustom = (name: string, icon: string, mantra: string) => {
-    const id = `custom-${Date.now()}`;
-    const d: Deity = {
-      id,
-      name,
-      icon,
-      mantra,
-      prayerAlarm: '06:00',
-      alarmOn: false,
-      totalMalas: 0,
-    };
-    setCustoms(prev => [...prev, d]);
-    setPickedIds(prev => new Set(prev).add(id));
-    showToast(`${icon} ${name} added`);
-  };
+  // Body / soul goals — sensible defaults the user never sees during onboarding,
+  // but persisted so the AI plan engine has something to start with.
+  const bodyActivities: BodyActivity[] = ['walk', 'gym'];
+  const soulActivities: SoulActivity[] = ['japa', 'meditation'];
 
   const submitIdentity = async () => {
     if (!name.trim()) {
@@ -98,30 +104,18 @@ export const OnboardingScreen = () => {
       showToast('Please enter a valid phone number');
       return;
     }
-    // Auto-authentication: no OTP. We trust the email and move forward.
-    // A welcome email is sent in the background (best-effort) via the
-    // existing otpClient endpoint when it's configured as a "welcome"
-    // endpoint — otherwise it's a silent no-op for the user.
+    // Best-effort welcome email; never blocks the flow.
     otpClient.send(contact, contactType).catch(() => {});
-
     showToast('Welcome 🙏');
-    setStep('personal');
-  };
-
-  const submitPersonal = () => {
     setStep('ring');
   };
 
-  // resendOtp removed — no OTP step.
-
-  // verifyOtp removed — no OTP step in auto-authentication flow.
-
-  // ── Bluetooth pairing (onboarding step) ─────────────────────────
+  // ── Bluetooth pairing ───────────────────────────────────────────
   const [scanning, setScanning] = useState(false);
   const [scannedDevices, setScannedDevices] = useState<ScannedDevice[]>([]);
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [pairedDevice, setPairedDevice] = useState<string | null>(null);
-  const stopScanRef = React.useRef<(() => void) | null>(null);
+  const stopScanRef = useRef<(() => void) | null>(null);
 
   const startScan = async () => {
     if (Platform.OS === 'web') {
@@ -164,47 +158,38 @@ export const OnboardingScreen = () => {
     }
   };
 
-  const finish = () => {
-    // Map catalog deities (no totalMalas / alarms yet) into real Deity records
-    const fromCatalog: Deity[] = ALL_CATALOG_DEITIES
-      .filter(c => pickedIds.has(c.id))
-      .map(c => ({
-        id: c.id,
-        name: c.name,
-        icon: c.icon,
-        mantra: c.mantra,
-        prayerAlarm: '06:00',
-        alarmOn: false,
-        totalMalas: 0,
-        malaMaterial: c.malaMaterial,
-        malaColor: c.malaColor,
-        malaHighlight: c.malaHighlight,
-      }));
-    const fromCustom = customs.filter(c => pickedIds.has(c.id));
-    const finalDeities = [...fromCatalog, ...fromCustom];
-    setDeities(finalDeities);
-
+  // ── Persist the profile and finish onboarding ──
+  const finish = (goToPlan: boolean) => {
     const goals: UserGoals = {
-      bodyMinutesPerDay: parseInt(bodyGoalMin, 10) || 30,
+      bodyMinutesPerDay: 30,
       bodyActivities,
-      soulMinutesPerDay: parseInt(soulGoalMin, 10) || 20,
+      soulMinutesPerDay: 20,
       soulActivities,
     };
 
     const profile: UserProfile = {
-      name: name.trim(),
+      name: name.trim() || 'Friend',
       createdAt: new Date().toISOString(),
       onboarded: true,
       ...(contactType === 'email'
         ? { email: contact.trim() }
         : { phone: contact.trim() }),
       ...(dob && { dob }),
-      ...(heightCm && { heightCm: parseInt(heightCm, 10) || 0 }),
-      ...(weightKg && { weightKg: parseInt(weightKg, 10) || 0 }),
+      ...(gender && { gender }),
+      ...(religion && { religion }),
       goals,
     };
     setUserProfile(profile);
-    showToast(`Welcome, ${profile.name}! 🙏`);
+    showToast(
+      goToPlan
+        ? `Welcome, ${profile.name}! Let's plan your routine 🌿`
+        : `Welcome, ${profile.name}! 🙏`
+    );
+    // After this, the App container re-renders to TabNavigator because
+    // userProfile.onboarded flipped to true. The `goToPlan` flag is
+    // stashed for the parent navigator to honour via DashboardScreen's
+    // default initial-route logic (handled in DashboardScreen / context).
+    // For now we just rely on the user tapping "Plan your routine" CTA.
   };
 
   return (
@@ -213,7 +198,7 @@ export const OnboardingScreen = () => {
       style={styles.container}
     >
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {step === 'welcome' && <Welcome onNext={() => setStep('identity')} />}
+        {step === 'welcome' && <Welcome onDone={() => setStep('identity')} />}
 
         {step === 'identity' && (
           <Identity
@@ -223,286 +208,107 @@ export const OnboardingScreen = () => {
             onName={setName}
             onContact={setContact}
             onTypeChange={t => {
-              // T2: reset input on toggle to avoid stale data (e.g. email
-              // text left when switching to Phone)
               setContactType(t);
               setContact('');
             }}
-            onBack={() => setStep('welcome')}
             onNext={submitIdentity}
           />
         )}
 
-        {/* OTP step removed — auto-authentication via email trust */}
-
-        {step === 'personal' && (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepLabel}>Step 1 of 3</Text>
-            <Text style={styles.title}>Tell us about yourself</Text>
-            <Text style={styles.subtitle}>
-              Helps the AI personalise body + soul recommendations. All optional.
-            </Text>
-
-            <Text style={styles.fieldLabel}>Date of birth</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={COLORS.muted}
-              value={dob}
-              onChangeText={setDob}
-            />
-
-            <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.fieldLabel}>Height (cm)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="170"
-                  placeholderTextColor={COLORS.muted}
-                  value={heightCm}
-                  onChangeText={setHeightCm}
-                  keyboardType="numeric"
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.fieldLabel}>Weight (kg)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="65"
-                  placeholderTextColor={COLORS.muted}
-                  value={weightKg}
-                  onChangeText={setWeightKg}
-                  keyboardType="numeric"
-                />
-              </View>
-            </View>
-
-            <Text style={[styles.fieldLabel, { marginTop: SPACING.md }]}>
-              🏃 Body goals (pick all that apply)
-            </Text>
-            <View style={styles.chipRow}>
-              {(['walk','run','jog','cycle','swim','gym','hiit'] as BodyActivity[]).map(a => {
-                const on = bodyActivities.includes(a);
-                return (
-                  <TouchableOpacity
-                    key={a}
-                    style={[styles.chip, on && styles.chipActive]}
-                    onPress={() => setBodyActivities(prev =>
-                      on ? prev.filter(x => x !== a) : [...prev, a])}
-                  >
-                    <Text style={[styles.chipText, on && styles.chipTextActive]}>{a}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <Text style={styles.fieldLabel}>Body minutes/day target</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="30"
-              placeholderTextColor={COLORS.muted}
-              value={bodyGoalMin}
-              onChangeText={setBodyGoalMin}
-              keyboardType="numeric"
-            />
-
-            <Text style={[styles.fieldLabel, { marginTop: SPACING.md }]}>
-              🪷 Soul goals (pick all that apply)
-            </Text>
-            <View style={styles.chipRow}>
-              {(['japa','meditation','sandhya'] as SoulActivity[]).map(a => {
-                const on = soulActivities.includes(a);
-                return (
-                  <TouchableOpacity
-                    key={a}
-                    style={[styles.chip, on && styles.chipActive]}
-                    onPress={() => setSoulActivities(prev =>
-                      on ? prev.filter(x => x !== a) : [...prev, a])}
-                  >
-                    <Text style={[styles.chipText, on && styles.chipTextActive]}>{a}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <Text style={styles.fieldLabel}>Soul minutes/day target</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="20"
-              placeholderTextColor={COLORS.muted}
-              value={soulGoalMin}
-              onChangeText={setSoulGoalMin}
-              keyboardType="numeric"
-            />
-
-            <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
-              <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('identity')}>
-                <Text style={styles.secondaryBtnText}>← Back</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }]} onPress={submitPersonal}>
-                <Text style={styles.primaryBtnText}>Continue →</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
         {step === 'ring' && (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepLabel}>Step 2 of 3</Text>
-            <Text style={styles.title}>Pair your Saadhana Ring</Text>
-            <Text style={styles.subtitle}>
-              The Saadhana Ring tracks your heart rate, HRV and movement so the app
-              can sense your sadhana depth. Pair it now over Bluetooth, or skip if
-              you don't have one yet.
-            </Text>
-
-            {Platform.OS === 'web' ? (
-              <View style={styles.demoBanner}>
-                <Text style={styles.demoBannerTitle}>ℹ️ Bluetooth on Android only</Text>
-                <Text style={styles.demoBannerText}>
-                  Bluetooth pairing works in the installed Android APK. On the web
-                  preview you can skip this step and pair later from the Japa tab.
-                </Text>
-              </View>
-            ) : (
-              <>
-                {pairedDevice ? (
-                  <View style={styles.demoBanner}>
-                    <Text style={styles.demoBannerTitle}>✓ Paired</Text>
-                    <Text style={styles.demoBannerText}>
-                      Connected to <Text style={{ color: COLORS.gold, fontWeight: '700' }}>{pairedDevice}</Text>
-                    </Text>
-                  </View>
-                ) : (
-                  <>
-                    <TouchableOpacity
-                      style={[styles.primaryBtn, { marginVertical: SPACING.md }]}
-                      onPress={startScan}
-                      disabled={scanning}
-                    >
-                      {scanning
-                        ? <RingSpinner size={22} color={COLORS.deep} />
-                        : <Text style={styles.primaryBtnText}>🔍 Scan for devices</Text>}
-                    </TouchableOpacity>
-
-                    {scannedDevices.length > 0 && (
-                      <View style={{ marginBottom: SPACING.md }}>
-                        <Text style={styles.fieldLabel}>Available devices</Text>
-                        {scannedDevices.map(d => (
-                          <TouchableOpacity
-                            key={d.id}
-                            style={styles.deviceRow}
-                            onPress={() => pairDevice(d.id, d.name || 'Unknown')}
-                            disabled={connectingId !== null}
-                          >
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.deviceName}>{d.name || 'Unnamed device'}</Text>
-                              <Text style={styles.deviceMeta}>{d.id} · RSSI {d.rssi ?? '?'}</Text>
-                            </View>
-                            {connectingId === d.id
-                              ? <RingSpinner size={20} />
-                              : <Text style={styles.devicePair}>Pair →</Text>}
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    )}
-                  </>
-                )}
-              </>
-            )}
-
-            <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
-              <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('personal')}>
-                <Text style={styles.secondaryBtnText}>← Back</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.primaryBtn, { flex: 1 }]}
-                onPress={() => setStep('deities')}
-              >
-                <Text style={styles.primaryBtnText}>
-                  {pairedDevice ? 'Next →' : 'Skip for now →'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          <RingStep
+            scanning={scanning}
+            scannedDevices={scannedDevices}
+            connectingId={connectingId}
+            pairedDevice={pairedDevice}
+            onScan={startScan}
+            onPair={pairDevice}
+            onBack={() => setStep('identity')}
+            onNext={() => setStep('about')}
+          />
         )}
 
-        {step === 'deities' && (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepLabel}>Step 3 of 3</Text>
-            <Text style={styles.title}>Choose your deities</Text>
-            <Text style={styles.subtitle}>
-              Tap deities to add to your sadhana. Includes the Trinity, Dashavatara,
-              Devi, Dasha Mahavidya, Ashta Bhairava and more.
-            </Text>
+        {step === 'about' && (
+          <About
+            name={name}
+            dob={dob}
+            gender={gender}
+            religion={religion}
+            onName={setName}
+            onDob={setDob}
+            onGender={setGender}
+            onReligion={setReligion}
+            onBack={() => setStep('ring')}
+            onNext={() => setStep('plan-prompt')}
+          />
+        )}
 
-            <DeityCatalogPicker
-              pickedIds={pickedIds}
-              onTogglePick={togglePick}
-              showCustom={false}
-            />
-            <Text style={styles.customHint}>
-              Want a custom deity? You can add one later from the Deities tab.
-            </Text>
-
-            <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
-              <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('ring')}>
-                <Text style={styles.secondaryBtnText}>← Back</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.primaryBtn, { flex: 1 }, pickedIds.size === 0 && styles.primaryBtnDisabled]}
-                onPress={finish}
-                disabled={pickedIds.size === 0}
-              >
-                <Text style={styles.primaryBtnText}>
-                  Finish ({pickedIds.size})
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+        {step === 'plan-prompt' && (
+          <PlanPrompt
+            onPlanNow={() => finish(true)}
+            onSkip={() => finish(false)}
+            onBack={() => setStep('about')}
+          />
         )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
 };
 
-const Welcome = ({ onNext }: { onNext: () => void }) => (
-  <View style={styles.center}>
-    <Text style={styles.bigEmoji}>🪷</Text>
-    <Text style={styles.title}>Sadhana</Text>
-    <Text style={styles.tagline}>Your daily spiritual companion</Text>
+// ─── Welcome — animated lotus + brand · auto-advances ────────────
 
-    <View style={styles.featureList}>
-      <Feature icon="📿" text="Japa counter with sacred mala" />
-      <Feature icon="🌅" text="Sandhya Vandanam — three daily junctures" />
-      <Feature icon="🪔" text="Festival calendar with Panchang" />
-      <Feature icon="🌸" text="Personal deity worship & reminders" />
-      <Feature icon="📊" text="Track your progress over time" />
+const Welcome = ({ onDone }: { onDone: () => void }) => {
+  // Animation drivers — gentle breathing + slow rotating outer ring.
+  const breath = useRef(new Animated.Value(0)).current;
+  const rotate = useRef(new Animated.Value(0)).current;
+  const fade   = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Infinite breathing pulse for the lotus + glow
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(breath, { toValue: 1, duration: 2400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(breath, { toValue: 0, duration: 2400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ])
+    ).start();
+    // Slow infinity-style rotation on the outer ring
+    Animated.loop(
+      Animated.timing(rotate, { toValue: 1, duration: 12000, easing: Easing.linear, useNativeDriver: true })
+    ).start();
+    // Fade in title block
+    Animated.timing(fade, { toValue: 1, duration: 900, useNativeDriver: true }).start();
+
+    // Auto-advance after 2.5s — no button required.
+    const t = setTimeout(onDone, 2500);
+    return () => clearTimeout(t);
+  }, []);
+
+  const scale   = breath.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1.06] });
+  const glow    = breath.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] });
+  const spin    = rotate.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+
+  return (
+    <View style={welcomeStyles.root}>
+      <Animated.View style={[welcomeStyles.ring, { transform: [{ rotate: spin }] }]} />
+      <Animated.View style={[welcomeStyles.glow, { opacity: glow }]} />
+      <Animated.View style={[welcomeStyles.lotusWrap, { transform: [{ scale }] }]}>
+        <Text style={welcomeStyles.lotus}>🪷</Text>
+      </Animated.View>
+
+      <Animated.View style={[welcomeStyles.titleBlock, { opacity: fade }]}>
+        <Text style={welcomeStyles.brand}>BODY &amp; SOUL</Text>
+        <Text style={welcomeStyles.tagline}>Where vitals meet sadhana</Text>
+      </Animated.View>
     </View>
+  );
+};
 
-    <TouchableOpacity style={[styles.primaryBtn, { marginTop: SPACING.lg }]} onPress={onNext}>
-      <Text style={styles.primaryBtnText}>Begin →</Text>
-    </TouchableOpacity>
-  </View>
-);
+// ─── Identity — Google Sign-In primary, manual fallback ──────────
 
-// OtpVerify component removed — auto-authentication has no OTP step.
-
-const Feature = ({ icon, text }: { icon: string; text: string }) => (
-  <View style={styles.featureRow}>
-    <Text style={styles.featureIcon}>{icon}</Text>
-    <Text style={styles.featureText}>{text}</Text>
-  </View>
-);
-
-/**
- * Identity step — primary path is Google Sign-In (native account picker;
- * the user just taps their existing Google account, no typing/OTP).
- * Manual entry stays as a fallback for web preview or accounts not on
- * the device.
- */
 const Identity = ({
   name, contact, contactType,
   onName, onContact, onTypeChange,
-  onBack, onNext,
+  onNext,
 }: {
   name: string;
   contact: string;
@@ -510,7 +316,6 @@ const Identity = ({
   onName: (s: string) => void;
   onContact: (s: string) => void;
   onTypeChange: (t: 'email' | 'phone') => void;
-  onBack: () => void;
   onNext: () => void;
 }) => {
   const [signingIn, setSigningIn] = useState(false);
@@ -518,7 +323,7 @@ const Identity = ({
   const [showManual, setShowManual] = useState(false);
   const [firebaseAvailable, setFirebaseAvailable] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     isFirebaseAvailable().then(setFirebaseAvailable);
   }, []);
 
@@ -540,11 +345,14 @@ const Identity = ({
   const handleSkipWithAnonymous = async () => {
     setSkipping(true);
     try {
-      // Silent anonymous Firebase sign-in. App gets a stable UID for
-      // future cloud-sync without forcing the user to type anything.
       await signInAnonymously();
       if (!name.trim()) onName('Friend');
-      onNext();
+      // Provide a placeholder contact so submitIdentity validation passes.
+      if (!contact.trim()) {
+        onContact('friend@bodyandsoul.app');
+        onTypeChange('email');
+      }
+      setTimeout(() => onNext(), 200);
     } finally {
       setSkipping(false);
     }
@@ -552,14 +360,13 @@ const Identity = ({
 
   return (
     <View style={styles.stepContent}>
-      <Text style={styles.stepLabel}>Welcome</Text>
+      <Text style={styles.stepLabel}>STEP 1 OF 4</Text>
       <Text style={styles.title}>Sign in</Text>
       <Text style={styles.subtitle}>
         Use your Google account already on this phone{'\n'}
         <Text style={{ color: '#3ddc84' }}>✓ One tap · No password · No OTP</Text>
       </Text>
 
-      {/* ── Primary: Google Sign-In via Firebase ── */}
       <TouchableOpacity
         style={[styles.googleBtn, signingIn && { opacity: 0.6 }]}
         onPress={handleGoogleSignIn}
@@ -579,10 +386,8 @@ const Identity = ({
 
       <Text style={styles.googleHint}>
         Tap above → pick your Google account → app auto-fills your name and email.
-        No typing required.
       </Text>
 
-      {/* ── Secondary: silent skip (anonymous Firebase auth) ── */}
       {firebaseAvailable && (
         <TouchableOpacity
           style={[styles.skipBtn, skipping && { opacity: 0.6 }]}
@@ -595,7 +400,6 @@ const Identity = ({
         </TouchableOpacity>
       )}
 
-      {/* ── Fallback: manual entry (collapsed by default) ── */}
       {!showManual ? (
         <TouchableOpacity
           onPress={() => setShowManual(true)}
@@ -651,16 +455,227 @@ const Identity = ({
           </TouchableOpacity>
         </View>
       )}
-
-      <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
-        <TouchableOpacity style={styles.secondaryBtn} onPress={onBack}>
-          <Text style={styles.secondaryBtnText}>← Back</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 };
 
+// ─── Ring — Bluetooth pairing ────────────────────────────────────
+
+const RingStep = ({
+  scanning, scannedDevices, connectingId, pairedDevice,
+  onScan, onPair, onBack, onNext,
+}: {
+  scanning: boolean;
+  scannedDevices: ScannedDevice[];
+  connectingId: string | null;
+  pairedDevice: string | null;
+  onScan: () => void;
+  onPair: (id: string, name: string) => void;
+  onBack: () => void;
+  onNext: () => void;
+}) => (
+  <View style={styles.stepContent}>
+    <Text style={styles.stepLabel}>STEP 2 OF 4</Text>
+    <Text style={styles.title}>Pair your Body &amp; Soul Ring</Text>
+    <Text style={styles.subtitle}>
+      The ring tracks your heart rate, HRV and movement so the app can
+      sense how your sadhana is impacting your vitals. Pair now or skip.
+    </Text>
+
+    {Platform.OS === 'web' ? (
+      <View style={styles.demoBanner}>
+        <Text style={styles.demoBannerTitle}>ℹ️ Bluetooth on Android only</Text>
+        <Text style={styles.demoBannerText}>
+          Bluetooth pairing works in the installed Android APK. On the web
+          preview you can skip this step and pair later from the Japa tab.
+        </Text>
+      </View>
+    ) : (
+      <>
+        {pairedDevice ? (
+          <View style={styles.demoBanner}>
+            <Text style={styles.demoBannerTitle}>✓ Paired</Text>
+            <Text style={styles.demoBannerText}>
+              Connected to <Text style={{ color: COLORS.gold, fontWeight: '700' }}>{pairedDevice}</Text>
+            </Text>
+          </View>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={[styles.primaryBtn, { marginVertical: SPACING.md }]}
+              onPress={onScan}
+              disabled={scanning}
+            >
+              {scanning
+                ? <RingSpinner size={22} color={COLORS.deep} />
+                : <Text style={styles.primaryBtnText}>🔍 Scan for devices</Text>}
+            </TouchableOpacity>
+
+            {scannedDevices.length > 0 && (
+              <View style={{ marginBottom: SPACING.md }}>
+                <Text style={styles.fieldLabel}>Available devices</Text>
+                {scannedDevices.map(d => (
+                  <TouchableOpacity
+                    key={d.id}
+                    style={styles.deviceRow}
+                    onPress={() => onPair(d.id, d.name || 'Unknown')}
+                    disabled={connectingId !== null}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.deviceName}>{d.name || 'Unnamed device'}</Text>
+                      <Text style={styles.deviceMeta}>{d.id} · RSSI {d.rssi ?? '?'}</Text>
+                    </View>
+                    {connectingId === d.id
+                      ? <RingSpinner size={20} />
+                      : <Text style={styles.devicePair}>Pair →</Text>}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </>
+        )}
+      </>
+    )}
+
+    <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
+      <TouchableOpacity style={styles.secondaryBtn} onPress={onBack}>
+        <Text style={styles.secondaryBtnText}>← Back</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }]} onPress={onNext}>
+        <Text style={styles.primaryBtnText}>
+          {pairedDevice ? 'Next →' : 'Skip for now →'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+);
+
+// ─── About — Name · DOB · Gender · Religion · all in one screen ──
+
+const About = ({
+  name, dob, gender, religion,
+  onName, onDob, onGender, onReligion,
+  onBack, onNext,
+}: {
+  name: string;
+  dob: string;
+  gender: Gender | null;
+  religion: Religion | null;
+  onName: (s: string) => void;
+  onDob: (s: string) => void;
+  onGender: (g: Gender) => void;
+  onReligion: (r: Religion) => void;
+  onBack: () => void;
+  onNext: () => void;
+}) => (
+  <View style={styles.stepContent}>
+    <Text style={styles.stepLabel}>STEP 3 OF 4</Text>
+    <Text style={styles.title}>About you</Text>
+    <Text style={styles.subtitle}>
+      Helps the AI personalise your daily plan. All optional — tap Skip if you'd
+      rather not share.
+    </Text>
+
+    <Text style={styles.fieldLabel}>Your name</Text>
+    <TextInput
+      style={styles.input}
+      placeholder="e.g. Lakshmi Pavani"
+      placeholderTextColor={COLORS.muted}
+      value={name}
+      onChangeText={onName}
+    />
+
+    <Text style={[styles.fieldLabel, { marginTop: SPACING.md }]}>Date of birth</Text>
+    <TextInput
+      style={styles.input}
+      placeholder="YYYY-MM-DD"
+      placeholderTextColor={COLORS.muted}
+      value={dob}
+      onChangeText={onDob}
+    />
+    <Text style={styles.hint}>Used for age-band baseline in your AI plan.</Text>
+
+    <Text style={[styles.fieldLabel, { marginTop: SPACING.md }]}>Gender</Text>
+    <View style={styles.gridRow}>
+      {GENDERS.map(g => (
+        <TouchableOpacity
+          key={g.id}
+          style={[styles.gridChip, gender === g.id && styles.gridChipActive]}
+          onPress={() => onGender(g.id)}
+        >
+          <Text style={styles.gridChipIcon}>{g.icon}</Text>
+          <Text style={[styles.gridChipLabel, gender === g.id && styles.gridChipLabelActive]}>
+            {g.label}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+
+    <Text style={[styles.fieldLabel, { marginTop: SPACING.md }]}>Religion / spiritual lean</Text>
+    <View style={styles.gridRow}>
+      {RELIGIONS.map(r => (
+        <TouchableOpacity
+          key={r.id}
+          style={[styles.gridChip, religion === r.id && styles.gridChipActive]}
+          onPress={() => onReligion(r.id)}
+        >
+          <Text style={styles.gridChipIcon}>{r.icon}</Text>
+          <Text style={[styles.gridChipLabel, religion === r.id && styles.gridChipLabelActive]}>
+            {r.label}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+    <Text style={styles.hint}>Tunes the festival calendar to your tradition.</Text>
+
+    <View style={[styles.btnRow, { marginTop: SPACING.lg }]}>
+      <TouchableOpacity style={styles.secondaryBtn} onPress={onBack}>
+        <Text style={styles.secondaryBtnText}>← Back</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }]} onPress={onNext}>
+        <Text style={styles.primaryBtnText}>Continue →</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+);
+
+// ─── Plan prompt — final step before entering the app ────────────
+
+const PlanPrompt = ({
+  onPlanNow, onSkip, onBack,
+}: {
+  onPlanNow: () => void;
+  onSkip: () => void;
+  onBack: () => void;
+}) => (
+  <View style={styles.stepContent}>
+    <Text style={styles.stepLabel}>STEP 4 OF 4</Text>
+    <Text style={styles.title}>Plan your routine?</Text>
+    <Text style={styles.subtitle}>
+      Set up your daily walk · yoga · japa · meditation now — or jump
+      straight to the dashboard and plan later.
+    </Text>
+
+    <TouchableOpacity style={styles.planCta} onPress={onPlanNow}>
+      <Text style={styles.planCtaIcon}>🌿</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.planCtaTitle}>Plan your routine now</Text>
+        <Text style={styles.planCtaSub}>AI suggests a starter plan from your age + vitals</Text>
+      </View>
+      <Text style={styles.planCtaArrow}>→</Text>
+    </TouchableOpacity>
+
+    <TouchableOpacity style={styles.planSkipBtn} onPress={onSkip}>
+      <Text style={styles.planSkipText}>Skip for now · take me to the dashboard</Text>
+    </TouchableOpacity>
+
+    <TouchableOpacity style={[styles.secondaryBtn, { alignSelf: 'center', marginTop: SPACING.lg }]} onPress={onBack}>
+      <Text style={styles.secondaryBtnText}>← Back</Text>
+    </TouchableOpacity>
+  </View>
+);
+
+// ─── Styles ─────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.deep },
@@ -669,19 +684,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingBottom: SPACING.xl,
   },
-  center: { alignItems: 'stretch', paddingTop: 30, paddingHorizontal: SPACING.md },
-  bigEmoji: { fontSize: 80, marginBottom: SPACING.md },
   title: {
-    fontSize: 32,
+    fontSize: 28,
     color: COLORS.cream,
     fontWeight: '700',
     marginBottom: SPACING.sm,
-    textAlign: 'center',
-  },
-  tagline: {
-    fontSize: 14,
-    color: COLORS.muted,
-    marginBottom: SPACING.lg,
     textAlign: 'center',
   },
   subtitle: {
@@ -689,6 +696,7 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
     marginBottom: SPACING.lg,
     textAlign: 'center',
+    lineHeight: 19,
   },
   stepLabel: {
     fontSize: 11,
@@ -698,19 +706,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: SPACING.sm,
   },
-  customHint: {
-    fontSize: 11,
-    color: COLORS.muted,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    marginTop: SPACING.md,
-    paddingHorizontal: SPACING.md,
-  },
   stepContent: { paddingTop: SPACING.lg },
-  featureList: { marginVertical: SPACING.lg, alignSelf: 'stretch' },
-  featureRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  featureIcon: { fontSize: 22, marginRight: SPACING.md, width: 30 },
-  featureText: { flex: 1, fontSize: 14, color: COLORS.cream },
+
   field: { marginBottom: SPACING.md },
   fieldLabel: {
     fontSize: 11,
@@ -731,6 +728,29 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
   },
   hint: { fontSize: 11, color: COLORS.muted, marginTop: 6, fontStyle: 'italic' },
+
+  // ── Grid of selectable chips (gender, religion) ──
+  gridRow: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    gap: 8, marginBottom: 4,
+  },
+  gridChip: {
+    minWidth: '30%', flexGrow: 1,
+    paddingVertical: 10, paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: COLORS.cardBg,
+    borderWidth: 1, borderColor: COLORS.border,
+    alignItems: 'center',
+  },
+  gridChipActive: {
+    borderColor: COLORS.gold,
+    backgroundColor: 'rgba(212,160,23,0.15)',
+  },
+  gridChipIcon: { fontSize: 20, marginBottom: 4 },
+  gridChipLabel: { fontSize: 12, color: COLORS.cream, fontWeight: '600' },
+  gridChipLabelActive: { color: COLORS.gold, fontWeight: '700' },
+
+  // ── Bluetooth pairing banners + rows ──
   demoBanner: {
     backgroundColor: 'rgba(255, 140, 66, 0.12)',
     borderLeftWidth: 3,
@@ -740,23 +760,22 @@ const styles = StyleSheet.create({
     marginVertical: SPACING.md,
   },
   demoBannerTitle: { fontSize: 12, color: COLORS.saffron, fontWeight: '700', marginBottom: 4 },
-  demoBannerText: { fontSize: 11, color: COLORS.muted, marginBottom: 8, lineHeight: 16 },
-  demoOtp: {
-    fontSize: 28,
-    color: COLORS.gold,
-    fontWeight: '700',
-    letterSpacing: 8,
-    textAlign: 'center',
-    backgroundColor: 'rgba(212, 160, 23, 0.1)',
-    paddingVertical: 8,
-    borderRadius: 6,
+  demoBannerText: { fontSize: 11, color: COLORS.muted, lineHeight: 16 },
+  deviceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SPACING.md,
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginTop: 6,
   },
-  otpInput: {
-    fontSize: 26,
-    letterSpacing: 10,
-    textAlign: 'center',
-    fontWeight: '700',
-  },
+  deviceName: { fontSize: 14, color: COLORS.cream, fontWeight: '600' },
+  deviceMeta: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
+  devicePair: { fontSize: 13, color: COLORS.gold, fontWeight: '700' },
+
+  // ── Toggle (email | phone) ──
   toggleRow: {
     flexDirection: 'row',
     backgroundColor: COLORS.cardBg,
@@ -773,6 +792,8 @@ const styles = StyleSheet.create({
   toggleBtnActive: { backgroundColor: COLORS.gold },
   toggleText: { fontSize: 13, color: COLORS.muted, fontWeight: '500' },
   toggleTextActive: { color: COLORS.deep, fontWeight: '700' },
+
+  // ── Buttons ──
   primaryBtn: {
     backgroundColor: COLORS.gold,
     borderRadius: 10,
@@ -780,13 +801,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'stretch',          // T1: full-width via stretch instead of fixed positioning
+    alignSelf: 'stretch',
     minHeight: 52,
-    // NOTE: marginTop is applied per-site (standalone Begin button uses
-    // marginTop; inside btnRow we rely on the row's own marginTop instead so
-    // primary + secondary buttons share a baseline)
   },
-  primaryBtnDisabled: { opacity: 0.4 },
   primaryBtnText: { color: COLORS.deep, fontWeight: '700', fontSize: 15 },
   secondaryBtn: {
     paddingHorizontal: SPACING.md,
@@ -807,93 +824,30 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     marginTop: SPACING.md,
   },
-  deityGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.sm,
-    marginVertical: SPACING.md,
-  },
-  deityChip: {
-    width: '48%',
-    backgroundColor: COLORS.cardBg,
-    borderRadius: 10,
+
+  // ── Plan prompt CTA ──
+  planCta: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(80, 200, 180, 0.10)',
+    borderRadius: 14,
+    borderWidth: 1, borderColor: '#7FE8C8',
     padding: SPACING.md,
-    borderWidth: 2,
-    borderColor: COLORS.border,
-    position: 'relative',
+    marginTop: SPACING.md,
   },
-  deityChipActive: {
-    borderColor: COLORS.gold,
-    backgroundColor: 'rgba(212, 160, 23, 0.1)',
-  },
-  deityChipIcon: { fontSize: 28, marginBottom: 6 },
-  deityChipName: { fontSize: 13, color: COLORS.cream, fontWeight: '600' },
-  deityChipNameActive: { color: COLORS.gold },
-  deityChipMantra: { fontSize: 10, color: COLORS.muted, marginTop: 2, fontStyle: 'italic' },
-  deityChipCheck: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: COLORS.gold,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: COLORS.border,
-    marginVertical: SPACING.lg,
-  },
-  subSection: {
-    fontSize: 13,
-    color: COLORS.gold,
-    fontWeight: '700',
-    letterSpacing: 1,
-    marginBottom: SPACING.sm,
-    textTransform: 'uppercase',
-  },
-  iconGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginBottom: SPACING.sm,
-  },
-  iconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(212, 160, 23, 0.2)',
-  },
-  iconBtnActive: {
-    borderColor: COLORS.gold,
-    backgroundColor: 'rgba(212, 160, 23, 0.15)',
-  },
-  addCustomBtn: {
-    backgroundColor: COLORS.cardBg,
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.gold,
-    marginTop: 4,
-  },
-  addCustomBtnText: { color: COLORS.gold, fontSize: 13, fontWeight: '600' },
+  planCtaIcon: { fontSize: 32, marginRight: SPACING.md },
+  planCtaTitle: { color: COLORS.cream, fontSize: 15, fontWeight: '700' },
+  planCtaSub:   { color: COLORS.muted, fontSize: 11, marginTop: 2 },
+  planCtaArrow: { fontSize: 22, color: '#7FE8C8', fontWeight: '700', marginLeft: 6 },
 
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: SPACING.sm },
-  chip: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
-    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.cardBg,
+  planSkipBtn: {
+    marginTop: SPACING.md, paddingVertical: 14,
+    borderRadius: 10, borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
   },
-  chipActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
-  chipText: { fontSize: 12, color: COLORS.muted, fontWeight: '600', textTransform: 'capitalize' },
-  chipTextActive: { color: COLORS.gold },
+  planSkipText: { color: COLORS.muted, fontSize: 13, fontWeight: '600' },
 
-  // ── Google Sign-In button (elderly-friendly: large, single tap) ──
+  // ── Google Sign-In button ──
   googleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -911,26 +865,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
   googleG: {
-    fontSize: 22,
-    color: '#4285F4',
-    fontWeight: '900',
-    marginRight: 12,
+    fontSize: 22, color: '#4285F4', fontWeight: '900', marginRight: 12,
   },
-  googleBtnText: {
-    color: '#1a1a1a',
-    fontSize: 16,
-    fontWeight: '700',
-  },
+  googleBtnText: { color: '#1a1a1a', fontSize: 16, fontWeight: '700' },
   googleHint: {
-    fontSize: 12,
-    color: COLORS.muted,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    marginTop: SPACING.md,
-    lineHeight: 17,
+    fontSize: 12, color: COLORS.muted, fontStyle: 'italic',
+    textAlign: 'center', marginTop: SPACING.md, lineHeight: 17,
     paddingHorizontal: SPACING.md,
   },
-  // ── "Skip for now" button — silent anonymous Firebase sign-in ──
   skipBtn: {
     marginTop: SPACING.md,
     paddingVertical: 12,
@@ -944,19 +886,58 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   skipBtnText: { color: COLORS.cream, fontSize: 13, fontWeight: '500' },
+});
 
-  // Bluetooth pairing (onboarding step)
-  deviceRow: {
-    flexDirection: 'row',
+// ─── Welcome-screen styles (separate for visual isolation) ───────
+
+const welcomeStyles = StyleSheet.create({
+  root: {
+    paddingTop: 120,
     alignItems: 'center',
-    padding: SPACING.md,
-    backgroundColor: COLORS.cardBg,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    marginTop: 6,
+    justifyContent: 'center',
+    minHeight: 600,
   },
-  deviceName: { fontSize: 14, color: COLORS.cream, fontWeight: '600' },
-  deviceMeta: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
-  devicePair: { fontSize: 13, color: COLORS.gold, fontWeight: '700' },
+  ring: {
+    position: 'absolute',
+    top: 90,
+    width: 260, height: 260, borderRadius: 130,
+    borderWidth: 1, borderColor: 'rgba(255, 224, 102, 0.30)',
+    borderStyle: 'dashed',
+  },
+  glow: {
+    position: 'absolute',
+    top: 130,
+    width: 180, height: 180, borderRadius: 90,
+    backgroundColor: 'rgba(255, 184, 0, 0.30)',
+    shadowColor: '#FFB800',
+    shadowOpacity: 1,
+    shadowRadius: 60,
+    elevation: 30,
+  },
+  lotusWrap: {
+    width: 160, height: 160,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  lotus: { fontSize: 110 },
+
+  titleBlock: {
+    marginTop: 30,
+    alignItems: 'center',
+  },
+  brand: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: COLORS.cream,
+    letterSpacing: 4,
+    marginBottom: 8,
+    textShadowColor: '#FFB800',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 12,
+  },
+  tagline: {
+    fontSize: 13,
+    color: COLORS.gold,
+    fontStyle: 'italic',
+    letterSpacing: 1.5,
+  },
 });

@@ -48,6 +48,10 @@ export interface UserProfile {
   onboarded: boolean;
   /** ISO date string, YYYY-MM-DD. */
   dob?: string;
+  /** Gender — drives subtle copy + future health analytics. */
+  gender?: 'male' | 'female' | 'other' | 'prefer-not-to-say';
+  /** Religion / spiritual lean — seeds default festival calendar slant. */
+  religion?: 'hindu' | 'buddhist' | 'jain' | 'sikh' | 'spiritual' | 'other';
   /** Height in cm. */
   heightCm?: number;
   /** Weight in kg. */

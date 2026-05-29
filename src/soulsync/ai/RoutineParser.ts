@@ -36,7 +36,9 @@ const KEYWORDS: Record<RoutineCategory, string[]> = {
   meditate: ['meditat', 'mindful', 'box breath', 'body scan', 'yoga nidra',
              'grounding', '5-4-3-2-1', 'so hum', 'so-hum'],
   sandhya:  ['sandhya', 'pratah', 'madhyahnika', 'sayam', 'vandanam'],
-  festival: ['festival', 'ekadashi', 'pradosh', 'shivratri', 'navratri', 'diwali'],
+  shraadha: ['shraadha', 'shraddha', 'shradh', 'tithi shraddha', 'pitru', 'ancestor'],
+  tithi:    ['tithi', 'ekadashi', 'pradosh', 'purnima', 'amavasya', 'sankashti'],
+  festival: ['festival', 'shivratri', 'navratri', 'diwali', 'holi', 'janmashtami'],
 };
 
 const DAY_KEYWORDS: Record<string, number> = {

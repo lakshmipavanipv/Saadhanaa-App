@@ -35,7 +35,7 @@ interface Props {
   label?: string;
 }
 
-export const SplashScreen: React.FC<Props> = ({ label = 'Awakening your sadhana' }) => {
+export const SplashScreen: React.FC<Props> = ({ label = 'Awakening your body & soul' }) => {
   // ── Animation drivers ──
   const lotusScale = useSharedValue(0.9);
   const lotusGlow  = useSharedValue(0.4);
@@ -160,7 +160,7 @@ export const SplashScreen: React.FC<Props> = ({ label = 'Awakening your sadhana'
 
       {/* Title block */}
       <Animated.View style={[styles.titleBlock, titleAnim]}>
-        <Text style={styles.brand}>SAADHANA</Text>
+        <Text style={styles.brand}>BODY &amp; SOUL</Text>
         <Text style={styles.tagline}>सत्यमेव जयते</Text>
         <Text style={styles.subtitle}>Sacred practice · Modern science</Text>
       </Animated.View>
@@ -267,10 +267,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   brand: {
-    fontSize: 38,
+    fontSize: 32,
     fontWeight: '800',
     color: COLORS.cream,
-    letterSpacing: 10,
+    letterSpacing: 4,
     marginBottom: 8,
     textShadowColor: CITRINE,
     textShadowOffset: { width: 0, height: 0 },
