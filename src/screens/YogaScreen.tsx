@@ -22,13 +22,12 @@ import { createDefaultRing } from '../soulsync/services/RingTelemetryService';
 import { TextInput } from 'react-native';
 import { exerciseRepo } from '../services/exerciseRepo';
 import { useSadhana } from '../context';
-import { WeekSparkline } from '../components/WeekSparkline';
-import { getDB } from '../soulsync/db/database';
 import { todayStr } from '../utils';
-import { HRVWaveGraph } from '../soulsync/components/HRVWaveGraph';
-import { BpmHrvBaselineCard } from '../soulsync/components/BpmHrvBaselineCard';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
-import { DUMMY, withFallback } from '../services/dummyData';
+import { BigVitalsHeader } from '../components/BigVitalsHeader';
+import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
+import { PracticeAssistant, PracticeCatalogItem } from '../components/PracticeAssistant';
+import { withFallback } from '../services/dummyData';
 
 // Single shared ring instance for yoga stage-mark buzzes
 const ring = createDefaultRing();
@@ -284,15 +283,42 @@ export const YogaScreen = ({ navigation }: any) => {
     setShowLog(false); setLogMin('');
   };
 
-  // Time-of-day recommendation
-  const recommended = React.useMemo(() => {
-    const h = new Date().getHours();
-    if (h < 10)  return YOGA_CATALOG.filter(i => ['morning', 'energy', 'pranayama'].includes(i.category)).slice(0, 3);
-    if (h < 17)  return YOGA_CATALOG.filter(i => ['energy', 'spine', 'hips'].includes(i.category)).slice(0, 3);
-    return            YOGA_CATALOG.filter(i => ['calm', 'pranayama'].includes(i.category)).slice(0, 3);
+  // Compute today's yoga minutes for the BigVitalsHeader
+  const [minutesToday, setMinutesToday] = useState(0);
+  useEffect(() => {
+    (async () => {
+      const all = await exerciseRepo.list();
+      const today = todayStr();
+      const real = all.filter(e => e.activity === 'yoga' && e.date === today)
+                      .reduce((s, e) => s + e.durationMin, 0);
+      setMinutesToday(withFallback(real, 12));
+    })();
   }, []);
 
-  const filtered = filter === 'all' ? YOGA_CATALOG : YOGA_CATALOG.filter(i => i.category === filter);
+  // Map YogaItem → PracticeCatalogItem for the assistant modal
+  const catalog: PracticeCatalogItem[] = React.useMemo(
+    () => YOGA_CATALOG.map(i => ({
+      id: i.id, name: i.name, sanskrit: i.sanskrit,
+      benefit: i.benefit, durationSec: i.durationSec, category: i.category,
+    })),
+    []
+  );
+  const iconFor = (cat: string) => CATEGORIES.find(c => c.id === cat)?.icon || '🧘';
+  const handlePickPractice = (item: PracticeCatalogItem) => {
+    // If it's a custom Sadhana Path, fabricate a YogaItem shell so the
+    // existing detail modal can render the steps as the practice list.
+    const cat = YOGA_CATALOG.find(y => y.id === item.id);
+    if (cat) { setSelected(cat); return; }
+    const shell: YogaItem = {
+      id: item.id, name: item.name,
+      sanskrit: item.sanskrit ?? 'Custom Sadhana Path',
+      category: 'energy',
+      durationSec: item.durationSec,
+      benefit: item.benefit ?? 'Your personalised yoga sequence.',
+      steps: (item.benefit ?? '').split(' · ').filter(Boolean),
+    };
+    setSelected(shell);
+  };
 
   return (
     <View style={styles.container}>
@@ -309,8 +335,8 @@ export const YogaScreen = ({ navigation }: any) => {
           </View>
         </View>
 
-        {/* Samsung-Health-style yoga KPIs + vitals comparison */}
-        <YogaStatsHeader />
+        {/* Elder-friendly KPI strip: big minutes-today hero + Heart + Lung tiles */}
+        <BigVitalsHeader practice="Yoga" minutesToday={minutesToday} goalMinutes={YOGA_DAILY_GOAL_MIN} />
 
         {/* Soulsync — start before yoga to capture HRV / BPM changes */}
         <SoulsyncSessionBar
@@ -318,66 +344,23 @@ export const YogaScreen = ({ navigation }: any) => {
           onViewInsights={() => navigation?.navigate?.('History')}
         />
 
-        {/* ── LIVE TREND — visible only while a Soulsync session is active.
-              Mirrors the Japa-tab pattern so the user sees BPM dipping and
-              HRV rising in real time as they practice. ── */}
-        {soulsync.state.active && (
-          <HRVWaveGraph
-            bpmSeries={soulsync.state.bpmSeries}
-            peakIndices={soulsync.state.peakIndices}
-            rmssd={soulsync.state.rmssd}
-            improvementPct={soulsync.state.improvementPct}
-            isBaselineEstablished={soulsync.state.isBaselineEstablished}
-          />
-        )}
-
-        <BpmHrvBaselineCard
-          liveBpm={soulsync.state.liveBpm}
-          liveRmssd={soulsync.state.rmssd}
+        {/* ── LIVE TRENDS — heart + lung with today's baseline overlay.
+              Shows only while a session is active. Replaces the old
+              HRVWaveGraph + BpmHrvBaselineCard pair. ── */}
+        <LiveVitalsTrends
+          bpmSeries={soulsync.state.bpmSeries}
+          liveSpo2={soulsync.state.liveSpo2}
           isActive={soulsync.state.active}
         />
 
-        {/* Today's recommendation */}
-        <View style={styles.recCard}>
-          <Text style={styles.recLabel}>RECOMMENDED FOR THIS TIME OF DAY</Text>
-          {recommended.map(i => (
-            <TouchableOpacity key={i.id} style={styles.recRow} onPress={() => setSelected(i)}>
-              <Text style={styles.recIcon}>{CATEGORIES.find(c => c.id === i.category)?.icon || '🧘'}</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.recName}>{i.name}</Text>
-                <Text style={styles.recSanskrit}>{i.sanskrit}</Text>
-              </View>
-              <Text style={styles.recDur}>{fmtSec(i.durationSec)}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Category filter */}
-        <View style={styles.filterRow}>
-          {CATEGORIES.map(c => (
-            <TouchableOpacity
-              key={c.id}
-              style={[styles.filterChip, filter === c.id && styles.filterChipActive]}
-              onPress={() => setFilter(c.id)}
-            >
-              <Text style={styles.filterIcon}>{c.icon}</Text>
-              <Text style={[styles.filterLabel, filter === c.id && styles.filterLabelActive]}>{c.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Full list */}
-        {filtered.map(i => (
-          <TouchableOpacity key={i.id} style={styles.listCard} onPress={() => setSelected(i)}>
-            <Text style={styles.listIcon}>{CATEGORIES.find(c => c.id === i.category)?.icon || '🧘'}</Text>
-            <View style={{ flex: 1, marginLeft: SPACING.sm }}>
-              <Text style={styles.listName}>{i.name}</Text>
-              <Text style={styles.listSanskrit}>{i.sanskrit}</Text>
-              <Text style={styles.listBenefit} numberOfLines={2}>{i.benefit}</Text>
-            </View>
-            <Text style={styles.listDur}>{fmtSec(i.durationSec)}</Text>
-          </TouchableOpacity>
-        ))}
+        {/* All practices behind a single button — opens a modal with
+            user's custom Sadhana Paths first, then the full library. */}
+        <PracticeAssistant
+          practice="yoga"
+          catalog={catalog}
+          onSelect={handlePickPractice}
+          iconFor={iconFor}
+        />
       </ScrollView>
 
       {/* Detail modal */}
@@ -422,217 +405,11 @@ export const YogaScreen = ({ navigation }: any) => {
   );
 };
 
-// ─── Yoga Stats Header (KPIs + before/during vitals comparison) ──
-//
-// Mirrors the Samsung-Health-style cards in the Exercise tab but
-// focused on the inner yield: how today's yoga moved the body's
-// resting baseline (BPM / HRV / SpO₂) during practice.
-
-interface YogaStatsState {
-  minutesToday: number;
-  weeklyMinutes: number[];
-  sessionsToday: number;
-  avgDepth: number | null;
-  baseline: { bpm: number; hrv: number; spo2: number } | null;
-  during:   { bpm: number; hrv: number; spo2: number } | null;
-  hrvLiftSeries: number[];
-}
-
+// YogaStatsHeader removed in v41 — replaced by BigVitalsHeader for an
+// elder-friendly layout (huge fonts, Heart + Lung tappable tiles, no
+// week-min / sessions-today / HRV-lift clutter).
 const YOGA_DAILY_GOAL_MIN = 15;
 
-const YogaStatsHeader: React.FC = () => {
-  const [s, setS] = useState<YogaStatsState>({
-    minutesToday: 0, weeklyMinutes: [0,0,0,0,0,0,0],
-    sessionsToday: 0, avgDepth: null,
-    baseline: null, during: null, hrvLiftSeries: [0,0,0,0,0,0,0],
-  });
-
-  useEffect(() => {
-    (async () => {
-      const today = todayStr();
-      // ── Yoga minutes today + weekly trend ──
-      const all = await exerciseRepo.list();
-      const yogaToday = all.filter(e => e.activity === 'yoga' && e.date === today);
-      const minutesToday = yogaToday.reduce((sum, e) => sum + e.durationMin, 0);
-      const weeklyMinutes: number[] = [];
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-        const m = all
-          .filter(e => e.activity === 'yoga' && e.date === d)
-          .reduce((sum, e) => sum + e.durationMin, 0);
-        weeklyMinutes.push(m);
-      }
-
-      // ── Sessions + depth + vitals (best-effort; DB may be empty) ──
-      let sessionsToday = 0;
-      let avgDepth: number | null = null;
-      let baseline: any = null;
-      let during: any = null;
-      const hrvLiftSeries: number[] = [];
-      try {
-        const db = await getDB();
-        const dayStart = today + 'T00:00:00';
-        const dayEnd   = today + 'T23:59:59';
-
-        const sess = await db.getAllAsync<{ session_id: string; depth_score: number | null }>(
-          `SELECT session_id, depth_score FROM session_spiritual
-           WHERE start_time BETWEEN ? AND ?`,
-          [dayStart, dayEnd]
-        );
-        sessionsToday = sess.length;
-        const depthVals = sess.map(x => x.depth_score).filter((v): v is number => v != null);
-        avgDepth = depthVals.length > 0
-          ? Math.round((depthVals.reduce((s, x) => s + x, 0) / depthVals.length) * 10) / 10
-          : null;
-
-        // Today's ambient baseline averages
-        const baseRow = await db.getFirstAsync<{ bpm: number | null; hrv: number | null; spo2: number | null }>(
-          `SELECT AVG(ambient_bpm) AS bpm, AVG(ambient_rmssd) AS hrv, AVG(spo2) AS spo2
-           FROM ambient_baseline WHERE timestamp BETWEEN ? AND ?`,
-          [dayStart, dayEnd]
-        );
-        if (baseRow?.bpm != null) {
-          baseline = {
-            bpm: Math.round(baseRow.bpm),
-            hrv: Math.round(baseRow.hrv ?? 0),
-            spo2: Math.round((baseRow.spo2 ?? 0) * 10) / 10,
-          };
-        }
-
-        // Today's during-session averages (any spiritual session — yoga's
-        // SoulsyncSessionBar writes here too)
-        if (sess.length > 0) {
-          const ids = sess.map(x => x.session_id);
-          const placeholders = ids.map(() => '?').join(',');
-          const teleRow = await db.getFirstAsync<{ bpm: number | null; hrv: number | null; spo2: number | null }>(
-            `SELECT AVG(bpm) AS bpm, AVG(rmssd_ms) AS hrv, AVG(spo2) AS spo2
-             FROM session_telemetry WHERE session_id IN (${placeholders})`,
-            ids
-          );
-          if (teleRow?.bpm != null) {
-            during = {
-              bpm: Math.round(teleRow.bpm),
-              hrv: Math.round(teleRow.hrv ?? 0),
-              spo2: Math.round((teleRow.spo2 ?? 0) * 10) / 10,
-            };
-          }
-        }
-
-        // 7-day HRV lift (during − baseline) — positive bars = practice lifted HRV
-        for (let i = 6; i >= 0; i--) {
-          const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-          const ds = d + 'T00:00:00', de = d + 'T23:59:59';
-          const b = await db.getFirstAsync<{ v: number | null }>(
-            `SELECT AVG(ambient_rmssd) AS v FROM ambient_baseline WHERE timestamp BETWEEN ? AND ?`,
-            [ds, de]
-          );
-          const dur = await db.getFirstAsync<{ v: number | null }>(
-            `SELECT AVG(t.rmssd_ms) AS v FROM session_telemetry t
-             JOIN session_spiritual s ON s.session_id = t.session_id
-             WHERE s.start_time BETWEEN ? AND ?`,
-            [ds, de]
-          );
-          const lift = (dur?.v && b?.v) ? Math.max(0, Math.round(dur.v - b.v)) : 0;
-          hrvLiftSeries.push(lift);
-        }
-      } catch { /* DB not ready or no data — leave zeros */ }
-
-      setS({ minutesToday, weeklyMinutes, sessionsToday, avgDepth, baseline, during, hrvLiftSeries });
-    })();
-  }, []);
-
-  // ── Apply dummy fallback when no real data has landed yet ──
-  const minutesToday = withFallback(s.minutesToday, 12);  // ~12 min mock
-  const weeklyMinutes = withFallback(s.weeklyMinutes,  DUMMY.workoutWeek);
-  const sessionsToday = withFallback(s.sessionsToday, DUMMY.sessionsToday);
-  const avgDepth      = withFallback(s.avgDepth,      DUMMY.avgSessionDepthToday);
-  const baseline      = s.baseline ?? { bpm: DUMMY.ambientToday.bpm, hrv: DUMMY.ambientToday.rmssd, spo2: DUMMY.ambientToday.spo2 };
-  const during        = s.during   ?? { bpm: DUMMY.sessionAverages.bpm, hrv: DUMMY.sessionAverages.rmssd, spo2: DUMMY.sessionAverages.spo2 };
-  const hrvLiftSeries = withFallback(s.hrvLiftSeries, DUMMY.hrvLift7d);
-
-  const goalPct = Math.min(100, Math.round((minutesToday / YOGA_DAILY_GOAL_MIN) * 100));
-  const weekTotal = weeklyMinutes.reduce((a, b) => a + b, 0);
-
-  // Vital row helper
-  const VitalRow = ({ icon, label, before, during, unit, higherIsBetter }: {
-    icon: string; label: string;
-    before: number | null; during: number | null;
-    unit: string; higherIsBetter: boolean;
-  }) => {
-    const hasData = before != null && during != null;
-    const delta = hasData ? (during - before) : 0;
-    const improved = higherIsBetter ? delta > 0 : delta < 0;
-    return (
-      <View style={styles.yshVitalRow}>
-        <Text style={styles.yshVitalIcon}>{icon}</Text>
-        <Text style={styles.yshVitalLabel}>{label}</Text>
-        <Text style={styles.yshVitalNum}>{before ?? '—'}</Text>
-        <Text style={styles.yshVitalArrow}>→</Text>
-        <Text style={[styles.yshVitalNum, hasData && { color: COLORS.cream, fontWeight: '700' }]}>
-          {during ?? '—'}
-        </Text>
-        {hasData ? (
-          <Text style={[styles.yshVitalDelta, improved ? styles.yshDeltaUp : styles.yshDeltaDown]}>
-            {delta > 0 ? '+' : ''}{delta} {unit}
-          </Text>
-        ) : (
-          <Text style={styles.yshVitalDelta}>—</Text>
-        )}
-      </View>
-    );
-  };
-
-  return (
-    <View style={styles.yshContainer}>
-      {/* PRIMARY KPI */}
-      <View style={styles.yshHero}>
-        <Text style={styles.yshHeroLabel}>YOGA MINUTES TODAY</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-          <Text style={styles.yshHeroValue}>{minutesToday}</Text>
-          <Text style={styles.yshHeroGoal}> / {YOGA_DAILY_GOAL_MIN} min goal</Text>
-        </View>
-        <View style={styles.yshProgressTrack}>
-          <View style={[styles.yshProgressFill, { width: `${goalPct}%` }]} />
-        </View>
-      </View>
-
-      {/* Secondary KPIs grid */}
-      <View style={styles.yshKpiGrid}>
-        <View style={styles.yshKpiCell}>
-          <Text style={styles.yshKpiValue}>{sessionsToday}</Text>
-          <Text style={styles.yshKpiLabel}>Sessions{'\n'}today</Text>
-        </View>
-        <View style={styles.yshKpiCell}>
-          <Text style={styles.yshKpiValue}>{avgDepth}</Text>
-          <Text style={styles.yshKpiLabel}>Avg depth{'\n'}score</Text>
-        </View>
-        <View style={styles.yshKpiCell}>
-          <Text style={styles.yshKpiValue}>{weekTotal}</Text>
-          <Text style={styles.yshKpiLabel}>Week min{'\n'}total</Text>
-        </View>
-      </View>
-
-      {/* Today's yoga breakdown — week sparkline */}
-      <Text style={styles.yshSubLabel}>THIS WEEK</Text>
-      <WeekSparkline values={weeklyMinutes} height={42} />
-
-      {/* Vitals · Before vs During */}
-      <Text style={styles.yshSubLabel}>VITALS · BEFORE vs DURING YOGA (TODAY)</Text>
-      <View style={styles.yshVitalsBox}>
-        <VitalRow icon="❤️" label="Resting BPM"  before={baseline.bpm}  during={during.bpm}  unit="bpm" higherIsBetter={false} />
-        <VitalRow icon="〰️" label="HRV (RMSSD)"   before={baseline.hrv}  during={during.hrv}  unit="ms"  higherIsBetter={true} />
-        <VitalRow icon="🫁" label="SpO₂"          before={baseline.spo2} during={during.spo2} unit="%"   higherIsBetter={true} />
-      </View>
-
-      {/* HRV lift trend */}
-      <Text style={styles.yshSubLabel}>HRV LIFT · 7 DAYS (DURING − BASELINE)</Text>
-      <WeekSparkline values={hrvLiftSeries} height={42} />
-      <Text style={styles.yshHint}>
-        Positive bars = practice lifted HRV above your resting baseline that day.
-      </Text>
-    </View>
-  );
-};
 
 // ─── Surya Namaskar text-only stage advancer ─────────────────────
 //

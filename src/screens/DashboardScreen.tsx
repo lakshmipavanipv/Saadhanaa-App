@@ -91,7 +91,7 @@ const AnimatedPlanCta: React.FC<{ onPress: () => void }> = ({ onPress }) => {
           <View style={styles.planCta}>
             <Text style={styles.planCtaIcon}>🎯</Text>
             <View style={{ flex: 1, marginLeft: SPACING.sm }}>
-              <Text style={styles.planCtaTitle}>Plan your routine</Text>
+              <Text style={styles.planCtaTitle}>Plan your well-being</Text>
               <Text style={styles.planCtaSub}>Set goals · reminders · sadhana paths</Text>
             </View>
             <Text style={styles.planCtaArrow}>›</Text>

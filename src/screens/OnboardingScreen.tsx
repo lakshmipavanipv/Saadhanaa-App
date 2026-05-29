@@ -650,7 +650,7 @@ const PlanPrompt = ({
 }) => (
   <View style={styles.stepContent}>
     <Text style={styles.stepLabel}>STEP 4 OF 4</Text>
-    <Text style={styles.title}>Plan your routine?</Text>
+    <Text style={styles.title}>Plan your well-being?</Text>
     <Text style={styles.subtitle}>
       Set up your daily walk · yoga · japa · meditation now — or jump
       straight to the dashboard and plan later.
@@ -659,7 +659,7 @@ const PlanPrompt = ({
     <TouchableOpacity style={styles.planCta} onPress={onPlanNow}>
       <Text style={styles.planCtaIcon}>🌿</Text>
       <View style={{ flex: 1 }}>
-        <Text style={styles.planCtaTitle}>Plan your routine now</Text>
+        <Text style={styles.planCtaTitle}>Plan your well-being now</Text>
         <Text style={styles.planCtaSub}>AI suggests a starter plan from your age + vitals</Text>
       </View>
       <Text style={styles.planCtaArrow}>→</Text>

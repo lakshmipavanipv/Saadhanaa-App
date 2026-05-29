@@ -20,13 +20,12 @@ import { COLORS, SPACING } from '../theme';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
 import { soulActivityRepo } from '../services/soulActivityRepo';
 import { useSadhana } from '../context';
-import { WeekSparkline } from '../components/WeekSparkline';
-import { getDB } from '../soulsync/db/database';
-import { HRVWaveGraph } from '../soulsync/components/HRVWaveGraph';
-import { BpmHrvBaselineCard } from '../soulsync/components/BpmHrvBaselineCard';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
 import { todayStr } from '../utils';
-import { DUMMY, withFallback } from '../services/dummyData';
+import { withFallback } from '../services/dummyData';
+import { BigVitalsHeader } from '../components/BigVitalsHeader';
+import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
+import { PracticeAssistant, PracticeCatalogItem } from '../components/PracticeAssistant';
 
 type Intent = 'quick' | 'calm' | 'deep' | 'mantra' | 'cooling';
 
@@ -278,146 +277,6 @@ const fmtSec = (s: number): string => s >= 60 ? `${Math.round(s / 60)} min` : `$
 
 const MEDITATION_GOAL_MIN = 10;
 
-const MeditationStatsHeader: React.FC = () => {
-  const [minutesToday, setMinutesToday] = useState(0);
-  const [weeklyMinutes, setWeeklyMinutes] = useState<number[]>([0,0,0,0,0,0,0]);
-  const [sessionsToday, setSessionsToday] = useState(0);
-  const [avgDepth, setAvgDepth] = useState<number | null>(null);
-  const [baseline, setBaseline] = useState<{ bpm: number; hrv: number; spo2: number } | null>(null);
-  const [during, setDuring] = useState<{ bpm: number; hrv: number; spo2: number } | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      const today = todayStr();
-      // Minutes today + 7-day series — from soulActivityRepo (meditation activity)
-      const all = await soulActivityRepo.list();
-      const todayMins = all
-        .filter(e => e.activity === 'meditation' && e.date === today)
-        .reduce((s, e) => s + e.durationMin, 0);
-      setMinutesToday(todayMins);
-      const series: number[] = [];
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-        series.push(all
-          .filter(e => e.activity === 'meditation' && e.date === d)
-          .reduce((s, e) => s + e.durationMin, 0));
-      }
-      setWeeklyMinutes(series);
-
-      // Sessions / depth / baseline / during from soulsync DB
-      try {
-        const db = await getDB();
-        const ds = today + 'T00:00:00', de = today + 'T23:59:59';
-        const sess = await db.getAllAsync<{ session_id: string; depth_score: number | null }>(
-          `SELECT session_id, depth_score FROM session_spiritual WHERE start_time BETWEEN ? AND ?`,
-          [ds, de]
-        );
-        setSessionsToday(sess.length);
-        const dv = sess.map(x => x.depth_score).filter((v): v is number => v != null);
-        setAvgDepth(dv.length > 0 ? Math.round((dv.reduce((s,x)=>s+x,0) / dv.length) * 10) / 10 : null);
-
-        const baseRow = await db.getFirstAsync<{ bpm: number | null; hrv: number | null; spo2: number | null }>(
-          `SELECT AVG(ambient_bpm) AS bpm, AVG(ambient_rmssd) AS hrv, AVG(spo2) AS spo2
-           FROM ambient_baseline WHERE timestamp BETWEEN ? AND ?`,
-          [ds, de]
-        );
-        if (baseRow?.bpm != null) {
-          setBaseline({
-            bpm: Math.round(baseRow.bpm),
-            hrv: Math.round(baseRow.hrv ?? 0),
-            spo2: Math.round((baseRow.spo2 ?? 0) * 10) / 10,
-          });
-        }
-
-        if (sess.length > 0) {
-          const ids = sess.map(s => s.session_id);
-          const ph = ids.map(() => '?').join(',');
-          const teleRow = await db.getFirstAsync<{ bpm: number | null; hrv: number | null; spo2: number | null }>(
-            `SELECT AVG(bpm) AS bpm, AVG(rmssd_ms) AS hrv, AVG(spo2) AS spo2
-             FROM session_telemetry WHERE session_id IN (${ph})`,
-            ids
-          );
-          if (teleRow?.bpm != null) {
-            setDuring({
-              bpm: Math.round(teleRow.bpm),
-              hrv: Math.round(teleRow.hrv ?? 0),
-              spo2: Math.round((teleRow.spo2 ?? 0) * 10) / 10,
-            });
-          }
-        }
-      } catch { /* no data */ }
-    })();
-  }, []);
-
-  // ── Fallback to dummy data when no real session data has landed ──
-  const fbMinutesToday = withFallback(minutesToday, 8);
-  const fbWeeklyMinutes = withFallback(weeklyMinutes, DUMMY.sadhanaWeek);
-  const fbSessionsToday = withFallback(sessionsToday, DUMMY.sessionsToday);
-  const fbAvgDepth      = withFallback(avgDepth, DUMMY.avgSessionDepthToday);
-  const fbBaseline      = baseline ?? { bpm: DUMMY.ambientToday.bpm, hrv: DUMMY.ambientToday.rmssd, spo2: DUMMY.ambientToday.spo2 };
-  const fbDuring        = during   ?? { bpm: DUMMY.sessionAverages.bpm, hrv: DUMMY.sessionAverages.rmssd, spo2: DUMMY.sessionAverages.spo2 };
-
-  const goalPct = Math.min(100, Math.round((fbMinutesToday / MEDITATION_GOAL_MIN) * 100));
-  const weekTotal = fbWeeklyMinutes.reduce((a, b) => a + b, 0);
-
-  const VRow = ({ icon, label, before, during, unit, higherIsBetter }: any) => {
-    const has = before != null && during != null;
-    const delta = has ? (during - before) : 0;
-    const good = higherIsBetter ? delta > 0 : delta < 0;
-    return (
-      <View style={mshStyles.vRow}>
-        <Text style={mshStyles.vIcon}>{icon}</Text>
-        <Text style={mshStyles.vLabel}>{label}</Text>
-        <Text style={mshStyles.vNum}>{before ?? '—'}</Text>
-        <Text style={mshStyles.vArrow}>→</Text>
-        <Text style={[mshStyles.vNum, has && { color: COLORS.cream, fontWeight: '700' }]}>{during ?? '—'}</Text>
-        {has ? (
-          <Text style={[mshStyles.vDelta, { color: good ? '#3ddc84' : '#FF8C42' }]}>
-            {delta > 0 ? '+' : ''}{delta} {unit}
-          </Text>
-        ) : <Text style={mshStyles.vDelta}>—</Text>}
-      </View>
-    );
-  };
-
-  return (
-    <View style={mshStyles.container}>
-      <Text style={mshStyles.heroLabel}>MEDITATION MINUTES TODAY</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-        <Text style={mshStyles.heroValue}>{fbMinutesToday}</Text>
-        <Text style={mshStyles.heroGoal}> / {MEDITATION_GOAL_MIN} min goal</Text>
-      </View>
-      <View style={mshStyles.progressTrack}>
-        <View style={[mshStyles.progressFill, { width: `${goalPct}%` }]} />
-      </View>
-
-      <View style={mshStyles.kpiGrid}>
-        <View style={mshStyles.kpiCell}>
-          <Text style={mshStyles.kpiValue}>{fbSessionsToday}</Text>
-          <Text style={mshStyles.kpiLabel}>Sessions{'\n'}today</Text>
-        </View>
-        <View style={mshStyles.kpiCell}>
-          <Text style={mshStyles.kpiValue}>{fbAvgDepth}</Text>
-          <Text style={mshStyles.kpiLabel}>Avg depth{'\n'}score</Text>
-        </View>
-        <View style={mshStyles.kpiCell}>
-          <Text style={mshStyles.kpiValue}>{weekTotal}</Text>
-          <Text style={mshStyles.kpiLabel}>Week min{'\n'}total</Text>
-        </View>
-      </View>
-
-      <Text style={mshStyles.subLabel}>THIS WEEK</Text>
-      <WeekSparkline values={weeklyMinutes} height={42} />
-
-      <Text style={mshStyles.subLabel}>VITALS · BEFORE vs DURING MEDITATION (TODAY)</Text>
-      <View style={mshStyles.vBox}>
-        <VRow icon="❤️" label="Resting BPM"  before={fbBaseline.bpm}  during={fbDuring.bpm}  unit="bpm" higherIsBetter={false} />
-        <VRow icon="〰️" label="HRV (RMSSD)"   before={fbBaseline.hrv}  during={fbDuring.hrv}  unit="ms"  higherIsBetter={true} />
-        <VRow icon="🫁" label="SpO₂"          before={fbBaseline.spo2} during={fbDuring.spo2} unit="%"   higherIsBetter={true} />
-      </View>
-    </View>
-  );
-};
 
 const mshStyles = StyleSheet.create({
   container: {
@@ -474,8 +333,45 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   }, [route?.params?.openId]);
 
-  const filtered = filter === 'all' ? MEDITATION_CATALOG : MEDITATION_CATALOG.filter(t => t.intent === filter);
   const quickRelief = MEDITATION_CATALOG.filter(t => t.intent === 'quick');
+
+  // Today's meditation minutes (with dummy fallback)
+  const [minutesToday, setMinutesToday] = useState(0);
+  useEffect(() => {
+    (async () => {
+      const all = await soulActivityRepo.list();
+      const today = todayStr();
+      const real = all.filter(e => e.activity === 'meditation' && e.date === today)
+                      .reduce((s, e) => s + e.durationMin, 0);
+      setMinutesToday(withFallback(real, 12));
+    })();
+  }, []);
+
+  // Map Technique → PracticeCatalogItem for the assistant modal
+  const catalog: PracticeCatalogItem[] = React.useMemo(
+    () => MEDITATION_CATALOG.map(t => ({
+      id: t.id, name: t.name, sanskrit: t.subtitle,
+      benefit: t.subtitle, durationSec: t.durationSec, category: t.intent,
+    })),
+    []
+  );
+  const iconForIntent = (intent: string) =>
+    INTENTS.find(c => c.id === intent)?.icon || '🪷';
+  const handlePickTechnique = (item: PracticeCatalogItem) => {
+    const t = MEDITATION_CATALOG.find(x => x.id === item.id);
+    if (t) { setSelected(t); return; }
+    // Custom Sadhana Path → synthesize a Technique shell so TechniqueModal
+    // can still render (steps shown as the practice description).
+    const shell: Technique = {
+      id: item.id,
+      name: item.name,
+      subtitle: item.sanskrit ?? 'Custom Sadhana Path',
+      intent: 'calm',
+      durationSec: item.durationSec,
+      instructions: (item.benefit ?? '').split(' · ').filter(Boolean),
+    };
+    setSelected(shell);
+  };
 
   return (
     <View style={styles.container}>
@@ -492,9 +388,8 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
           </View>
         </View>
 
-        {/* Samsung-Health-style header: minutes today, sessions, depth,
-            week trend + before/during vitals comparison */}
-        <MeditationStatsHeader />
+        {/* Elder-friendly KPI strip: big minutes-today + Heart + Lung tiles */}
+        <BigVitalsHeader practice="Meditation" minutesToday={minutesToday} goalMinutes={20} />
 
         {/* Soulsync — start before meditation to capture HRV / BPM */}
         <SoulsyncSessionBar
@@ -502,19 +397,10 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
           onViewInsights={() => navigation?.navigate?.('History')}
         />
 
-        {/* Live trend while a Soulsync session is active */}
-        {soulsync.state.active && (
-          <HRVWaveGraph
-            bpmSeries={soulsync.state.bpmSeries}
-            peakIndices={soulsync.state.peakIndices}
-            rmssd={soulsync.state.rmssd}
-            improvementPct={soulsync.state.improvementPct}
-            isBaselineEstablished={soulsync.state.isBaselineEstablished}
-          />
-        )}
-        <BpmHrvBaselineCard
-          liveBpm={soulsync.state.liveBpm}
-          liveRmssd={soulsync.state.rmssd}
+        {/* Live trends — heart + lung with today's baseline overlay */}
+        <LiveVitalsTrends
+          bpmSeries={soulsync.state.bpmSeries}
+          liveSpo2={soulsync.state.liveSpo2}
           isActive={soulsync.state.active}
         />
 
@@ -529,31 +415,14 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
           ))}
         </View>
 
-        {/* Filter chips */}
-        <View style={styles.filterRow}>
-          {INTENTS.map(c => (
-            <TouchableOpacity
-              key={c.id}
-              style={[styles.filterChip, filter === c.id && styles.filterChipActive]}
-              onPress={() => setFilter(c.id)}
-            >
-              <Text style={styles.filterIcon}>{c.icon}</Text>
-              <Text style={[styles.filterLabel, filter === c.id && styles.filterLabelActive]}>{c.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Full list */}
-        {filtered.map(t => (
-          <TouchableOpacity key={t.id} style={styles.listCard} onPress={() => setSelected(t)}>
-            <Text style={styles.listIcon}>{INTENTS.find(c => c.id === t.intent)?.icon || '🧘'}</Text>
-            <View style={{ flex: 1, marginLeft: SPACING.sm }}>
-              <Text style={styles.listName}>{t.name}</Text>
-              <Text style={styles.listSub}>{t.subtitle}</Text>
-            </View>
-            <Text style={styles.listDur}>{fmtSec(t.durationSec)}</Text>
-          </TouchableOpacity>
-        ))}
+        {/* All techniques behind a single button — includes user's
+            custom Sadhana Paths first, then the full library. */}
+        <PracticeAssistant
+          practice="meditation"
+          catalog={catalog}
+          onSelect={handlePickTechnique}
+          iconFor={iconForIntent}
+        />
       </ScrollView>
 
       {selected && (

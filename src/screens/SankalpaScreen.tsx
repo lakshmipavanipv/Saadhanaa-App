@@ -417,9 +417,9 @@ export const SankalpaScreen = ({ navigation }: any) => {
         <View style={styles.header}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.title}>Plan · Your Routine</Text>
+              <Text style={styles.title}>Plan · Your Well-Being</Text>
               <Text style={styles.subtitle}>
-                Elevation through routine · {totalCommittedMin} min committed
+                Body + soul, every day · {totalCommittedMin} min committed
               </Text>
             </View>
             <TouchableOpacity
@@ -573,7 +573,7 @@ export const SankalpaScreen = ({ navigation }: any) => {
         {aiPlan && (
           <View style={styles.aiPlanCard}>
             <View style={styles.aiPlanHeaderRow}>
-              <Text style={styles.aiPlanTitle}>🌿  AI-RECOMMENDED PLAN FOR TODAY</Text>
+              <Text style={styles.aiPlanTitle}>🌿  YOUR WELL-BEING PLAN — TUNED TODAY</Text>
               <Text style={styles.aiPlanTotal}>{aiPlan.totalMin} min</Text>
             </View>
             <Text style={styles.aiPlanSub}>
@@ -992,18 +992,43 @@ const AddItemSheet: React.FC<{
             ))}
           </ScrollView>
 
-          <Text style={styles.sheetFieldLabel}>
-            {isCustomPath ? CUSTOM_PATH_LABEL[category] : 'Or type your own name'}
-          </Text>
-          <TextInput
-            style={styles.sheetInput}
-            value={name}
-            onChangeText={t => { setName(t); if (pickedId && !isCustomPath) setPickedId(null); }}
-            placeholder={isCustomPath
-              ? (category === 'japa' ? 'e.g. "Morning Sadhana Path"' : `e.g. "My ${meta.label.toLowerCase()} flow"`)
-              : `Custom ${meta.label.toLowerCase()} name`}
-            placeholderTextColor={COLORS.muted}
-          />
+          {isCustomPath ? (
+            // Custom Sadhana Path — explicit "name your path (optional)"
+            // text box so the user knows this is for the label they will
+            // see in the catalog. Small, light-weight, optional.
+            <View style={styles.pathNameBox}>
+              <Text style={styles.pathNameLabel}>
+                🪷  NAME YOUR SADHANA PATH (OPTIONAL)
+              </Text>
+              <TextInput
+                style={styles.sheetInput}
+                value={name}
+                onChangeText={setName}
+                placeholder={
+                  category === 'japa'   ? 'e.g. "Morning Trinity Japa"' :
+                  category === 'yoga'   ? 'e.g. "Sunrise Asana Flow"' :
+                  category === 'meditate' ? 'e.g. "Pre-bed Box Breath"' :
+                  `e.g. "My ${meta.label.toLowerCase()} flow"`
+                }
+                placeholderTextColor={COLORS.muted}
+              />
+              <Text style={styles.pathNameHint}>
+                We'll use this name in your routine list and reminders. Leave blank to auto-name.
+              </Text>
+            </View>
+          ) : (
+            // Library item picked — name shown for confirmation / edit
+            <View>
+              <Text style={styles.sheetFieldLabel}>Or type your own name</Text>
+              <TextInput
+                style={styles.sheetInput}
+                value={name}
+                onChangeText={t => { setName(t); if (pickedId) setPickedId(null); }}
+                placeholder={`Custom ${meta.label.toLowerCase()} name`}
+                placeholderTextColor={COLORS.muted}
+              />
+            </View>
+          )}
 
           {/* Custom-path step editor — only when "Other" is picked.
               Redesigned (v40): each step lives inside its OWN bordered
@@ -1572,6 +1597,23 @@ const styles = StyleSheet.create({
     paddingVertical: 6, marginTop: 8,
   },
   reminderHint: { fontSize: 11, color: COLORS.muted, fontStyle: 'italic', marginTop: 2 },
+
+  // ── "Name your Sadhana Path" box (custom path mode) ──
+  pathNameBox: {
+    marginTop: SPACING.sm,
+    padding: SPACING.sm,
+    borderRadius: 10,
+    backgroundColor: 'rgba(212,160,23,0.06)',
+    borderWidth: 1, borderColor: 'rgba(212,160,23,0.25)',
+  },
+  pathNameLabel: {
+    fontSize: 11, color: COLORS.gold, fontWeight: '800',
+    letterSpacing: 1, marginBottom: 6,
+  },
+  pathNameHint: {
+    fontSize: 10, color: COLORS.muted, fontStyle: 'italic',
+    marginTop: 6, lineHeight: 14,
+  },
 
   // Custom-path step editor
   stepEditor: {
