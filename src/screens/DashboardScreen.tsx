@@ -29,7 +29,7 @@ import { COLORS, SPACING } from '../theme';
 import { AIInsightsCard } from '../soulsync/components/AIInsightsCard';
 import { SolutionMatrixCard } from '../soulsync/components/SolutionMatrixCard';
 import { MicroSadhanaCard } from '../soulsync/components/MicroSadhanaCard';
-import { WellBeingHero } from '../components/WellBeingHero';
+import { BodySoulLogo } from '../soulsync/components/BodySoulLogo';
 import { SoulsyncScoreCard, computeScores } from '../soulsync/components/SoulsyncScoreCard';
 import { computeHealthDashboard } from '../soulsync/analytics/HealthDashboard';
 import { computeSleepScore } from '../soulsync/analytics/SleepScore';
@@ -389,13 +389,13 @@ export const DashboardScreen = ({ navigation }: any) => {
   return (
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        {/* Header — same animated lotus + halo + rotating dashed ring
-            + "BODY & SOUL" wordmark from the Onboarding welcome screen,
-            in compact mode so it fits as a tab header. Below it sits the
-            personal greeting and date so the Home tab still opens with a
-            warm "hi, today is …" feel. */}
+        {/* Header — restored animated BODY & SOUL infinity-ribbon logo
+            (BodySoulLogo). The ribbon draws itself in with a blue → purple
+            → gold gradient and the 5-petal lotus blossoms from the top
+            crossing — this is the canonical brand mark and now drives the
+            app icon thumbnail too. */}
         <View style={styles.header}>
-          <WellBeingHero compact />
+          <BodySoulLogo width={240} />
           <Text style={styles.personalLine}>{getPersonalLine(userProfile?.name)}</Text>
           <Text style={styles.date}>{formatDate(todayStr())}</Text>
         </View>
