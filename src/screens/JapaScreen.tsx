@@ -879,6 +879,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
               depthScore={japaDepthScore}
               subMetric={{ label: 'JAPA COUNT TODAY', value: todayJapas.toLocaleString() }}
               compact
+              onOpenTrend={() => setShowDepthTrend(true)}
             />
           );
         })()}

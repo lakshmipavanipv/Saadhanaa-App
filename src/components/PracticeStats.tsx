@@ -28,7 +28,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { COLORS, SPACING } from '../theme';
 import { DUMMY, withFallback } from '../services/dummyData';
 import { getDB } from '../soulsync/db/database';
@@ -70,10 +70,15 @@ interface StatsBoxProps {
    *  three KPIs (time / sub-metric / depth) on one row with both bars
    *  stacked tightly underneath. ~120 pt tall instead of ~280. */
   compact?: boolean;
+  /** When provided, the depth score row + dashed bar become a single
+   *  tappable target with a small 📈 trend icon — mirrors the
+   *  "↗ Details" affordance on the Exercise tab's activity cards.
+   *  Use this from JapaScreen to open the DepthTrendModal. */
+  onOpenTrend?: () => void;
 }
 
 export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
-  practice, minutesToday, goalMinutes, depthScore, subMetric, compact,
+  practice, minutesToday, goalMinutes, depthScore, subMetric, compact, onOpenTrend,
 }) => {
   const label = practice === 'yoga'
     ? 'YOGA'
@@ -85,36 +90,62 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
 
   // ── Compact single-box mode (Japa screen) ──
   if (compact) {
+    const DepthRow = (
+      <View style={statBoxStyles.compactDepthBlock}>
+        <View style={statBoxStyles.compactBarLabelRow}>
+          <Text style={statBoxStyles.compactBarLabel}>
+            SADHANA DEPTH SCORE
+            {onOpenTrend && (
+              <Text style={statBoxStyles.compactTrendIcon}>  📈</Text>
+            )}
+          </Text>
+          <Text style={[statBoxStyles.compactBarValue, { color: scoreColor }]}>
+            {depthScore} / 100
+          </Text>
+        </View>
+        <DashedBar value={depthScore} color={scoreColor} compact />
+        {onOpenTrend && (
+          <Text style={statBoxStyles.compactTrendHint}>tap for daily trend ›</Text>
+        )}
+      </View>
+    );
+
     return (
       <View style={statBoxStyles.wrap}>
         <View style={[statBoxStyles.box, statBoxStyles.compactBox]}>
           <Text style={statBoxStyles.compactTitle}>{label} · TODAY</Text>
 
-          {/* Three KPIs side-by-side */}
+          {/* KPI row — time / sub-metric (japa count) */}
           <View style={statBoxStyles.compactKpiRow}>
             <View style={statBoxStyles.compactKpiCell}>
               <Text style={statBoxStyles.compactKpiValue}>{minutesToday}</Text>
-              <Text style={statBoxStyles.compactKpiLabel}>min{'\n'}/ {goalMinutes}</Text>
+              <Text style={statBoxStyles.compactKpiLabel}>
+                min · / {goalMinutes}
+              </Text>
             </View>
             {subMetric && (
               <View style={statBoxStyles.compactKpiCell}>
                 <Text style={statBoxStyles.compactKpiValue}>{subMetric.value}</Text>
-                <Text style={statBoxStyles.compactKpiLabel}>{subMetric.label.toLowerCase().replace('japa count today','japas\ntoday').replace('today','').trim()}</Text>
+                <Text style={statBoxStyles.compactKpiLabel}>japas today</Text>
               </View>
             )}
-            <View style={statBoxStyles.compactKpiCell}>
-              <Text style={[statBoxStyles.compactKpiValue, { color: scoreColor }]}>{depthScore}</Text>
-              <Text style={statBoxStyles.compactKpiLabel}>depth{'\n'}/ 100</Text>
-            </View>
           </View>
 
-          {/* Both bars stacked tight underneath */}
-          <View style={[statBoxStyles.progressTrack, { marginTop: 4, height: 6 }]}>
+          {/* Time-goal solid bar with its own label */}
+          <View style={statBoxStyles.compactBarLabelRow}>
+            <Text style={statBoxStyles.compactBarLabel}>TIME · DAILY GOAL</Text>
+            <Text style={statBoxStyles.compactBarValue}>{goalPct}%</Text>
+          </View>
+          <View style={[statBoxStyles.progressTrack, { height: 10 }]}>
             <View style={[statBoxStyles.progressFill, { width: `${goalPct}%` }]} />
           </View>
-          <View style={{ marginTop: 4 }}>
-            <DashedBar value={depthScore} color={scoreColor} compact />
-          </View>
+
+          {/* Depth score row — tappable to open the trend modal when wired */}
+          {onOpenTrend ? (
+            <TouchableOpacity onPress={onOpenTrend} activeOpacity={0.7}>
+              {DepthRow}
+            </TouchableOpacity>
+          ) : DepthRow}
         </View>
       </View>
     );
@@ -168,17 +199,20 @@ const DashedBar: React.FC<{ value: number; color: string; compact?: boolean }> =
   const SEGMENTS = 12;
   const filled = Math.round((value / 100) * SEGMENTS);
   return (
-    <View style={statBoxStyles.dashedRow}>
-      {Array.from({ length: SEGMENTS }).map((_, i) => (
-        <View
-          key={i}
-          style={[
-            statBoxStyles.dashedSeg,
-            compact && { height: 8 },
-            { backgroundColor: i < filled ? color : 'rgba(255,255,255,0.08)' },
-          ]}
-        />
-      ))}
+    <View style={[statBoxStyles.dashedRow, { alignSelf: 'stretch' }]}>
+      {Array.from({ length: SEGMENTS }).map((_, i) => {
+        const fill = i < filled ? color : 'rgba(255,255,255,0.15)';
+        return (
+          <View
+            key={i}
+            style={[
+              statBoxStyles.dashedSeg,
+              compact && { height: 10 },
+              { backgroundColor: fill, borderWidth: i < filled ? 0 : 1, borderColor: 'rgba(255,255,255,0.10)' },
+            ]}
+          />
+        );
+      })}
     </View>
   );
 };
@@ -500,7 +534,8 @@ const statBoxStyles = StyleSheet.create({
     marginBottom: 8,
   },
   compactKpiRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end',
+    flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-end',
+    marginBottom: SPACING.sm,
   },
   compactKpiCell: { flex: 1, alignItems: 'center' },
   compactKpiValue: { fontSize: 28, color: COLORS.cream, fontWeight: '800', lineHeight: 30 },
@@ -508,6 +543,20 @@ const statBoxStyles = StyleSheet.create({
     fontSize: 10, color: COLORS.muted, fontWeight: '700',
     textAlign: 'center', marginTop: 2, lineHeight: 12,
   },
+
+  // Labels above each bar so the user can identify what they're seeing
+  compactBarLabelRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
+    marginTop: 8, marginBottom: 4,
+  },
+  compactBarLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '800', letterSpacing: 0.8 },
+  compactBarValue: { fontSize: 12, color: COLORS.cream, fontWeight: '700' },
+  compactTrendIcon: { fontSize: 12, color: COLORS.gold },
+  compactTrendHint: {
+    fontSize: 10, color: COLORS.muted, fontStyle: 'italic',
+    marginTop: 4, textAlign: 'right',
+  },
+  compactDepthBlock: { marginTop: 4 },
 
   // Horizontal dashed bar (12 segments)
   dashedRow: {
