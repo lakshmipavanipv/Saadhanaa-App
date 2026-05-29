@@ -535,8 +535,42 @@ export const DashboardScreen = ({ navigation }: any) => {
           ))}
         </View>
 
-        {/* ── 3. "Plan your routine" CTA · animated to grab attention ── */}
+        {/* ── 3a. "Know more about your body vitals?" — moved BEFORE
+              Plan CTA in v51 per user feedback. Toggle wraps only the
+              7-day SaadhanaScoreCard table; upstream KPI scores stay
+              visible in their original positions. */}
+        <TouchableOpacity
+          style={styles.vitalsToggle}
+          onPress={() => setShowVitals(v => !v)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.vitalsToggleIcon}>🫀</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.vitalsToggleTitle}>
+              {showVitals ? 'Hide your vitals baseline' : 'Know more about your body vitals?'}
+            </Text>
+            <Text style={styles.vitalsToggleSub}>
+              {showVitals
+                ? 'Tap to collapse the 7-day baseline table'
+                : 'Resting BPM · HRV · SpO₂ · 7-day baseline vs today'}
+            </Text>
+          </View>
+          <Text style={styles.vitalsToggleChev}>{showVitals ? '▴' : '▾'}</Text>
+        </TouchableOpacity>
+
+        {showVitals && <SaadhanaScoreCard />}
+
+        {/* ── 3b. "Plan your routine" CTA · animated to grab attention ── */}
         <AnimatedPlanCta onPress={() => navigation?.navigate?.('Plan')} />
+
+        {/* ── 3c. SHORT Body & Soul message — sits right below the Plan
+              CTA per v51. The longer multi-paragraph note from v50 was
+              replaced with a single warm line. */}
+        <View style={styles.shortNote}>
+          <Text style={styles.shortNoteText}>
+            🌱  <Text style={styles.shortNoteBold}>Show up daily</Text> — the body learns the calm.  🙏
+          </Text>
+        </View>
 
         {/* ── 4. COMMITMENT SCORE — bars styled like the SoulsyncScoreCard ── */}
         {(() => {
@@ -596,52 +630,10 @@ export const DashboardScreen = ({ navigation }: any) => {
           );
         })()}
 
-        {/* ── 5. Body & Soul advice (motivational note) ── */}
-        <View style={styles.sadhanaNote}>
-          <Text style={styles.sadhanaNoteTitle}>🌱  Body & Soul · A Note for You</Text>
-          <Text style={styles.sadhanaNoteBody}>
-            <Text style={styles.sadhanaNoteBold}>Notice this — </Text>
-            when you sit for japa or breath work, your <Text style={styles.sadhanaNoteBold}>vitals soften</Text>:
-            heart rate calms, HRV widens, your nervous system rests.
-            {'\n\n'}
-            With consistent sadhana, your <Text style={styles.sadhanaNoteBold}>daily baseline shifts</Text> —
-            your resting state itself becomes the calmer state.
-            {'\n\n'}
-            You have this capacity, my friend. Commit · go deeper · the body
-            will thank you. The depth grows in proportion to the showing-up. 🙏
-          </Text>
-        </View>
-
-        {/* ── 6. "Know more about your body vitals?" — toggle wraps
-              ONLY the vitals baseline table below.  All the upstream
-              KPIs (hero score, 4 health boxes, commitment, note) stay
-              visible by default in their original positions. */}
-        <TouchableOpacity
-          style={styles.vitalsToggle}
-          onPress={() => setShowVitals(v => !v)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.vitalsToggleIcon}>🫀</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.vitalsToggleTitle}>
-              {showVitals ? 'Hide your vitals baseline' : 'Know more about your body vitals?'}
-            </Text>
-            <Text style={styles.vitalsToggleSub}>
-              {showVitals
-                ? 'Tap to collapse the 7-day baseline table'
-                : 'Resting BPM · HRV · SpO₂ · 7-day baseline vs today'}
-            </Text>
-          </View>
-          <Text style={styles.vitalsToggleChev}>{showVitals ? '▴' : '▾'}</Text>
-        </TouchableOpacity>
-
-        {showVitals && (
-          // Your Vitals Baseline — real 7-day baseline vs current.
-          // Wrapped in the toggle so the table only renders when the
-          // user asks to see it — the rest of the KPIs above stay in
-          // place by default.
-          <SaadhanaScoreCard />
-        )}
+        {/* v51: the lengthy "🌱 Body & Soul · A Note for You" paragraph
+            block was condensed into a single line and moved up below
+            the Plan CTA.  The vitals toggle + SaadhanaScoreCard pair
+            moved up too — they now sit BEFORE the Plan CTA. */}
 
         {/* ── 7. Today's Planned Activities (restored to original position) ── */}
         <View style={styles.tpaBox}>
@@ -1161,6 +1153,20 @@ const styles = StyleSheet.create({
   sadhanaNoteTitle: { color: COLORS.gold, fontSize: 13, fontWeight: '800', marginBottom: 6 },
   sadhanaNoteBody:  { color: COLORS.cream, fontSize: 13, lineHeight: 19 },
   sadhanaNoteBold:  { color: COLORS.gold, fontWeight: '800' },
+
+  // v51: short single-line "Body & Soul" message under the Plan CTA
+  shortNote: {
+    marginHorizontal: SPACING.md, marginBottom: SPACING.sm,
+    paddingHorizontal: SPACING.md, paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(212,160,23,0.06)',
+    borderLeftWidth: 3, borderLeftColor: COLORS.gold,
+  },
+  shortNoteText: {
+    color: COLORS.cream, fontSize: 13, lineHeight: 18,
+    fontStyle: 'italic',
+  },
+  shortNoteBold: { color: COLORS.gold, fontWeight: '800', fontStyle: 'normal' },
 
   kpiCard: {
     flexDirection: 'row',
