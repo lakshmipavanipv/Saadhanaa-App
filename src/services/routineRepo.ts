@@ -30,6 +30,9 @@ export interface RoutineItem {
   createdAt: string;
   /** If reminder is on, holds the scheduled-notification ids keyed by day-of-week. */
   notificationIds?: Record<number, string>;
+  /** Optional preset alarm-tone id (flute / bell / tanpura / om).
+   *  Falls back to the system default if unset. */
+  alarmSoundId?: string;
   /** For festivals: built-in shopping/prep list with done flags. */
   prepList?: Array<{ item: string; done: boolean }>;
   /** Multi-step routine path — e.g. a custom yoga kriya with sequenced

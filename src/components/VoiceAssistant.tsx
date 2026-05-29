@@ -28,6 +28,10 @@ import {
 } from 'react-native';
 import Svg, { Circle, Defs, RadialGradient, Stop, Rect, Path, G, LinearGradient } from 'react-native-svg';
 import * as ExpoSpeech from 'expo-speech';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from 'expo-speech-recognition';
 import { COLORS, SPACING } from '../theme';
 import { defaultGemmaClient } from '../soulsync/ai/GemmaClient';
 import { useSadhana } from '../context';
@@ -242,7 +246,18 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
   const [responding, setResponding] = useState(false);
   const [lastResponse, setLastResponse] = useState<VoiceAction | null>(null);
   const recogRef = useRef<any>(null);
+  const textInputRef = useRef<TextInput | null>(null);
   const pulse = useRef(new Animated.Value(1)).current;
+
+  // When the modal opens on native, focus the text input so the user
+  // can start typing immediately.  Voice listening is web-only until
+  // expo-speech-recognition is wired in (next APK).
+  useEffect(() => {
+    if (open && Platform.OS !== 'web') {
+      const t = setTimeout(() => textInputRef.current?.focus(), 250);
+      return () => clearTimeout(t);
+    }
+  }, [open]);
 
   // Mic pulse animation while listening
   useEffect(() => {
@@ -255,8 +270,28 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
     ).start();
   }, [listening, pulse]);
 
+  // ── Native STT events (Android / iOS) ──
+  // useSpeechRecognitionEvent must be unconditionally subscribed; the
+  // module is a no-op when nothing is recording.
+  useSpeechRecognitionEvent('start',  () => setListening(true));
+  useSpeechRecognitionEvent('end',    () => setListening(false));
+  useSpeechRecognitionEvent('result', (event: any) => {
+    const text = event?.results?.[0]?.transcript ?? '';
+    if (!text) return;
+    setTranscript(text);
+    // If the recognizer marks this as the final result, fire Gemma.
+    if (event?.isFinal) {
+      ExpoSpeechRecognitionModule.stop();
+      handleTranscript(text);
+    }
+  });
+  useSpeechRecognitionEvent('error', (e: any) => {
+    setListening(false);
+    console.warn('[STT] error', e?.error, e?.message);
+  });
+
   // ── Cross-platform listen() ──
-  const listen = () => {
+  const listen = async () => {
     setTranscript('');
     setLastResponse(null);
 
@@ -283,15 +318,36 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
       };
       try { r.start(); } catch { /* already started */ }
       recogRef.current = r;
-    } else {
-      // Native fallback — show a text input for now
-      setTranscript('');
-      setListening(false);
+      return;
+    }
+
+    // ── Native: expo-speech-recognition ──
+    try {
+      const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!perm.granted) {
+        showToast('Microphone permission denied — please enable in Settings');
+        return;
+      }
+      // Honour the device locale for multilingual users
+      const lang = 'en-IN';   // a reasonable default; Gemma detects + translates
+      ExpoSpeechRecognitionModule.start({
+        lang,
+        interimResults: true,
+        continuous: false,
+        maxAlternatives: 1,
+      });
+    } catch (e: any) {
+      console.warn('[STT] start failed', e?.message);
+      showToast('Voice unavailable — please type your request');
     }
   };
 
   const stopListening = () => {
-    if (recogRef.current?.stop) recogRef.current.stop();
+    if (Platform.OS === 'web') {
+      if (recogRef.current?.stop) recogRef.current.stop();
+    } else {
+      try { ExpoSpeechRecognitionModule.stop(); } catch { /* */ }
+    }
     setListening(false);
   };
 
@@ -444,22 +500,27 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
             <View style={styles.handle} />
             <View style={styles.headerRow}>
               <Text style={styles.title}>🎤  Voice Assistant</Text>
-              <TouchableOpacity onPress={() => { stopListening(); Speech.stop(); setOpen(false); }}>
+              <TouchableOpacity
+                onPress={() => { stopListening(); Speech.stop(); setOpen(false); }}
+                hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}
+              >
                 <Text style={styles.close}>✕</Text>
               </TouchableOpacity>
             </View>
             <Text style={styles.hint}>
-              Speak in any language — I'll listen, answer, and take you to the right screen.
+              Tap 🎤 to speak — or type below. I'll answer in your language and take action.
             </Text>
 
             {/* Mic visualizer */}
             <View style={styles.micRow}>
               <Animated.View style={[styles.micPulse, { transform: [{ scale: pulse }] }]} />
-              <Text style={styles.micEmoji}>{listening ? '🔴' : '🎤'}</Text>
+              <Text style={styles.micEmoji}>
+                {listening ? '🔴' : responding ? '⏳' : '🎤'}
+              </Text>
             </View>
 
             {/* Transcript */}
-            {transcript ? (
+            {transcript && Platform.OS === 'web' ? (
               <View style={styles.transcriptBox}>
                 <Text style={styles.transcriptLabel}>YOU SAID</Text>
                 <Text style={styles.transcriptText}>{transcript}</Text>
@@ -479,48 +540,50 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
               </View>
             ) : null}
 
-            {/* Native fallback: text input */}
+            {/* Native: BIG text input + Send pinned together */}
             {Platform.OS !== 'web' && !listening && (
               <View style={{ marginTop: SPACING.sm }}>
-                <Text style={styles.transcriptLabel}>OR TYPE YOUR REQUEST</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={transcript}
-                  onChangeText={setTranscript}
-                  placeholder='e.g. "Take me to japa"'
-                  placeholderTextColor={COLORS.muted}
-                  multiline
-                  onSubmitEditing={() => handleTranscript(transcript)}
-                />
+                <Text style={styles.transcriptLabel}>TYPE YOUR REQUEST</Text>
+                <View style={styles.nativeInputRow}>
+                  <TextInput
+                    ref={textInputRef}
+                    style={[styles.textInput, { flex: 1 }]}
+                    value={transcript}
+                    onChangeText={setTranscript}
+                    placeholder='e.g. "Take me to japa"'
+                    placeholderTextColor={COLORS.muted}
+                    multiline
+                    returnKeyType="send"
+                    onSubmitEditing={() => handleTranscript(transcript)}
+                    autoFocus
+                  />
+                  <TouchableOpacity
+                    style={[styles.sendBtn, (!transcript.trim() || responding) && { opacity: 0.4 }]}
+                    onPress={() => handleTranscript(transcript)}
+                    disabled={!transcript.trim() || responding}
+                  >
+                    <Text style={styles.sendBtnText}>{responding ? '…' : 'Send'}</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
 
-            {/* Action buttons */}
+            {/* Listen button — wired to expo-speech-recognition on native
+                so users can talk; web uses the browser API. */}
             <View style={styles.btnRow}>
               {listening ? (
                 <TouchableOpacity style={styles.stopBtn} onPress={stopListening}>
-                  <Text style={styles.stopBtnText}>⏹  Stop</Text>
+                  <Text style={styles.stopBtnText}>⏹  Stop listening</Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity style={styles.listenBtn} onPress={listen}>
-                  <Text style={styles.listenBtnText}>
-                    {Platform.OS === 'web' ? '🎤  Tap to speak' : '🎤  Listen'}
-                  </Text>
+                  <Text style={styles.listenBtnText}>🎤  Tap to speak</Text>
                 </TouchableOpacity>
               )}
-              {Platform.OS !== 'web' && transcript ? (
-                <TouchableOpacity
-                  style={styles.sendBtn}
-                  onPress={() => handleTranscript(transcript)}
-                  disabled={responding}
-                >
-                  <Text style={styles.sendBtnText}>{responding ? '…' : 'Send'}</Text>
-                </TouchableOpacity>
-              ) : null}
             </View>
 
             <Text style={styles.examples}>
-              Try saying:  "Take me to japa"  ·  "What's my routine today?"  ·{' '}
+              Try:  "Take me to japa"  ·  "What's my routine today?"  ·{' '}
               "Remind me to meditate at 6 am"  ·  "Explain my vitals"
             </Text>
           </View>
@@ -586,8 +649,11 @@ const styles = StyleSheet.create({
 
   textInput: {
     backgroundColor: COLORS.cardBg, borderRadius: 10, padding: SPACING.sm,
-    color: COLORS.cream, fontSize: 14, borderWidth: 1, borderColor: COLORS.border,
-    minHeight: 48, marginTop: 4,
+    color: COLORS.cream, fontSize: 15, borderWidth: 1, borderColor: COLORS.gold,
+    minHeight: 56, marginTop: 4,
+  },
+  nativeInputRow: {
+    flexDirection: 'row', alignItems: 'flex-end', gap: SPACING.sm,
   },
 
   btnRow: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md },
@@ -602,10 +668,11 @@ const styles = StyleSheet.create({
   },
   stopBtnText: { color: COLORS.deep, fontWeight: '800', fontSize: 14 },
   sendBtn: {
-    flex: 1, paddingVertical: 14, borderRadius: 12,
-    backgroundColor: COLORS.cream, alignItems: 'center',
+    paddingVertical: 14, paddingHorizontal: 22, borderRadius: 12,
+    backgroundColor: COLORS.gold, alignItems: 'center', justifyContent: 'center',
+    minHeight: 56, minWidth: 80,
   },
-  sendBtnText: { color: COLORS.deep, fontWeight: '800', fontSize: 14 },
+  sendBtnText: { color: COLORS.deep, fontWeight: '800', fontSize: 15 },
 
   examples: {
     color: COLORS.muted, fontSize: 11, fontStyle: 'italic',

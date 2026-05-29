@@ -480,6 +480,21 @@ export const DashboardScreen = ({ navigation }: any) => {
               ? '🌅 No exercise or soul work done yet today — gentle start awaits 🙏'
               : `🌅 Today: ${todayCount > 0 ? `${todayCount} mala${todayCount !== 1 ? 's' : ''}` : 'no japa yet'}${todayBodyMin > 0 ? ` · ${todayBodyMin} min movement` : ''}`}
           </Text>
+
+          {/* v48: storytelling line — small narrative that turns numbers
+              into encouragement. Drives the "achievable + measurable"
+              part of the SMART model that the UX assessment flagged. */}
+          {(() => {
+            const score = withFallback(commitmentScore, DUMMY.bodySoulHealth);
+            const story = (todayCount === 0 && todayBodyMin === 0)
+              ? '💛 Tap the Plan tab to set today\'s small goal.'
+              : score >= 80
+                ? '✨ You are landing on a beautiful streak — keep the gentle rhythm.'
+                : score >= 60
+                  ? '🪷 One more session today will take you into the green band.'
+                  : '🌱 A 10-min walk + 1 mala japa lifts this score noticeably.';
+            return <Text style={styles.sadhanaHeroStory}>{story}</Text>;
+          })()}
         </View>
 
         {/* ── 2. 4 BEAUTIFUL HEALTH BOXES (with realistic fallback) ── */}
@@ -835,21 +850,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   sadhanaHeroLabel: {
-    fontSize: 13,
+    fontSize: 14,           // v48: bumped from 13 for elderly readability
     color: COLORS.muted,
-    fontWeight: '700',
+    fontWeight: '800',
     letterSpacing: 1.5,
     textTransform: 'uppercase',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   sadhanaHeroValue: {
-    fontSize: 38,
+    fontSize: 56,           // v48: bumped from 38 — hero number should be unmissable
     color: COLORS.gold,
-    fontWeight: '700',
-    lineHeight: 42,
+    fontWeight: '800',
+    lineHeight: 60,
   },
   sadhanaHeroSource: {
-    fontSize: 11,
+    fontSize: 12,           // v48: bumped from 11
     color: COLORS.muted,
     fontStyle: 'italic',
     marginTop: 4,
@@ -861,13 +876,24 @@ const styles = StyleSheet.create({
     marginVertical: SPACING.sm,
   },
   sadhanaHeroToday: {
-    fontSize: 13,
+    fontSize: 15,           // v48: bumped from 13
     color: COLORS.cream,
     textAlign: 'center',
     marginTop: SPACING.sm,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  // v48: storytelling line — short, warm narrative shown under the hero
+  sadhanaHeroStory: {
+    fontSize: 13,
+    color: COLORS.gold,
+    textAlign: 'center',
+    marginTop: 6,
+    fontStyle: 'italic',
+    fontWeight: '600',
   },
 
-  heroOutOf: { fontSize: 16, color: COLORS.muted, fontWeight: '500' },
+  heroOutOf: { fontSize: 20, color: COLORS.muted, fontWeight: '600' },     // v48: 16 → 20
 
   // Hero horizontal bars — Body Health Score + Soul Depth Score
   heroBarsBlock: {

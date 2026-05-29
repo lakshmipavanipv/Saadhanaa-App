@@ -215,13 +215,24 @@ const PLAN_CATEGORIES: RoutineCategory[] =
 // datetimepicker doesn't render on react-native-web). Either way, the
 // "Enable reminder" Switch gates whether a notification is scheduled.
 
+// ── Preset alarm tones offered in the ReminderBlock ──
+const TONE_OPTIONS = [
+  { id: 'flute',   icon: '🪈', label: 'Flute',   sub: 'Gentle bansuri' },
+  { id: 'bell',    icon: '🔔', label: 'Bell',    sub: 'Temple ghanta' },
+  { id: 'tanpura', icon: '🎵', label: 'Tanpura', sub: 'Drone in C' },
+  { id: 'om',      icon: '🕉', label: 'Om',      sub: 'Vedic chant' },
+];
+
 const ReminderBlock: React.FC<{
   enabled: boolean;
   onEnabledChange: (v: boolean) => void;
   time: string | null;
   onTimeChange: (t: string | null) => void;
-}> = ({ enabled, onEnabledChange, time, onTimeChange }) => {
-
+  /** Selected alarm-tone id (v48: ringtone picker built in). */
+  soundId?: string;
+  onSoundChange?: (id: string) => void;
+}> = ({ enabled, onEnabledChange, time, onTimeChange, soundId, onSoundChange }) => {
+  const picked = soundId || 'flute';
   return (
     <View style={{ marginTop: 4 }}>
       {/* Toggle row */}
@@ -242,7 +253,7 @@ const ReminderBlock: React.FC<{
         />
       </View>
 
-      {/* Time selector — uses the unified TimePickerField */}
+      {/* Time selector */}
       {enabled && (
         <View style={{ marginTop: 6 }}>
           <TimePickerField
@@ -251,6 +262,32 @@ const ReminderBlock: React.FC<{
             onChange={onTimeChange}
             placeholder="Tap to open clock"
           />
+        </View>
+      )}
+
+      {/* Tone picker — only visible when reminder is enabled.  Users tap
+          a tone to pick it; the gold-bordered tile shows the active one.
+          The selected id flows out via onSoundChange and the parent
+          passes it to scheduleRoutineReminder. */}
+      {enabled && onSoundChange && (
+        <View style={{ marginTop: 10 }}>
+          <Text style={styles.sheetFieldLabel}>🎵  Tone</Text>
+          <View style={styles.toneRow}>
+            {TONE_OPTIONS.map(t => (
+              <TouchableOpacity
+                key={t.id}
+                style={[styles.toneTile, picked === t.id && styles.toneTileActive]}
+                onPress={() => onSoundChange(t.id)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.toneIcon}>{t.icon}</Text>
+                <Text style={[styles.toneLabel, picked === t.id && styles.toneLabelActive]}>
+                  {t.label}
+                </Text>
+                <Text style={styles.toneSub}>{t.sub}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       )}
     </View>
@@ -899,8 +936,9 @@ const AddItemSheet: React.FC<{
   const [days, setDays] = useState<number[]>([]);
   const [pickedId, setPickedId] = useState<string | null>(null);
 
-  // ── Reminder toggle ──
+  // ── Reminder toggle + tone ──
   const [reminderEnabled, setReminderEnabled] = useState(false);
+  const [alarmSoundId,    setAlarmSoundId]    = useState<string>('flute');
 
   // ── Custom multi-step path editor ──
   const [steps, setSteps] = useState<Array<{ name: string; value: number }>>([]);
@@ -944,6 +982,7 @@ const AddItemSheet: React.FC<{
       steps: isCustomPath && steps.length > 0
         ? steps.map(s => ({ name: s.name, value: s.value, unit: stepUnit, done: false }))
         : undefined,
+      alarmSoundId: reminderEnabled ? alarmSoundId : undefined,
     });
 
     // Schedule reminder if toggle is ON + time is set
@@ -956,6 +995,7 @@ const AddItemSheet: React.FC<{
           time,
           frequency: freq,
           routineId: added.id,
+          soundId: alarmSoundId,
         });
         await routineRepo.update(added.id, { notificationIds: ids });
       }
@@ -1194,12 +1234,14 @@ const AddItemSheet: React.FC<{
             </View>
           )}
 
-          {/* Reminder toggle + clock picker */}
+          {/* Reminder toggle + clock picker + tone picker */}
           <ReminderBlock
             enabled={reminderEnabled}
             onEnabledChange={setReminderEnabled}
             time={time}
             onTimeChange={setTime}
+            soundId={alarmSoundId}
+            onSoundChange={setAlarmSoundId}
           />
 
           <Text style={styles.sheetFieldLabel}>Frequency</Text>
@@ -1256,6 +1298,7 @@ const EditItemSheet: React.FC<{
   const [duration, setDuration] = useState(String(item.durationMin));
   const [time, setTime] = useState<string | null>(item.time ?? null);
   const [reminderEnabled, setReminderEnabled] = useState(!!item.notificationIds);
+  const [alarmSoundId,    setAlarmSoundId]    = useState<string>(item.alarmSoundId || 'flute');
 
   const save = async () => {
     const newTime = reminderEnabled ? time : null;
@@ -1273,6 +1316,7 @@ const EditItemSheet: React.FC<{
           time: newTime,
           frequency: item.frequency,
           routineId: item.id,
+          soundId: alarmSoundId,
         });
       }
     }
@@ -1281,6 +1325,7 @@ const EditItemSheet: React.FC<{
       durationMin: parseInt(duration, 10) || item.durationMin,
       time: newTime,
       notificationIds: newIds,
+      alarmSoundId: reminderEnabled ? alarmSoundId : undefined,
     });
     onSaved();
   };
@@ -1308,12 +1353,14 @@ const EditItemSheet: React.FC<{
             keyboardType="number-pad"
           />
 
-          {/* Reminder toggle + cross-platform clock picker */}
+          {/* Reminder toggle + cross-platform clock picker + tone picker */}
           <ReminderBlock
             enabled={reminderEnabled}
             onEnabledChange={setReminderEnabled}
             time={time}
             onTimeChange={setTime}
+            soundId={alarmSoundId}
+            onSoundChange={setAlarmSoundId}
           />
 
           <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md }}>
@@ -1606,6 +1653,23 @@ const styles = StyleSheet.create({
     paddingVertical: 6, marginTop: 8,
   },
   reminderHint: { fontSize: 11, color: COLORS.muted, fontStyle: 'italic', marginTop: 2 },
+
+  // v48 reminder tone picker (flute / bell / tanpura / om)
+  toneRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  toneTile: {
+    width: '23%', minWidth: 70, alignItems: 'center',
+    paddingVertical: 8, paddingHorizontal: 4, borderRadius: 10,
+    backgroundColor: COLORS.cardBg,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  toneTileActive: {
+    borderColor: COLORS.gold,
+    backgroundColor: 'rgba(212,160,23,0.15)',
+  },
+  toneIcon:  { fontSize: 20, marginBottom: 2 },
+  toneLabel: { fontSize: 12, color: COLORS.cream, fontWeight: '700' },
+  toneLabelActive: { color: COLORS.gold, fontWeight: '800' },
+  toneSub:   { fontSize: 9, color: COLORS.muted, marginTop: 1, textAlign: 'center' },
 
   // ── "Name your Sadhana Path" box (custom path mode) ──
   pathNameBox: {

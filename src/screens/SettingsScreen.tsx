@@ -46,11 +46,12 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
   return (
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        {/* v48: title left, X close upper-RIGHT for app-wide consistency */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+          <Text style={styles.title}>Settings</Text>
+          <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}>
             <Text style={styles.closeBtnText}>✕</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>Settings</Text>
         </View>
 
         {/* Profile card */}
@@ -239,18 +240,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: SPACING.lg,
   },
   closeBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: COLORS.cardBg,
+    borderWidth: 1, borderColor: COLORS.gold,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: SPACING.md,
   },
-  closeBtnText: { color: COLORS.cream, fontSize: 16 },
+  closeBtnText: { color: COLORS.gold, fontSize: 18, fontWeight: '700' },
   title: { fontSize: 22, color: COLORS.cream, fontWeight: '700' },
 
   profileCard: {
