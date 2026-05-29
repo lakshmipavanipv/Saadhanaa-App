@@ -80,6 +80,8 @@ export const OnboardingScreen = () => {
 
   // About you
   const [dob, setDob] = useState('');
+  const [heightCm, setHeightCm] = useState('');
+  const [weightKg, setWeightKg] = useState('');
   const [gender, setGender] = useState<Gender | null>(null);
   const [religion, setReligion] = useState<Religion | null>(null);
 
@@ -168,6 +170,8 @@ export const OnboardingScreen = () => {
       soulActivities,
     };
 
+    const hParsed = parseInt(heightCm, 10);
+    const wParsed = parseInt(weightKg, 10);
     const profile: UserProfile = {
       name: name.trim() || 'Friend',
       createdAt: new Date().toISOString(),
@@ -176,6 +180,8 @@ export const OnboardingScreen = () => {
         ? { email: contact.trim() }
         : { phone: contact.trim() }),
       ...(dob && { dob }),
+      ...(Number.isFinite(hParsed) && hParsed > 0 && { heightCm: hParsed }),
+      ...(Number.isFinite(wParsed) && wParsed > 0 && { weightKg: wParsed }),
       ...(gender && { gender }),
       ...(religion && { religion }),
       goals,
@@ -237,10 +243,14 @@ export const OnboardingScreen = () => {
           <About
             name={name}
             dob={dob}
+            heightCm={heightCm}
+            weightKg={weightKg}
             gender={gender}
             religion={religion}
             onName={setName}
             onDob={setDob}
+            onHeight={setHeightCm}
+            onWeight={setWeightKg}
             onGender={setGender}
             onReligion={setReligion}
             onBack={() => setStep('ring')}
@@ -526,16 +536,20 @@ const RingStep = ({
 // ─── About — Name · DOB · Gender · Religion · all in one screen ──
 
 const About = ({
-  name, dob, gender, religion,
-  onName, onDob, onGender, onReligion,
+  name, dob, heightCm, weightKg, gender, religion,
+  onName, onDob, onHeight, onWeight, onGender, onReligion,
   onBack, onNext,
 }: {
   name: string;
   dob: string;
+  heightCm: string;
+  weightKg: string;
   gender: Gender | null;
   religion: Religion | null;
   onName: (s: string) => void;
   onDob: (s: string) => void;
+  onHeight: (s: string) => void;
+  onWeight: (s: string) => void;
   onGender: (g: Gender) => void;
   onReligion: (r: Religion) => void;
   onBack: () => void;
@@ -567,6 +581,35 @@ const About = ({
       onChangeText={onDob}
     />
     <Text style={styles.hint}>Used for age-band baseline in your AI plan.</Text>
+
+    {/* Height + Weight — sit next to DOB so the AI plan engine has the
+        full anthropometrics to work with. Both are optional. */}
+    <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md }}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.fieldLabel}>Height (cm)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="170"
+          placeholderTextColor={COLORS.muted}
+          value={heightCm}
+          onChangeText={onHeight}
+          keyboardType="numeric"
+          maxLength={3}
+        />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.fieldLabel}>Weight (kg)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="65"
+          placeholderTextColor={COLORS.muted}
+          value={weightKg}
+          onChangeText={onWeight}
+          keyboardType="numeric"
+          maxLength={3}
+        />
+      </View>
+    </View>
 
     <Text style={[styles.fieldLabel, { marginTop: SPACING.md }]}>Gender</Text>
     <View style={styles.gridRow}>
