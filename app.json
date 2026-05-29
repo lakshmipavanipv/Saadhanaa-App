@@ -2,7 +2,7 @@
   "expo": {
     "name": "Body & Soul Ring",
     "slug": "sadhana-app",
-    "version": "1.0.46",
+    "version": "1.0.47",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "sadhana",
@@ -62,7 +62,18 @@
       "expo-sqlite",
       "@react-native-google-signin/google-signin",
       "@react-native-firebase/app",
-      "@react-native-firebase/auth"
+      "@react-native-firebase/auth",
+      [
+        "expo-notifications",
+        {
+          "sounds": [
+            "./assets/sounds/flute.mp3",
+            "./assets/sounds/bell.mp3",
+            "./assets/sounds/tanpura.mp3",
+            "./assets/sounds/om.mp3"
+          ]
+        }
+      ]
     ],
     "extra": {
       "eas": {

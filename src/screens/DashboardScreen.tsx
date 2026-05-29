@@ -580,7 +580,12 @@ export const DashboardScreen = ({ navigation }: any) => {
         {/* ── 6. Your Vitals Baseline — real 7-day baseline vs current ── */}
         <SaadhanaScoreCard />
 
-        {/* ── 7. Today's Planned Activities ── */}
+        {/* ── 7. Today's Planned Activities ── (v47 redesign)
+              Each row is a tappable card that navigates to the matching
+              tab when tapped: yoga / meditate → Yoga & Meditate tab,
+              japa / sandhya → Japa, exercise → Exercise, calendar items
+              → Panchang. Big icon, big name, big time chip — readable
+              at arm's length. */}
         <View style={styles.tpaBox}>
           <Text style={styles.tpaTitle}>📅  Today's Planned Activities</Text>
           <View style={styles.tpaSummary}>
@@ -603,26 +608,49 @@ export const DashboardScreen = ({ navigation }: any) => {
             </Text>
           ) : (
             todayRoutine.slice(0, 6).map(item => {
-              // Heuristic: did the user log enough time to count this as "done"?
               const isWorkout = ['exercise'].includes(item.category);
               const isSoul    = ['japa','meditate','sandhya'].includes(item.category);
               const minDone   = isWorkout ? todayBodyMin : isSoul ? Math.round(sadhanaSeconds / 60) : 0;
               const done = minDone >= item.durationMin;
+
+              // Category → tab + emoji
+              const categoryMeta: Record<string, { tab: string; icon: string }> = {
+                exercise: { tab: 'Exercise', icon: '🏃' },
+                yoga:     { tab: 'Yoga',     icon: '🧘‍♀️' },
+                meditate: { tab: 'Yoga',     icon: '🪷' },
+                japa:     { tab: 'Japa',     icon: '📿' },
+                sandhya:  { tab: 'Japa',     icon: '🌅' },
+                shraadha: { tab: 'Panchang', icon: '🕯️' },
+                tithi:    { tab: 'Panchang', icon: '🌗' },
+                festival: { tab: 'Panchang', icon: '🛕' },
+              };
+              const meta = categoryMeta[item.category] ?? { tab: 'Dashboard', icon: '📌' };
+
               return (
-                <View key={item.id} style={styles.tpaRow}>
-                  <Text style={styles.tpaStar}>{done ? '⭐' : '☆'}</Text>
-                  <Text style={styles.tpaTime}>{item.time || '—'}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.tpaName}>{item.name}</Text>
-                    <Text style={styles.tpaMeta}>
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.tpaCard}
+                  onPress={() => navigation?.navigate?.(meta.tab)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.tpaCardIcon}>{meta.icon}</Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.tpaCardName} numberOfLines={1}>
+                      {item.name}
+                      {done && <Text style={styles.tpaCardDone}>  ⭐</Text>}
+                    </Text>
+                    <Text style={styles.tpaCardMeta}>
                       {item.durationMin} min
-                      {item.notificationIds && ' · 🔔 reminder on'}
+                      {item.notificationIds && '  ·  🔔 reminder on'}
                     </Text>
                   </View>
-                  {item.notificationIds && (
-                    <Text style={styles.tpaBell}>🔔</Text>
+                  {item.time && (
+                    <View style={styles.tpaCardTimePill}>
+                      <Text style={styles.tpaCardTime}>{item.time}</Text>
+                    </View>
                   )}
-                </View>
+                  <Text style={styles.tpaCardChevron}>›</Text>
+                </TouchableOpacity>
               );
             })
           )}
@@ -1000,6 +1028,28 @@ const styles = StyleSheet.create({
   tpaName: { color: COLORS.cream, fontSize: 13, fontWeight: '600' },
   tpaMeta: { color: COLORS.muted, fontSize: 11, marginTop: 1 },
   tpaBell: { fontSize: 12, color: COLORS.gold, paddingHorizontal: 4 },
+
+  // ── v47: redesigned tappable card per planned activity ──
+  tpaCard: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 10, paddingHorizontal: 12,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 10,
+    borderWidth: 1, borderColor: 'rgba(255,184,0,0.18)',
+    marginTop: 8,
+    minHeight: 60,
+  },
+  tpaCardIcon:    { fontSize: 26, marginRight: 12, width: 32 },
+  tpaCardName:    { color: COLORS.cream, fontSize: 15, fontWeight: '700' },
+  tpaCardDone:    { color: '#FFB800', fontSize: 14 },
+  tpaCardMeta:    { color: COLORS.muted, fontSize: 12, marginTop: 2 },
+  tpaCardTimePill: {
+    backgroundColor: 'rgba(255,184,0,0.15)',
+    borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4,
+    marginLeft: 8,
+  },
+  tpaCardTime:    { color: COLORS.gold, fontSize: 13, fontWeight: '800' },
+  tpaCardChevron: { color: COLORS.gold, fontSize: 22, marginLeft: 8, fontWeight: '700' },
 
   // Commitment box (legacy — kept for compatibility but unused)
   commitmentBox: {

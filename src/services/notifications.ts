@@ -5,16 +5,40 @@
  * wall-clock time every day in the device's timezone (handles DST changes
  * automatically). One scheduled notification per (deity × day-of-week).
  *
- * Custom sounds: Android only supports notification sounds bundled at
- * BUILD time (placed in android/app/src/main/res/raw). At runtime we can
- * select the default sound or one of a pre-bundled set. For the user-picked
- * custom file, the notification will use the default sound — the custom
- * audio still plays inside the app when the user taps the notification.
+ * v47 — custom ringtones:
+ *   • Per-deity sound (deity.alarmSoundId) is now PASSED to the schedule
+ *     call instead of always being 'default'.
+ *   • The four bundled presets (flute, bell, tanpura, om) are listed
+ *     under the `expo-notifications` plugin in app.json so prebuild
+ *     copies them into android/app/src/main/res/raw/ at build time.
+ *     They are referenced by filename WITHOUT extension (e.g. 'flute').
+ *   • User-picked custom files (alarmSoundId === 'custom') still fall
+ *     back to 'default' for the system notification — Android can't
+ *     play an arbitrary runtime URI as a notification sound. The custom
+ *     file does play in-app when the user taps the notification.
+ *   • To take effect on Android, the APK must be rebuilt after adding
+ *     a new preset sound (the file has to land in res/raw at build time).
  */
 
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { Deity } from '../types';
+
+// Map the AlarmSoundPicker preset id → the bundled filename WITHOUT
+// extension that prebuild will copy into android/app/src/main/res/raw/.
+// Anything not in this list (including 'custom' device files) falls
+// back to the system default tone.
+const PRESET_FILE: Record<string, string> = {
+  flute:   'flute',
+  bell:    'bell',
+  tanpura: 'tanpura',
+  om:      'om',
+};
+
+const soundForId = (id?: string): string => {
+  if (!id) return 'default';
+  return PRESET_FILE[id] ?? 'default';
+};
 
 // ─── One-time app setup ────────────────────────────────────────────
 
@@ -89,6 +113,7 @@ export const scheduleDeityReminders = async (
     : [0, 1, 2, 3, 4, 5, 6];
   const { hour, minute } = parseHHMM(deity.prayerAlarm);
 
+  const sound = soundForId(deity.alarmSoundId);
   const ids: Record<number, string> = {};
   for (const day of days) {
     // expo-notifications WEEKLY trigger: weekday is 1..7 (1=Sunday)
@@ -98,7 +123,7 @@ export const scheduleDeityReminders = async (
         content: {
           title: `🪷 ${deity.name} — prayer time`,
           body: deity.mantra ? `"${deity.mantra}"` : 'Time for your sadhana',
-          sound: 'default',
+          sound,
           data: { deityId: deity.id, type: 'prayer-reminder' },
         },
         trigger: {
@@ -144,10 +169,14 @@ export const scheduleRoutineReminder = async (params: {
   time: string;                       // 'HH:MM'
   frequency: 'daily' | number[];      // 0..6
   routineId: string;
+  /** Optional preset sound id (flute / bell / tanpura / om). Defaults
+   *  to the system tone if omitted. */
+  soundId?: string;
 }): Promise<Record<number, string>> => {
-  const { title, body, time, frequency, routineId } = params;
+  const { title, body, time, frequency, routineId, soundId } = params;
   const days = frequency === 'daily' ? [0, 1, 2, 3, 4, 5, 6] : frequency;
   const { hour, minute } = parseHHMM(time);
+  const sound = soundForId(soundId);
 
   const ids: Record<number, string> = {};
   for (const day of days) {
@@ -157,7 +186,7 @@ export const scheduleRoutineReminder = async (params: {
         content: {
           title,
           body: body || 'Your committed practice time',
-          sound: 'default',
+          sound,
           data: { routineId, type: 'plan-reminder' },
         },
         trigger: {

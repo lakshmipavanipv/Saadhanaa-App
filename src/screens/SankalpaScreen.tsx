@@ -184,17 +184,29 @@ const CATALOG_FOR: Record<RoutineCategory, () => CatalogEntry[]> = {
 };
 
 // Category meta for cards. Order = display order in the "My Goals" list.
-// shraadha + tithi sit between meditate and festival.
+//
+// v47: shraadha · tithi · festival moved out of the Plan tab — those
+// reminders are now managed in the Festivals (Panchang) tab so the user
+// has ONE place for calendar-driven sadhana and ONE place for daily
+// routine.  Keep the keys in the type so existing saved data doesn't
+// throw, but PLAN_CATEGORIES below drives what renders on this screen.
 const CATEGORY_META: Record<RoutineCategory, { label: string; icon: string; color: string }> = {
   exercise: { label: 'Exercise',         icon: '🏃',   color: '#4ea8de' },
   yoga:     { label: 'Yoga',             icon: '🧘‍♀️', color: '#FFB800' },
   japa:     { label: 'Japa',             icon: '📿',   color: '#FF8C42' },
   sandhya:  { label: 'Sandhya Vandan',   icon: '🌅',   color: '#FFD9A8' },
   meditate: { label: 'Meditate',         icon: '🪷',   color: '#c084fc' },
+  // Below this line are LEGACY meta entries kept only so saved items in
+  // these categories still display if they exist in storage. They are
+  // NOT shown in the Plan-your-well-being category cards.
   shraadha: { label: 'Shraadha',         icon: '🕯️',   color: '#a78bfa' },
   tithi:    { label: 'Tithi observance', icon: '🌗',   color: '#94a3b8' },
   festival: { label: 'Festivals',        icon: '🛕',  color: '#f472b6' },
 };
+
+// Daily-routine categories shown in the "My Goals" cards list.
+const PLAN_CATEGORIES: RoutineCategory[] =
+  ['exercise', 'yoga', 'japa', 'sandhya', 'meditate'];
 
 // ─── Cross-platform Time + Reminder block ────────────────────────
 //
@@ -432,7 +444,50 @@ export const SankalpaScreen = ({ navigation }: any) => {
           </View>
         </View>
 
-        {/* AI chat strip */}
+        {/* ── 1. AI Personalized Plan — FIRST (rearranged in v47) ── */}
+        {aiPlan && (
+          <View style={styles.aiPlanCard}>
+            <View style={styles.aiPlanHeaderRow}>
+              <Text style={styles.aiPlanTitle}>🌿  YOUR WELL-BEING PLAN — TUNED TODAY</Text>
+              <Text style={styles.aiPlanTotal}>{aiPlan.totalMin} min</Text>
+            </View>
+            <Text style={styles.aiPlanSub}>
+              Tuned to your age, today's vitals, and last-7-day history.
+            </Text>
+
+            {aiPlan.notes.map((n, i) => (
+              <Text key={i} style={styles.aiPlanNote}>• {n}</Text>
+            ))}
+
+            <View style={styles.aiPlanBuckets}>
+              <PlanBucketRow icon="🚶" label="Walking"     mins={aiPlan.walkingMin} />
+              <PlanBucketRow icon="🧘" label="Yoga"        mins={aiPlan.yogaMin} />
+              <PlanBucketRow icon="📿" label="Japa"        mins={aiPlan.japaMin} />
+              <PlanBucketRow icon="🪷" label="Meditation"  mins={aiPlan.meditationMin} />
+              <PlanBucketRow icon="🫁" label="Breath work" mins={aiPlan.breathworkMin} />
+            </View>
+
+            <TouchableOpacity onPress={() => setShowWhy(s => !s)} style={styles.aiPlanWhyBtn}>
+              <Text style={styles.aiPlanWhyText}>
+                {showWhy ? '▾  Hide reasoning' : '▸  Why this plan?'}
+              </Text>
+            </TouchableOpacity>
+            {showWhy && (
+              <View style={styles.aiPlanRationaleBox}>
+                {aiPlan.rationale.map((r, i) => (
+                  <Text key={i} style={styles.aiPlanRationaleLine}>· {r}</Text>
+                ))}
+                <Text style={styles.aiPlanProvenance}>
+                  {aiPlan.fromRealVitals ? '✓ Live ring vitals' : '◌ Vitals fallback (ring not synced yet)'}
+                  {'  ·  '}
+                  {aiPlan.fromRealHistory ? '✓ 7-day history' : '◌ No history yet'}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* ── 2. Type-in-plan chat parser (was at the top before v47) ── */}
         <View style={styles.chatCard}>
           <Text style={styles.chatLabel}>💬 TELL ME YOUR ROUTINE</Text>
           <Text style={styles.chatHint}>
@@ -569,55 +624,9 @@ export const SankalpaScreen = ({ navigation }: any) => {
           </View>
         )}
 
-        {/* ── AI Personalized Plan — vitals + age + 7-day history ── */}
-        {aiPlan && (
-          <View style={styles.aiPlanCard}>
-            <View style={styles.aiPlanHeaderRow}>
-              <Text style={styles.aiPlanTitle}>🌿  YOUR WELL-BEING PLAN — TUNED TODAY</Text>
-              <Text style={styles.aiPlanTotal}>{aiPlan.totalMin} min</Text>
-            </View>
-            <Text style={styles.aiPlanSub}>
-              Tuned to your age, today's vitals, and last-7-day history.
-            </Text>
-
-            {/* Top-of-card note(s) */}
-            {aiPlan.notes.map((n, i) => (
-              <Text key={i} style={styles.aiPlanNote}>• {n}</Text>
-            ))}
-
-            {/* Plan breakdown — 5 buckets shown as compact pill rows */}
-            <View style={styles.aiPlanBuckets}>
-              <PlanBucketRow icon="🚶" label="Walking"     mins={aiPlan.walkingMin} />
-              <PlanBucketRow icon="🧘" label="Yoga"        mins={aiPlan.yogaMin} />
-              <PlanBucketRow icon="📿" label="Japa"        mins={aiPlan.japaMin} />
-              <PlanBucketRow icon="🪷" label="Meditation"  mins={aiPlan.meditationMin} />
-              <PlanBucketRow icon="🫁" label="Breath work" mins={aiPlan.breathworkMin} />
-            </View>
-
-            {/* Why this plan — collapsible rationale */}
-            <TouchableOpacity onPress={() => setShowWhy(s => !s)} style={styles.aiPlanWhyBtn}>
-              <Text style={styles.aiPlanWhyText}>
-                {showWhy ? '▾  Hide reasoning' : '▸  Why this plan?'}
-              </Text>
-            </TouchableOpacity>
-            {showWhy && (
-              <View style={styles.aiPlanRationaleBox}>
-                {aiPlan.rationale.map((r, i) => (
-                  <Text key={i} style={styles.aiPlanRationaleLine}>· {r}</Text>
-                ))}
-                <Text style={styles.aiPlanProvenance}>
-                  {aiPlan.fromRealVitals ? '✓ Live ring vitals' : '◌ Vitals fallback (ring not synced yet)'}
-                  {'  ·  '}
-                  {aiPlan.fromRealHistory ? '✓ 7-day history' : '◌ No history yet'}
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* My Routine — category cards */}
-        <Text style={styles.sectionLabel}>🎯  MY GOALS — TAP TO EXPAND</Text>
-        {(Object.keys(CATEGORY_META) as RoutineCategory[]).map(cat => {
+        {/* ── 3. My Routine — manual add + categorical cards ── */}
+        <Text style={styles.sectionLabel}>🎯  MANUALLY ADD · TAP A CATEGORY</Text>
+        {PLAN_CATEGORIES.map(cat => {
           const meta = CATEGORY_META[cat];
           const catItems = byCategory[cat];
           const expanded = expandedCategory === cat;
