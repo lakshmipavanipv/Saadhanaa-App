@@ -167,7 +167,15 @@ const VoiceFab: React.FC<{ bottom: number; onPress: () => void }> = ({ bottom, o
         ]}
       />
 
-      <TouchableOpacity activeOpacity={0.85} onPress={onPress} style={fabWrap.btn}>
+      {/* v55: explicit "Voice" label below the orb so users can't miss it */}
+      <Text style={fabWrap.label} pointerEvents="none">🎙️ Voice</Text>
+
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={onPress}
+        style={fabWrap.btn}
+        hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}
+      >
         <Svg width={64} height={64} viewBox="0 0 64 64">
           <Defs>
             <RadialGradient id="vfBg" cx="50%" cy="42%" r="60%">
@@ -236,6 +244,15 @@ const fabWrap = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 8,
   },
+  label: {
+    position: 'absolute', bottom: -2,
+    fontSize: 11, color: '#FFE066', fontWeight: '800',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 8, paddingVertical: 2,
+    borderRadius: 8,
+    overflow: 'hidden',
+    zIndex: 1000,
+  },
 });
 
 export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
@@ -245,6 +262,10 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
   const [transcript, setTranscript] = useState('');
   const [responding, setResponding] = useState(false);
   const [lastResponse, setLastResponse] = useState<VoiceAction | null>(null);
+  // v55: in-modal status line so users see exactly what's happening
+  // ("Asking for mic permission…", "Listening…", "Thinking…", error msg).
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [statusKind, setStatusKind] = useState<'info' | 'error'>('info');
   const recogRef = useRef<any>(null);
   const textInputRef = useRef<TextInput | null>(null);
   const pulse = useRef(new Animated.Value(1)).current;
@@ -273,27 +294,53 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
   // ── Native STT events (Android / iOS) ──
   // useSpeechRecognitionEvent must be unconditionally subscribed; the
   // module is a no-op when nothing is recording.
-  useSpeechRecognitionEvent('start',  () => setListening(true));
-  useSpeechRecognitionEvent('end',    () => setListening(false));
+  useSpeechRecognitionEvent('start', () => {
+    setListening(true);
+    setStatusKind('info');
+    setStatusMsg('🎙️  Listening… speak now');
+  });
+  useSpeechRecognitionEvent('end', () => {
+    setListening(false);
+    // Clear "Listening…" once recording stops (handleTranscript will
+    // set "Thinking…" of its own).
+    setStatusMsg(prev => (prev?.startsWith('🎙️') ? null : prev));
+  });
   useSpeechRecognitionEvent('result', (event: any) => {
     const text = event?.results?.[0]?.transcript ?? '';
     if (!text) return;
     setTranscript(text);
     // If the recognizer marks this as the final result, fire Gemma.
     if (event?.isFinal) {
-      ExpoSpeechRecognitionModule.stop();
+      try { ExpoSpeechRecognitionModule.stop(); } catch { /* */ }
       handleTranscript(text);
     }
   });
   useSpeechRecognitionEvent('error', (e: any) => {
     setListening(false);
-    console.warn('[STT] error', e?.error, e?.message);
+    const code = e?.error || 'unknown';
+    const msg  = e?.message || '';
+    console.warn('[STT] error', code, msg);
+    setStatusKind('error');
+    // Map the common codes to friendly user-facing messages
+    if (code === 'no-speech') {
+      setStatusMsg('🤐  Didn\'t hear anything — tap "Tap to speak" and try again.');
+    } else if (code === 'service-not-allowed' || code === 'not-allowed') {
+      setStatusMsg('🔒  Microphone permission denied. Enable it in Settings → Apps → Body & Soul Ring.');
+    } else if (code === 'language-not-supported') {
+      setStatusMsg('🌐  This language isn\'t supported by the device speech engine.');
+    } else if (code === 'network') {
+      setStatusMsg('📡  Network error — connect to the internet and try again.');
+    } else {
+      setStatusMsg(`⚠️  Voice error: ${code}${msg ? ` · ${msg}` : ''}`);
+    }
   });
 
   // ── Cross-platform listen() ──
   const listen = async () => {
     setTranscript('');
     setLastResponse(null);
+    setStatusKind('info');
+    setStatusMsg('🎤  Asking for microphone permission…');
 
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -325,7 +372,9 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
     try {
       const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
       if (!perm.granted) {
-        showToast('Microphone permission denied — please enable in Settings');
+        setStatusKind('error');
+        setStatusMsg('🔒  Microphone permission denied. Enable it in Settings → Apps → Body & Soul Ring → Permissions.');
+        showToast('Mic permission denied');
         return;
       }
       // Honour the device locale for multilingual users
@@ -336,9 +385,11 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
         continuous: false,
         maxAlternatives: 1,
       });
+      // The 'start' event will flip statusMsg to "🎙️ Listening…"
     } catch (e: any) {
       console.warn('[STT] start failed', e?.message);
-      showToast('Voice unavailable — please type your request');
+      setStatusKind('error');
+      setStatusMsg(`⚠️  Couldn't start voice (${e?.message || 'unknown'}). Type your request below instead.`);
     }
   };
 
@@ -354,6 +405,8 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
   // ── Send transcript to Gemma → execute action → speak back ──
   const handleTranscript = async (text: string) => {
     if (!text.trim()) return;
+    setStatusKind('info');
+    setStatusMsg('💭  Thinking…');
     setResponding(true);
     try {
       const raw = await defaultGemmaClient.generate({
@@ -365,6 +418,7 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
       if (!json) throw new Error('No JSON in response');
       const action: VoiceAction = { request: text, ...json };
       setLastResponse(action);
+      setStatusMsg('🗣️  Speaking the answer…');
 
       // Execute the action
       executeAction(action);
@@ -377,12 +431,16 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
           rate: 0.92,
         });
       }
-    } catch (e) {
+      // Clear status once spoken
+      setTimeout(() => setStatusMsg(prev => (prev?.startsWith('🗣️') ? null : prev)), 1500);
+    } catch (e: any) {
       const fallback = "I'm sorry, I couldn't understand. Could you say that again?";
       setLastResponse({
         request: text, action: 'unknown',
         speech: fallback, language: 'en-IN',
       });
+      setStatusKind('error');
+      setStatusMsg(`⚠️  Couldn't reach the assistant. ${e?.message || ''}`);
       Speech.speak(fallback, { language: 'en-IN', rate: 0.92 });
     } finally {
       setResponding(false);
@@ -511,13 +569,41 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
               Tap 🎤 to speak — or type below. I'll answer in your language and take action.
             </Text>
 
-            {/* Mic visualizer */}
-            <View style={styles.micRow}>
+            {/* v55: the mic visualizer is now the PRIMARY tap target —
+                a huge circular button that toggles listen/stop. Visible
+                state changes (🎤 → 🔴 → ⏳) make it obvious what's
+                happening. Older users can't miss this. */}
+            <TouchableOpacity
+              style={styles.micButton}
+              onPress={listening ? stopListening : (responding ? undefined : listen)}
+              activeOpacity={0.7}
+              disabled={responding}
+            >
               <Animated.View style={[styles.micPulse, { transform: [{ scale: pulse }] }]} />
               <Text style={styles.micEmoji}>
                 {listening ? '🔴' : responding ? '⏳' : '🎤'}
               </Text>
-            </View>
+              <Text style={styles.micButtonLabel}>
+                {listening ? 'Tap to STOP' : responding ? 'Thinking…' : 'Tap to SPEAK'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* In-modal status banner — shows mic permission progress,
+                listening state, errors, etc. so the user always knows
+                what just happened. */}
+            {statusMsg && (
+              <View style={[
+                styles.statusBanner,
+                statusKind === 'error' && styles.statusBannerError,
+              ]}>
+                <Text style={[
+                  styles.statusBannerText,
+                  statusKind === 'error' && styles.statusBannerTextError,
+                ]}>
+                  {statusMsg}
+                </Text>
+              </View>
+            )}
 
             {/* Transcript */}
             {transcript && Platform.OS === 'web' ? (
@@ -568,19 +654,9 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
               </View>
             )}
 
-            {/* Listen button — wired to expo-speech-recognition on native
-                so users can talk; web uses the browser API. */}
-            <View style={styles.btnRow}>
-              {listening ? (
-                <TouchableOpacity style={styles.stopBtn} onPress={stopListening}>
-                  <Text style={styles.stopBtnText}>⏹  Stop listening</Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity style={styles.listenBtn} onPress={listen}>
-                  <Text style={styles.listenBtnText}>🎤  Tap to speak</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            {/* The mic visualizer above is now the primary listen
+                control; the duplicate "Tap to speak" button was removed
+                in v55 to declutter the modal. */}
 
             <Text style={styles.examples}>
               Try:  "Take me to japa"  ·  "What's my routine today?"  ·{' '}
@@ -625,10 +701,39 @@ const styles = StyleSheet.create({
   micRow: { alignItems: 'center', justifyContent: 'center', height: 90, marginVertical: SPACING.sm },
   micPulse: {
     position: 'absolute',
-    width: 80, height: 80, borderRadius: 40,
-    backgroundColor: 'rgba(212,160,23,0.25)',
+    width: 110, height: 110, borderRadius: 55,
+    backgroundColor: 'rgba(212,160,23,0.30)',
   },
-  micEmoji: { fontSize: 44 },
+  micEmoji: { fontSize: 56 },
+
+  // v55: huge tappable mic — primary listen control
+  micButton: {
+    alignItems: 'center', justifyContent: 'center',
+    alignSelf: 'center',
+    width: 200, height: 160, borderRadius: 100,
+    marginVertical: SPACING.md,
+    backgroundColor: 'rgba(212,160,23,0.10)',
+    borderWidth: 2, borderColor: COLORS.gold,
+  },
+  micButtonLabel: {
+    marginTop: 6, fontSize: 13, color: COLORS.gold,
+    fontWeight: '800', letterSpacing: 1,
+  },
+
+  // v55: in-modal status banner — voice flow feedback
+  statusBanner: {
+    marginTop: SPACING.sm, padding: SPACING.sm,
+    backgroundColor: 'rgba(212,160,23,0.12)',
+    borderRadius: 10, borderLeftWidth: 3, borderLeftColor: COLORS.gold,
+  },
+  statusBannerError: {
+    backgroundColor: 'rgba(255, 100, 100, 0.12)',
+    borderLeftColor: '#ff6464',
+  },
+  statusBannerText: {
+    color: COLORS.cream, fontSize: 13, fontWeight: '600', lineHeight: 18,
+  },
+  statusBannerTextError: { color: '#ffb3b3' },
 
   transcriptBox: {
     marginTop: SPACING.sm, padding: SPACING.sm,
