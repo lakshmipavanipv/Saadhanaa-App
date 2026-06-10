@@ -26,11 +26,13 @@ export const GEMMA_3N_E2B   = 'google/gemma-3n-e2b-it:free';
 export const GEMMA_2_9B     = 'google/gemma-2-9b-it:free';
 export const LLAMA_3_3_70B  = 'meta-llama/llama-3.3-70b-instruct:free';
 
-/** Default — Gemma 3n E4B is currently the most reliable free Gemma on OpenRouter. */
-export const DEFAULT_MODEL = GEMMA_3N_E4B;
+/** Default — v56 flipped to the smaller Gemma 3n E2B for faster
+ *  first-token latency.  Quality is plenty for our short JSON intent
+ *  parsing.  E4B kept in the fallback chain in case E2B 404s. */
+export const DEFAULT_MODEL = GEMMA_3N_E2B;
 
 /** Fallback chain if the primary model returns 404. */
-const FALLBACK_MODELS = [GEMMA_3N_E2B, GEMMA_2_9B, LLAMA_3_3_70B];
+const FALLBACK_MODELS = [GEMMA_3N_E4B, GEMMA_2_9B, LLAMA_3_3_70B];
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 

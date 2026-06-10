@@ -301,6 +301,7 @@ const Identity = ({
   onTypeChange: (t: 'email' | 'phone') => void;
   onNext: () => void;
 }) => {
+  const { showToast } = useSadhana();
   const [signingIn, setSigningIn] = useState(false);
   const [skipping, setSkipping] = useState(false);
   const [showManual, setShowManual] = useState(false);
@@ -319,7 +320,18 @@ const Identity = ({
         onContact(u.email);
         onTypeChange('email');
         setTimeout(() => onNext(), 250);
+      } else {
+        // v56: signInWithGoogle returns null on EVERY failure path —
+        // user-cancelled, Firebase not configured, network down, etc.
+        // Show a clear message instead of just silently re-enabling the
+        // button so the user knows what to do.
+        showToast(
+          'Google sign-in not available on this build. Tap "Or enter details manually" below to continue.'
+        );
       }
+    } catch (e: any) {
+      console.warn('[Onboarding] Google sign-in failed:', e?.message);
+      showToast(`Google sign-in error: ${e?.message || 'unknown'}. Use manual entry instead.`);
     } finally {
       setSigningIn(false);
     }

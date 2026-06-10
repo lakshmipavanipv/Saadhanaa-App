@@ -28,7 +28,7 @@ import { EXERCISE_CATALOG } from './ExerciseScreen';
 import { MEDITATION_CATALOG } from './MeditationScreen';
 import { ALL_CATALOG_DEITIES } from '../deityCatalog';
 import {
-  scheduleRoutineReminder, cancelRoutineReminder, requestNotificationPermission,
+  scheduleRoutineReminder, cancelRoutineReminder, requestNotificationPermission, previewTone,
 } from '../services/notifications';
 
 // Festival → built-in shopping / prep checklist
@@ -108,6 +108,22 @@ const STEP_PICKER_LABEL: Record<RoutineCategory, string> = {
 
 // Options shown inside the step-picker dropdown — sourced from the
 // existing per-tab catalogs so Plan stays in sync with the libraries.
+// v56: most-searched / culturally most-prominent deities first.
+// Pickers sort by this rank so newcomers immediately see what they
+// know.  Anything not listed falls back to catalog order.
+const POPULAR_DEITY_NAMES = [
+  'Ganesha', 'Shiva', 'Krishna', 'Lakshmi', 'Hanuman',
+  'Rama', 'Devi', 'Durga', 'Saraswati', 'Vishnu',
+  'Kali', 'Parvati', 'Kartikeya', 'Ayyappa', 'Brahma',
+  'Radha', 'Sita', 'Surya', 'Indra', 'Narasimha',
+];
+const popularityRank = (name: string): number => {
+  for (let i = 0; i < POPULAR_DEITY_NAMES.length; i++) {
+    if (name.toLowerCase().includes(POPULAR_DEITY_NAMES[i].toLowerCase())) return i;
+  }
+  return 999;
+};
+
 const STEP_OPTIONS_FOR: Record<RoutineCategory, () => CatalogEntry[]> = {
   japa:     () => ALL_CATALOG_DEITIES.map((d: any) => ({
     id: d.id, icon: d.icon || '🪷', name: d.name, sub: d.mantra || '', defaultMin: 1,
@@ -288,6 +304,21 @@ const ReminderBlock: React.FC<{
               </TouchableOpacity>
             ))}
           </View>
+          {/* v56: preview button — fires a 1-second-delayed test
+              notification through the same channel the real reminder
+              uses, so the user hears the EXACT tone they'll get. */}
+          <TouchableOpacity
+            style={styles.tonePreviewBtn}
+            onPress={() => { previewTone(picked); }}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.tonePreviewBtnText}>
+              ▶  Preview "{TONE_OPTIONS.find(t => t.id === picked)?.label || 'tone'}"
+            </Text>
+          </TouchableOpacity>
+          <Text style={styles.tonePreviewHint}>
+            Tap to hear it now — make sure your phone isn't on silent.
+          </Text>
         </View>
       )}
     </View>
@@ -786,7 +817,26 @@ export const SankalpaScreen = ({ navigation }: any) => {
             top "AI INSIGHTS · YOUR WELL-BEING PLAN" card already covers
             the same encouragement-by-total-minutes story with richer
             data (vitals + age + 7-day history). */}
+
+        {/* spacer so the floating Save bar doesn't cover the last card */}
+        <View style={{ height: 90 }} />
       </ScrollView>
+
+      {/* v56: Save & go-home bottom bar.  Items already persist on add
+          via routineRepo, so this is pure navigation — gives the user
+          a clear "I'm done planning" gesture and lands them back on Home. */}
+      <View style={styles.saveBar}>
+        <TouchableOpacity
+          style={styles.homeSaveBtn}
+          onPress={() => {
+            showToast(`✓ Plan saved · ${todayItems.length} item${todayItems.length === 1 ? '' : 's'} today`);
+            navigation?.navigate?.('Dashboard');
+          }}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.homeSaveBtnText}>✓  Save & go home</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Add item sheet */}
       {showAddSheet && (
@@ -921,6 +971,8 @@ const AddItemSheet: React.FC<{
   const [newStepName, setNewStepName] = useState('');
   const [newStepValue, setNewStepValue] = useState(stepUnit === 'malas' ? '1' : '5');
   const [showDeityPicker, setShowDeityPicker] = useState(false);
+  // v56: search bar for deity / asana / technique picker
+  const [pickerSearch, setPickerSearch] = useState('');
   const isCustomPath = pickedId === OTHER_ENTRY.id;
 
   const addStep = () => {
@@ -1115,12 +1167,35 @@ const AddItemSheet: React.FC<{
                 </TouchableOpacity>
 
                 {showDeityPicker && (
-                  <ScrollView
-                    style={styles.deityPickerScroll}
-                    showsVerticalScrollIndicator={false}
-                    nestedScrollEnabled
-                  >
-                    {STEP_OPTIONS_FOR[category]().map(opt => (
+                  <View style={styles.deityPickerScroll}>
+                    {/* v56: search bar */}
+                    <TextInput
+                      style={styles.pickerSearchInput}
+                      value={pickerSearch}
+                      onChangeText={setPickerSearch}
+                      placeholder={`🔍  Search ${category === 'japa' ? 'deities' : category === 'yoga' ? 'asanas' : 'techniques'}…`}
+                      placeholderTextColor={COLORS.muted}
+                      autoCorrect={false}
+                    />
+                    <ScrollView
+                      showsVerticalScrollIndicator={false}
+                      nestedScrollEnabled
+                      keyboardShouldPersistTaps="handled"
+                    >
+                    {(() => {
+                      const q = pickerSearch.trim().toLowerCase();
+                      const opts = STEP_OPTIONS_FOR[category]();
+                      const filtered = q
+                        ? opts.filter(o =>
+                            o.name.toLowerCase().includes(q) ||
+                            (o.sub || '').toLowerCase().includes(q))
+                        : opts;
+                      // For the deity (japa) picker, sort popular deities first.
+                      if (category === 'japa') {
+                        filtered.sort((a, b) => popularityRank(a.name) - popularityRank(b.name));
+                      }
+                      return filtered;
+                    })().map(opt => (
                       <TouchableOpacity
                         key={opt.id}
                         style={styles.deityPickerRow}
@@ -1129,6 +1204,7 @@ const AddItemSheet: React.FC<{
                           if (stepUnit === 'min' && opt.defaultMin)
                             setNewStepValue(String(opt.defaultMin));
                           setShowDeityPicker(false);
+                          setPickerSearch('');
                         }}
                       >
                         <Text style={styles.deityPickerIcon}>{opt.icon}</Text>
@@ -1145,6 +1221,7 @@ const AddItemSheet: React.FC<{
                       onPress={() => {
                         setNewStepName('');
                         setShowDeityPicker(false);
+                        setPickerSearch('');
                       }}
                     >
                       <Text style={styles.deityPickerIcon}>✍️</Text>
@@ -1157,7 +1234,8 @@ const AddItemSheet: React.FC<{
                         </Text>
                       </View>
                     </TouchableOpacity>
-                  </ScrollView>
+                    </ScrollView>
+                  </View>
                 )}
 
                 {/* Name + value inputs — aligned beneath the picker */}
@@ -1375,6 +1453,22 @@ const PlanBucketRow: React.FC<{ icon: string; label: string; mins: number }> = (
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.deep },
+
+  // v56: bottom Save & go-home bar (floats over the ScrollView)
+  saveBar: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    paddingHorizontal: SPACING.md, paddingTop: SPACING.sm, paddingBottom: SPACING.lg,
+    backgroundColor: COLORS.deep,
+    borderTopWidth: 1, borderTopColor: 'rgba(255,184,0,0.30)',
+  },
+  homeSaveBtn: {
+    alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 14, borderRadius: 14,
+    backgroundColor: COLORS.gold,
+    shadowColor: '#FFB800', shadowOpacity: 0.55, shadowRadius: 14, shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
+  },
+  homeSaveBtnText: { color: COLORS.deep, fontSize: 16, fontWeight: '800', letterSpacing: 0.5 },
   content: { paddingVertical: SPACING.lg, paddingBottom: 80 },
   header: { paddingHorizontal: SPACING.md, marginBottom: SPACING.md },
   title: { fontSize: 22, color: COLORS.cream, fontWeight: '700' },
@@ -1646,6 +1740,14 @@ const styles = StyleSheet.create({
   toneLabel: { fontSize: 12, color: COLORS.cream, fontWeight: '700' },
   toneLabelActive: { color: COLORS.gold, fontWeight: '800' },
   toneSub:   { fontSize: 9, color: COLORS.muted, marginTop: 1, textAlign: 'center' },
+  tonePreviewBtn: {
+    marginTop: SPACING.sm, alignSelf: 'flex-start',
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8,
+    backgroundColor: 'rgba(212,160,23,0.18)',
+    borderWidth: 1, borderColor: COLORS.gold,
+  },
+  tonePreviewBtnText: { color: COLORS.gold, fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
+  tonePreviewHint:    { color: COLORS.muted, fontSize: 10, fontStyle: 'italic', marginTop: 4 },
 
   // ── "Name your Sadhana Path" box (custom path mode) ──
   pathNameBox: {
@@ -1734,10 +1836,19 @@ const styles = StyleSheet.create({
   },
   deityDropdownText: { color: COLORS.gold, fontSize: 13, fontWeight: '700', textAlign: 'center' },
   deityPickerScroll: {
-    maxHeight: 220,
+    maxHeight: 280,
     backgroundColor: COLORS.deep, borderRadius: 10,
     borderWidth: 1, borderColor: COLORS.border,
     paddingHorizontal: SPACING.sm, marginBottom: 6,
+  },
+  pickerSearchInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 8,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 8,
+    marginTop: SPACING.sm, marginBottom: 6,
+    color: COLORS.cream, fontSize: 14,
+    borderWidth: 1, borderColor: COLORS.border,
   },
   deityPickerRow: {
     flexDirection: 'row', alignItems: 'center',

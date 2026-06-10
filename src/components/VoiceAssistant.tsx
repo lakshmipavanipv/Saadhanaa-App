@@ -100,35 +100,21 @@ interface VoiceAction {
   language: string;
 }
 
+// v56: aggressively shortened from ~30 lines → 12 to cut Gemma latency.
+// Same intent surface (8 actions), fewer tokens to read = faster first
+// byte from the model. Output spec held tight to keep JSON parse robust.
 const SYSTEM_PROMPT = `
-You are a kind, patient voice assistant inside a Hindu spiritual-wellness
-app called "Body & Soul Ring" used by elderly devotees. The user has
-spoken to you in their own language. Your job:
-
-1. Detect the language (English, Hindi, Tamil, Telugu, Kannada, Marathi,
-   Bengali, etc.) and respond in the SAME language.
-2. Decide what they want from this list of supported actions:
-   - "navigate"          → Move them to a tab. target ∈ {"Dashboard","Plan","Exercise","Yoga","Japa","Meditation","Panchang","History"}
-   - "explain_vitals"    → They want to hear about their BPM/HRV/SpO₂
-   - "explain_goals"     → They want to hear their committed routines
-   - "explain_routine"   → They want to know what to do today
-   - "set_reminder"      → They want a reminder. params: { activity, time }
-   - "add_goal"          → They want to add a routine item. params: { activity, durationMin }
-   - "chat"              → Just conversation, no action
-   - "unknown"           → If unclear
-3. Speak warmly and slowly — these are elders. Acknowledge their question
-   before answering. Use loving terms appropriate to the language (e.g.
-   "namaste", "ji").
-
-OUTPUT ONLY VALID JSON in this exact shape:
-{
-  "action": "...",
-  "target": "...",            // optional
-  "params": { ... },          // optional
-  "speech": "...",            // what to say back in user's language
-  "language": "..."           // BCP-47 tag: en, hi, ta, te, kn, mr, bn, en-IN, etc.
-}
-Do NOT wrap in markdown or add commentary outside the JSON.
+You are a voice assistant in a Hindu wellness app for elders.
+Detect the user's language and reply in the SAME language, warmly, briefly.
+Output ONLY this JSON (no markdown, no extra text):
+{"action":"<a>","target":"<t>","params":{},"speech":"<reply>","language":"<bcp47>"}
+Where <a> is one of:
+  navigate (target ∈ Dashboard Plan Exercise Yoga Japa Meditation Panchang History)
+  explain_vitals | explain_goals | explain_routine
+  set_reminder  (params: {activity,time})
+  add_goal      (params: {activity,durationMin})
+  chat | unknown
+Keep speech under 30 words.
 `.trim();
 
 // ─── Beautiful Voice FAB ────────────────────────────────────────
@@ -192,30 +178,30 @@ const VoiceFab: React.FC<{ bottom: number; onPress: () => void }> = ({ bottom, o
           {/* Outer body — gold gradient */}
           <Circle cx={32} cy={32} r={30} fill="url(#vfBg)" />
           {/* Inner sheen ring */}
-          <Circle cx={32} cy={32} r={28} fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth={1} />
+          <Circle cx={32} cy={32} r={28} fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth={1.2} />
 
-          {/* Lotus petals flanking the mic */}
-          <G transform="translate(32 38)">
-            <Path d="M -16 -2 Q -22 6, -16 12 Q -10 6, -16 -2 Z"
-                  fill="#FFE066" opacity={0.75} />
-            <Path d="M 16 -2 Q 22 6, 16 12 Q 10 6, 16 -2 Z"
-                  fill="#FFE066" opacity={0.75} />
-            <Path d="M 0 -8 Q -6 0, 0 6 Q 6 0, 0 -8 Z"
-                  fill="#FFE066" opacity={0.55} />
-          </G>
-
-          {/* Microphone glyph */}
-          <G transform="translate(32 30)">
-            {/* Capsule */}
-            <Rect x={-6} y={-12} width={12} height={20} rx={6} ry={6}
-                  fill="url(#vfMic)" stroke="rgba(80,40,0,0.25)" strokeWidth={0.8} />
-            {/* U-bracket */}
-            <Path d="M -10 4 Q -10 14, 0 14 Q 10 14, 10 4"
-                  stroke="url(#vfMic)" strokeWidth={2.2} fill="none" strokeLinecap="round" />
+          {/* v56 clean Samsung / Material style mic.
+              Single-tone deep-brown glyph centred on the gold orb —
+              rounded capsule head, slim U-bracket, clean stem + base.
+              Centred at (32, 30) so it sits in the optical centre of
+              the circle (slightly above geometric centre). */}
+          <G transform="translate(32 30)" fill="#2A1A00" stroke="none">
+            {/* Mic head — rounded capsule */}
+            <Rect x={-7} y={-16} width={14} height={22} rx={7} ry={7} fill="#2A1A00" />
+            {/* Subtle highlight on the head for depth */}
+            <Rect x={-5} y={-14} width={3.2} height={9} rx={1.6} ry={1.6} fill="rgba(255,240,200,0.55)" />
+            {/* U-bracket (stand) */}
+            <Path
+              d="M -12 4 V 6 C -12 12.6 -6.6 18 0 18 C 6.6 18 12 12.6 12 6 V 4"
+              fill="none"
+              stroke="#2A1A00"
+              strokeWidth={3}
+              strokeLinecap="round"
+            />
             {/* Stem */}
-            <Rect x={-1.2} y={14} width={2.4} height={4.5} fill="url(#vfMic)" />
+            <Rect x={-1.6} y={18} width={3.2} height={4} fill="#2A1A00" />
             {/* Base */}
-            <Rect x={-7} y={18} width={14} height={2.6} rx={1.3} ry={1.3} fill="url(#vfMic)" />
+            <Rect x={-9} y={22} width={18} height={3.2} rx={1.6} ry={1.6} fill="#2A1A00" />
           </G>
         </Svg>
       </TouchableOpacity>
@@ -408,32 +394,46 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
     setStatusKind('info');
     setStatusMsg('💭  Thinking…');
     setResponding(true);
+    const t0 = Date.now();
     try {
+      // v56 perf knobs:
+      //   • temperature 0.4 → 0.2  (less variation, faster sampling)
+      //   • max_new_tokens 400 → 180  (replies are short anyway)
+      //   • shorter SYSTEM_PROMPT (see top of file)
+      //   • TTS started as soon as we have `speech`; action persistence
+      //     runs in parallel via Promise.resolve().then(...)
       const raw = await defaultGemmaClient.generate({
         systemPrompt: SYSTEM_PROMPT,
         userMessage: text,
-        params: { temperature: 0.4, max_new_tokens: 400 },
+        params: { temperature: 0.2, max_new_tokens: 180 },
       });
+      const tGemma = Date.now();
+      console.log(`[Voice] Gemma ${tGemma - t0}ms`);
+
       const json = extractJson(raw);
       if (!json) throw new Error('No JSON in response');
       const action: VoiceAction = { request: text, ...json };
       setLastResponse(action);
-      setStatusMsg('🗣️  Speaking the answer…');
+      setStatusMsg('🗣️  Speaking…');
 
-      // Execute the action
-      executeAction(action);
-
-      // Speak the response back
+      // Start TTS immediately (don't wait for any DB writes)
       if (action.speech) {
         Speech.speak(action.speech, {
           language: action.language || 'en-IN',
           pitch: 1.0,
-          rate: 0.92,
+          rate: 0.96,
         });
       }
+      // Persist + navigate in PARALLEL with TTS speaking
+      Promise.resolve().then(() => executeAction(action)).catch((e) => {
+        console.warn('[Voice] action failed', e);
+      });
+
       // Clear status once spoken
       setTimeout(() => setStatusMsg(prev => (prev?.startsWith('🗣️') ? null : prev)), 1500);
+      console.log(`[Voice] total ${Date.now() - t0}ms`);
     } catch (e: any) {
+      console.warn(`[Voice] error after ${Date.now() - t0}ms`, e?.message);
       const fallback = "I'm sorry, I couldn't understand. Could you say that again?";
       setLastResponse({
         request: text, action: 'unknown',
@@ -441,7 +441,7 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
       });
       setStatusKind('error');
       setStatusMsg(`⚠️  Couldn't reach the assistant. ${e?.message || ''}`);
-      Speech.speak(fallback, { language: 'en-IN', rate: 0.92 });
+      Speech.speak(fallback, { language: 'en-IN', rate: 0.96 });
     } finally {
       setResponding(false);
     }
