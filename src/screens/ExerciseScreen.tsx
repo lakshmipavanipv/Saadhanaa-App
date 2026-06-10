@@ -21,8 +21,10 @@ import {
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
+import { AddToPlanCta } from '../components/AddToPlanCta';
 import { useSadhana } from '../context';
 import { exerciseRepo } from '../services/exerciseRepo';
+import { routineRepo } from '../services/routineRepo';
 import { BodyActivity, ExerciseEntry } from '../types';
 import { todayStr } from '../utils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -190,6 +192,11 @@ export const ExerciseScreen = ({ navigation }: any) => {
   const [stepsWeekly, setStepsWeekly] = useState<number[]>([0,0,0,0,0,0,0]);
   const [editingGoalFor, setEditingGoalFor] = useState<BodyActivity | null>(null);
   const [goalInput, setGoalInput] = useState('');
+  // v58: which activities should render. Walking is always on; everything
+  // else only renders if the user has planned it via the Plan tab OR if
+  // they've already logged minutes against it (so existing data isn't
+  // hidden retroactively).
+  const [plannedActivities, setPlannedActivities] = useState<Set<string>>(new Set(['walk']));
 
   const refresh = async () => {
     setTodayMin(await exerciseRepo.todayMinutes());
@@ -239,6 +246,32 @@ export const ExerciseScreen = ({ navigation }: any) => {
       series[act] = week;
     }
     setWeeklyByActivity(series);
+
+    // v58: compute which activity cards to show.
+    //   • walk: ALWAYS visible
+    //   • planned items from Plan tab (routineRepo, category 'exercise')
+    //   • any activity that already has logged minutes anywhere
+    try {
+      const routines = await routineRepo.list();
+      const planned = new Set<string>(['walk']);
+      for (const r of routines) {
+        if (r.category !== 'exercise') continue;
+        // Match activity by name (case-insensitive) against the EXERCISE_CATALOG ids
+        const lc = r.name.toLowerCase();
+        for (const a of EXERCISE_CATALOG) {
+          if (lc.includes(a.id.toLowerCase()) || lc.includes(a.name.toLowerCase())) {
+            planned.add(a.id);
+          }
+        }
+      }
+      // Also keep any activity the user has logged history for
+      for (const a of EXERCISE_CATALOG) {
+        if ((series[a.id as BodyActivity] || []).reduce((s, x) => s + x, 0) > 0) {
+          planned.add(a.id);
+        }
+      }
+      setPlannedActivities(planned);
+    } catch { /* keep default walk-only */ }
   };
   useEffect(() => { refresh(); }, []);
 
@@ -304,14 +337,26 @@ export const ExerciseScreen = ({ navigation }: any) => {
           </Text>
         </View>
 
+        {/* v58: quick gateway to Plan tab — add a new exercise routine
+            without having to remember where Plan lives. */}
+        <AddToPlanCta
+          label="an exercise"
+          onPress={() => navigation?.navigate?.('Plan')}
+        />
+
         {/* Soulsync — start before any workout to capture HRV / BPM */}
         <SoulsyncSessionBar
           practice="exercise"
           onViewInsights={() => navigation?.navigate?.('History')}
         />
 
-        {/* ── Samsung-Health-style metric cards per activity ── */}
-        {EXERCISE_CATALOG.filter(a => a.id !== 'yoga').map(item => {
+        {/* v58: only show walking by default + activities the user has
+            planned (via Plan tab) or has already logged history for.
+            Keeps the screen calm; other activities appear automatically
+            once added to the plan. */}
+        {EXERCISE_CATALOG
+          .filter(a => a.id !== 'yoga' && plannedActivities.has(a.id))
+          .map(item => {
           const isWalk = item.id === 'walk';
           const todaySeries = weeklyByActivity[item.id] ?? [0,0,0,0,0,0,0];
           const thisWeekMin = todaySeries.reduce((s, x) => s + x, 0);

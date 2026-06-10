@@ -21,6 +21,7 @@ import { computeJapaEffect, JapaEffectSnapshot } from '../soulsync/analytics/Jap
 import { DeityScreen } from './DeityScreen';
 import { DeityIcon } from '../components/DeityIcon';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
+import { AddToPlanCta } from '../components/AddToPlanCta';
 import { TimePickerField } from '../components/TimePickerField';
 import { ALL_CATALOG_DEITIES } from '../deityCatalog';
 import { specialSadhanaRepo, SpecialTrigger } from '../services/specialSadhanaRepo';
@@ -952,6 +953,12 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
         </Text>
 
         {/* ─── #5 · START SOULSYNC ─── */}
+        {/* v58: quick gateway to Plan tab for adding a japa routine */}
+        <AddToPlanCta
+          label="a japa session"
+          onPress={() => navigation?.navigate?.('Plan')}
+        />
+
         <PulseHighlight
           active={hintMode !== 'none'}
           tooltip={hintMode === 'start'

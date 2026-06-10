@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
+import { AddToPlanCta } from '../components/AddToPlanCta';
 import { YogaPoseAnimation } from '../components/YogaPoseAnimation';
 import { createDefaultRing } from '../soulsync/services/RingTelemetryService';
 import { TextInput } from 'react-native';
@@ -358,6 +359,12 @@ export const YogaScreen = ({ navigation }: any) => {
         <SessionList practice="yoga" />
 
         {/* Soulsync — start before yoga to capture HRV / BPM changes */}
+        {/* v58: quick gateway to Plan tab for adding a yoga routine */}
+        <AddToPlanCta
+          label="a yoga session"
+          onPress={() => navigation?.navigate?.('Plan')}
+        />
+
         <SoulsyncSessionBar
           practice="yoga"
           onViewInsights={() => navigation?.navigate?.('History')}

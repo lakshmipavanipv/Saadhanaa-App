@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
+import { AddToPlanCta } from '../components/AddToPlanCta';
 import { soulActivityRepo } from '../services/soulActivityRepo';
 import { useSadhana } from '../context';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
@@ -422,6 +423,12 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
         </View>
 
         {/* Soulsync — start before meditation to capture HRV / BPM */}
+        {/* v58: quick gateway to Plan tab for adding a meditation routine */}
+        <AddToPlanCta
+          label="a meditation"
+          onPress={() => navigation?.navigate?.('Plan')}
+        />
+
         <SoulsyncSessionBar
           practice="meditation"
           onViewInsights={() => navigation?.navigate?.('History')}
