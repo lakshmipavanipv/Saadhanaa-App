@@ -35,6 +35,7 @@ import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, TextInput, Switch,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import * as ExpoSpeech from 'expo-speech';
 import { useAudioPlayer } from 'expo-audio';
 import { COLORS, SPACING } from '../theme';
 import { useSadhana } from '../context';
@@ -47,6 +48,7 @@ import { ALL_CATALOG_DEITIES } from '../deityCatalog';
 import {
   scheduleRoutineReminder, cancelRoutineReminder, requestNotificationPermission,
 } from '../services/notifications';
+import { vitalsPlanEngine, VitalsPlan } from '../soulsync/ai/VitalsPlanEngine';
 
 // ─── Catalog meta ───────────────────────────────────────────────
 
@@ -82,28 +84,41 @@ const popRank = (name: string) => {
   return 999;
 };
 
+// v61: synthetic "Design your own" tile sits at the TOP of every
+// catalog (yoga/japa/meditate/sandhya/exercise) so users can craft a
+// custom Sadhana / routine instead of being limited to presets.
+const DESIGN_YOUR_OWN: Record<string, PickEntry> = {
+  exercise: { id: '__design__', name: 'Design your own workout', icon: '✨', sub: 'Type a custom name + duration below',  defaultMin: 30 },
+  yoga:     { id: '__design__', name: 'Design your own Sadhana',  icon: '✨', sub: 'Custom yoga + pranayama flow',          defaultMin: 20 },
+  japa:     { id: '__design__', name: 'Design your own Sadhana',  icon: '✨', sub: 'Custom japa for your ishta devata',     defaultMin: 15 },
+  meditate: { id: '__design__', name: 'Design your own Sadhana',  icon: '✨', sub: 'Custom meditation / muraqaba flow',     defaultMin: 15 },
+  sandhya:  { id: '__design__', name: 'Design your own ritual',   icon: '✨', sub: 'Custom sandhya / twilight ritual',      defaultMin: 10 },
+};
+
 const catalogFor = (cat: RoutineCategory): PickEntry[] => {
-  if (cat === 'exercise') return EXERCISE_CATALOG.map((e: any) => ({
+  const design = DESIGN_YOUR_OWN[cat];
+  let entries: PickEntry[] = [];
+  if (cat === 'exercise') entries = EXERCISE_CATALOG.map((e: any) => ({
     id: e.id, name: e.name, icon: e.icon || '🏃', sub: e.subtitle || '',
     defaultMin: Math.max(5, Math.round((e.durationSec || 1800) / 60)),
   }));
-  if (cat === 'yoga') return YOGA_CATALOG.map((y: any) => ({
+  else if (cat === 'yoga') entries = YOGA_CATALOG.map((y: any) => ({
     id: y.id, name: y.name, icon: '🧘', sub: y.sanskrit || '',
     defaultMin: Math.max(5, Math.round((y.durationSec || 600) / 60)),
   }));
-  if (cat === 'meditate') return MEDITATION_CATALOG.map((m: any) => ({
+  else if (cat === 'meditate') entries = MEDITATION_CATALOG.map((m: any) => ({
     id: m.id, name: m.name, icon: '🪷', sub: m.subtitle || '',
     defaultMin: Math.max(5, Math.round((m.durationSec || 600) / 60)),
   }));
-  if (cat === 'japa') return ALL_CATALOG_DEITIES
+  else if (cat === 'japa') entries = ALL_CATALOG_DEITIES
     .map((d: any) => ({ id: d.id, name: d.name, icon: d.icon || '🪷', sub: d.mantra || '', defaultMin: 15 }))
     .sort((a, b) => popRank(a.name) - popRank(b.name));
-  if (cat === 'sandhya') return [
+  else if (cat === 'sandhya') entries = [
     { id: 'pratah',      name: 'Pratah Sandhya',      icon: '🌅', sub: 'Dawn juncture', defaultMin: 10 },
     { id: 'madhyahnika', name: 'Madhyahnika Sandhya', icon: '🌞', sub: 'Noon juncture', defaultMin: 10 },
     { id: 'sayam',       name: 'Sayam Sandhya',       icon: '🌇', sub: 'Dusk juncture', defaultMin: 10 },
   ];
-  return [];
+  return design ? [design, ...entries] : entries;
 };
 
 // ─── Tone catalog ────────────────────────────────────────────────
@@ -121,16 +136,20 @@ const fmtFrequency = (f: 'daily' | number[]): string => {
   return f.map(d => names[d]).join(' · ');
 };
 
-const timeUntil = (hhmm?: string | null) => {
-  if (!hhmm) return '';
+const timeUntil = (hhmm?: string | null): { text: string; tomorrow: boolean } => {
+  if (!hhmm) return { text: '', tomorrow: false };
   const [h, m] = hhmm.split(':').map(s => parseInt(s, 10) || 0);
   const t = new Date(); t.setHours(h, m, 0, 0);
-  const ms = t.getTime() - Date.now();
-  if (ms < -60_000) return 'past';
-  if (Math.abs(ms) < 60_000) return 'now';
+  let ms = t.getTime() - Date.now();
+  let tomorrow = false;
+  // v61: if the time already passed today, the next occurrence is tomorrow
+  if (ms < -60_000) { ms += 24 * 60 * 60 * 1000; tomorrow = true; }
+  if (Math.abs(ms) < 60_000) return { text: 'NOW', tomorrow: false };
   const mins = Math.round(ms / 60_000);
-  if (mins < 60) return `in ${mins} min`;
-  return `in ${Math.round(mins / 60)}h`;
+  if (mins < 60) return { text: `${mins} min`, tomorrow };
+  const hrs  = Math.floor(mins / 60);
+  const rem  = mins % 60;
+  return { text: rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`, tomorrow };
 };
 
 // ─── Main screen ────────────────────────────────────────────────
@@ -140,9 +159,23 @@ export const WellBeingPlanScreen = ({ navigation }: any) => {
   const [items, setItems] = useState<RoutineItem[]>([]);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<RoutineItem | null>(null);
+  // v61: AI plan card — collapsed by default; expands to show the
+  // 5-bucket walking / yoga / japa / meditation / breath breakdown.
+  const [aiPlan, setAiPlan] = useState<VitalsPlan | null>(null);
+  const [showAi, setShowAi] = useState(false);
 
   const refresh = async () => setItems(await routineRepo.list());
   useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const p = await vitalsPlanEngine.generate(userProfile?.dob);
+        if (!cancelled) setAiPlan(p);
+      } catch { /* soft-fail */ }
+    })();
+    return () => { cancelled = true; };
+  }, [userProfile?.dob]);
 
   // Group items by category for visual grouping
   const grouped = React.useMemo(() => {
@@ -174,6 +207,56 @@ export const WellBeingPlanScreen = ({ navigation }: any) => {
           </Text>
         </View>
 
+        {/* AI Recommendations — collapsible card */}
+        {aiPlan && (
+          <View style={s.aiCard}>
+            <TouchableOpacity
+              style={s.aiHeader}
+              onPress={() => setShowAi(v => !v)}
+              activeOpacity={0.7}
+            >
+              <Text style={s.aiTitle}>🌿  AI RECOMMENDATIONS FOR YOU</Text>
+              <Text style={s.aiTotal}>{aiPlan.totalMin} min · {showAi ? '▴' : '▾'}</Text>
+            </TouchableOpacity>
+            {showAi && (
+              <View style={{ marginTop: SPACING.sm }}>
+                <Text style={s.aiSub}>
+                  Tuned to your age, today's vitals, and last 7-day history.
+                </Text>
+                {aiPlan.notes.map((n, i) => (
+                  <Text key={i} style={s.aiNote}>• {n}</Text>
+                ))}
+                <View style={{ marginTop: SPACING.sm }}>
+                  {[
+                    { icon: '🚶', label: 'Walking',    mins: aiPlan.walkingMin },
+                    { icon: '🧘', label: 'Yoga',       mins: aiPlan.yogaMin },
+                    { icon: '📿', label: 'Japa',       mins: aiPlan.japaMin },
+                    { icon: '🪷', label: 'Meditation', mins: aiPlan.meditationMin },
+                    { icon: '🫁', label: 'Breath work',mins: aiPlan.breathworkMin },
+                  ].map(b => {
+                    const pct = Math.min(100, Math.round((b.mins / 30) * 100));
+                    return (
+                      <View key={b.label} style={s.aiBucketRow}>
+                        <Text style={s.aiBucketIcon}>{b.icon}</Text>
+                        <Text style={s.aiBucketLabel}>{b.label}</Text>
+                        <View style={s.aiBucketTrack}>
+                          <View style={[s.aiBucketFill, { width: `${pct}%` }]} />
+                        </View>
+                        <Text style={s.aiBucketMins}>{b.mins} min</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+                <Text style={s.aiProvenance}>
+                  {aiPlan.fromRealVitals  ? '✓ Live ring vitals' : '◌ Dummy fallback'}
+                  {'  ·  '}
+                  {aiPlan.fromRealHistory ? '✓ 7-day history'    : '◌ No history yet'}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Empty state */}
         {items.length === 0 && (
           <View style={s.emptyCard}>
@@ -196,59 +279,66 @@ export const WellBeingPlanScreen = ({ navigation }: any) => {
               <Text style={s.groupLabel}>
                 {cat.icon}  {cat.label.toUpperCase()}
               </Text>
-              {list.map(it => (
-                <TouchableOpacity
-                  key={it.id}
-                  style={s.reminderCard}
-                  onPress={() => setEditingItem(it)}
-                  activeOpacity={0.7}
-                >
-                  <View style={s.reminderCardLeft}>
-                    <Text style={s.reminderIcon}>{cat.icon}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.reminderName}>{it.name}</Text>
-                    <Text style={s.reminderMeta}>
-                      {it.durationMin} min · {fmtFrequency(it.frequency)}
-                    </Text>
-                    <View style={s.reminderChipsRow}>
-                      {it.time && (
-                        <View style={s.timeChip}>
-                          <Text style={s.timeChipText}>⏰  {it.time}</Text>
-                        </View>
-                      )}
-                      {it.notificationIds && it.alarmSoundId && (
-                        <View style={s.toneChip}>
-                          <Text style={s.toneChipText}>
-                            🎵 {it.alarmCustomName ? it.alarmCustomName.slice(0, 16) :
-                                TONES.find(t => t.id === it.alarmSoundId)?.label || 'Default'}
-                          </Text>
-                        </View>
-                      )}
-                      {it.spokenReminder && (
-                        <View style={s.voiceChip}>
-                          <Text style={s.voiceChipText}>🗣️ Spoken</Text>
-                        </View>
-                      )}
-                      {it.time && (
-                        <View style={s.untilChip}>
-                          <Text style={s.untilChipText}>{timeUntil(it.time)}</Text>
-                        </View>
-                      )}
+              {list.map(it => {
+                const next = timeUntil(it.time);
+                return (
+                  <TouchableOpacity
+                    key={it.id}
+                    style={s.reminderCard}
+                    onPress={() => setEditingItem(it)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={s.reminderCardLeft}>
+                      <Text style={s.reminderIcon}>{cat.icon}</Text>
                     </View>
-                  </View>
-                  <View style={s.reminderCardRight}>
-                    <Text style={s.editPencil}>✏️</Text>
-                    <TouchableOpacity
-                      onPress={(e) => { e.stopPropagation?.(); handleDelete(it.id); }}
-                      hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}
-                      style={s.deleteBtn}
-                    >
-                      <Text style={s.deleteBtnText}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                </TouchableOpacity>
-              ))}
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.reminderName}>{it.name}</Text>
+                      <Text style={s.reminderMeta}>
+                        {it.durationMin} min · {fmtFrequency(it.frequency)}
+                      </Text>
+                      <View style={s.reminderChipsRow}>
+                        {it.time && (
+                          <View style={s.timeChip}>
+                            <Text style={s.timeChipText}>⏰  {it.time}</Text>
+                          </View>
+                        )}
+                        {it.notificationIds && it.alarmSoundId && (
+                          <View style={s.toneChip}>
+                            <Text style={s.toneChipText}>
+                              🎵 {it.alarmCustomName ? it.alarmCustomName.slice(0, 16) :
+                                  TONES.find(t => t.id === it.alarmSoundId)?.label || 'Default'}
+                            </Text>
+                          </View>
+                        )}
+                        {it.spokenReminder && (
+                          <View style={s.voiceChip}>
+                            <Text style={s.voiceChipText}>🗣️ Spoken</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                    {/* v61: prominent "NEXT in 4h" pillar on the right */}
+                    <View style={s.reminderCardRight}>
+                      {it.time ? (
+                        <View style={s.nextPillar}>
+                          <Text style={s.nextLabel}>NEXT</Text>
+                          <Text style={s.nextValue}>{next.text || '—'}</Text>
+                          {next.tomorrow && <Text style={s.nextTomorrow}>tomorrow</Text>}
+                        </View>
+                      ) : (
+                        <Text style={s.editPencil}>✏️</Text>
+                      )}
+                      <TouchableOpacity
+                        onPress={(e) => { e.stopPropagation?.(); handleDelete(it.id); }}
+                        hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}
+                        style={s.deleteBtn}
+                      >
+                        <Text style={s.deleteBtnText}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           );
         })}
@@ -324,7 +414,9 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
       setFreqMode(editing.frequency === 'daily' ? 'daily' : 'days');
       setDays(Array.isArray(editing.frequency) ? editing.frequency : []);
       setReminderOn(!!editing.notificationIds);
-      setToneId(editing.alarmSoundId || 'flute');
+      // v61: spoken+tone are mutually exclusive radio options now. If the
+      // saved item had spokenReminder, treat toneId as 'voice' for the UI.
+      setToneId(editing.spokenReminder ? 'voice' : (editing.alarmSoundId || 'flute'));
       setCustomUri(editing.alarmCustomUri);
       setCustomName(editing.alarmCustomName);
       setSpoken(!!editing.spokenReminder);
@@ -378,37 +470,43 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
   const save = async () => {
     if (!category) return;
     const freq = freqMode === 'daily' ? 'daily' : (days.length > 0 ? days : 'daily');
+    // v61: 'voice' is a UI-only id (folded into the same radio group).
+    // Persist it as spokenReminder=true + a neutral 'default' sound so
+    // the platform plays its default tone alongside the spoken body.
+    const isVoiceOnly = toneId === 'voice';
+    const persistSpoken = spoken || isVoiceOnly;
+    const persistSoundId = isVoiceOnly ? 'default' : toneId;
     let saved: RoutineItem;
     if (editing) {
       if (editing.notificationIds) await cancelRoutineReminder(editing.notificationIds);
       await routineRepo.update(editing.id, {
         category, name: pickedName, durationMin: duration, time,
-        frequency: freq, alarmSoundId: reminderOn ? toneId : undefined,
+        frequency: freq, alarmSoundId: reminderOn ? persistSoundId : undefined,
         alarmCustomUri: customUri, alarmCustomName: customName,
-        spokenReminder: spoken,
+        spokenReminder: persistSpoken,
       });
       saved = { ...editing, name: pickedName, durationMin: duration, time, frequency: freq };
     } else {
       saved = await routineRepo.add({
         category, name: pickedName, durationMin: duration, time,
         frequency: freq, custom: false,
-        alarmSoundId: reminderOn ? toneId : undefined,
+        alarmSoundId: reminderOn ? persistSoundId : undefined,
         alarmCustomUri: customUri, alarmCustomName: customName,
-        spokenReminder: spoken,
+        spokenReminder: persistSpoken,
       });
     }
     if (reminderOn && time) {
       const granted = await requestNotificationPermission();
       if (granted) {
-        const title = spoken
+        const title = persistSpoken
           ? `🪷 Hey ${userName || 'friend'}`
           : `🎯 ${pickedName}`;
-        const body = spoken
+        const body = persistSpoken
           ? `Your ${pickedName.toLowerCase()} is at ${time} — ${duration} min`
           : `Your committed ${duration}-min practice`;
         const ids = await scheduleRoutineReminder({
           title, body, time, frequency: freq,
-          routineId: saved.id, soundId: toneId,
+          routineId: saved.id, soundId: persistSoundId,
         });
         await routineRepo.update(saved.id, { notificationIds: ids });
       }
@@ -461,21 +559,42 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
         placeholderTextColor={COLORS.muted}
       />
       <ScrollView style={{ maxHeight: 340 }} nestedScrollEnabled>
-        {filteredCatalog.map(e => (
-          <TouchableOpacity
-            key={e.id}
-            style={[ws.pickRow, pickedName === e.name && ws.pickRowActive]}
-            onPress={() => { setPickedName(e.name); setPickedSub(e.sub || ''); setDuration(e.defaultMin); }}
-            activeOpacity={0.7}
-          >
-            <Text style={ws.pickIcon}>{e.icon}</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={ws.pickName}>{e.name}</Text>
-              {!!e.sub && <Text style={ws.pickSub} numberOfLines={1}>{e.sub}</Text>}
-            </View>
-            <Text style={ws.pickMin}>{e.defaultMin} min</Text>
-          </TouchableOpacity>
-        ))}
+        {filteredCatalog.map(e => {
+          const isDesign = e.id === '__design__';
+          return (
+            <TouchableOpacity
+              key={e.id}
+              style={[
+                ws.pickRow,
+                isDesign && ws.pickRowDesign,
+                pickedName === e.name && ws.pickRowActive,
+              ]}
+              onPress={() => {
+                if (isDesign) {
+                  // Clear the name so the user types their own; keep
+                  // the suggested default minutes from the design entry.
+                  setPickedName('');
+                  setPickedSub('');
+                  setDuration(e.defaultMin);
+                } else {
+                  setPickedName(e.name);
+                  setPickedSub(e.sub || '');
+                  setDuration(e.defaultMin);
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={ws.pickIcon}>{e.icon}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[ws.pickName, isDesign && { color: COLORS.gold }]}>{e.name}</Text>
+                {!!e.sub && <Text style={ws.pickSub} numberOfLines={1}>{e.sub}</Text>}
+              </View>
+              {isDesign
+                ? <Text style={ws.pickArrow}>↓</Text>
+                : <Text style={ws.pickMin}>{e.defaultMin} min</Text>}
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
       <Text style={ws.orLabel}>OR type your own:</Text>
       <TextInput
@@ -560,56 +679,86 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
 
       {reminderOn && (
         <>
-          <Text style={ws.fieldLabel}>🎵  Pick a tone — tap to hear it</Text>
-          <View style={ws.toneGrid}>
-            {TONES.map(t => (
-              <TouchableOpacity
-                key={t.id}
-                style={[ws.toneTile, toneId === t.id && ws.toneTileActive]}
-                onPress={() => { setToneId(t.id); playTone(t.id); }}
-                activeOpacity={0.7}
-              >
-                <Text style={ws.toneIcon}>{t.icon}</Text>
-                <Text style={[ws.toneLabel, toneId === t.id && ws.toneLabelActive]}>{t.label}</Text>
-                <Text style={ws.toneSub}>{t.sub}</Text>
-              </TouchableOpacity>
-            ))}
-            {/* Custom file tile */}
+          <Text style={ws.fieldLabel}>Pick how to remind you — tap to preview</Text>
+          <View>
+            {TONES.map(t => {
+              const selected = toneId === t.id;
+              return (
+                <TouchableOpacity
+                  key={t.id}
+                  style={[ws.radioRow, selected && ws.radioRowActive]}
+                  onPress={() => { setToneId(t.id); setSpoken(false); playTone(t.id); }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[ws.radioDot, selected && ws.radioDotActive]}>{selected ? '◉' : '○'}</Text>
+                  <Text style={ws.radioIcon}>{t.icon}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[ws.radioLabel, selected && ws.radioLabelActive]}>{t.label}</Text>
+                    <Text style={ws.radioSub}>{t.sub}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+            {/* Custom file row */}
             <TouchableOpacity
-              style={[ws.toneTile, toneId === 'custom' && ws.toneTileActive]}
-              onPress={() => { if (customUri) { setToneId('custom'); playTone('custom'); } else { pickCustomFile(); } }}
+              style={[ws.radioRow, toneId === 'custom' && ws.radioRowActive]}
+              onPress={() => {
+                if (customUri) { setToneId('custom'); setSpoken(false); playTone('custom'); }
+                else { pickCustomFile(); }
+              }}
               onLongPress={pickCustomFile}
               activeOpacity={0.7}
             >
-              <Text style={ws.toneIcon}>📂</Text>
-              <Text style={[ws.toneLabel, toneId === 'custom' && ws.toneLabelActive]}>
-                {customName ? customName.slice(0, 12) : 'Custom'}
+              <Text style={[ws.radioDot, toneId === 'custom' && ws.radioDotActive]}>
+                {toneId === 'custom' ? '◉' : '○'}
               </Text>
-              <Text style={ws.toneSub}>{customName ? 'Long-press: swap' : 'Pick from phone'}</Text>
+              <Text style={ws.radioIcon}>📂</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[ws.radioLabel, toneId === 'custom' && ws.radioLabelActive]}>
+                  {customName ? customName.slice(0, 28) : 'Custom from device'}
+                </Text>
+                <Text style={ws.radioSub}>
+                  {customName ? 'Long-press to change file' : 'Pick an mp3 from your phone'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+            {/* Voice out — folded into the same radio group */}
+            <TouchableOpacity
+              style={[ws.radioRow, ws.radioRowVoice, toneId === 'voice' && ws.radioRowActive]}
+              onPress={() => {
+                setToneId('voice');
+                setSpoken(true);
+                try {
+                  ExpoSpeech.stop();
+                  ExpoSpeech.speak(
+                    userName
+                      ? `Hey ${userName}, your ${pickedName.toLowerCase() || 'practice'} is at ${time || 'this time'}`
+                      : 'Hey friend, your practice is at this time',
+                    { rate: 0.9 }
+                  );
+                } catch { /* */ }
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[ws.radioDot, toneId === 'voice' && ws.radioDotActive]}>
+                {toneId === 'voice' ? '◉' : '○'}
+              </Text>
+              <Text style={ws.radioIcon}>🗣️</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[ws.radioLabel, toneId === 'voice' && ws.radioLabelActive]}>Voice out</Text>
+                <Text style={ws.radioSub}>
+                  {userName
+                    ? `"Hey ${userName}, your ${pickedName.toLowerCase() || 'practice'} is at ${time || 'this time'}"`
+                    : '"Hey friend, your practice is at this time"'}
+                </Text>
+              </View>
             </TouchableOpacity>
           </View>
           <Text style={ws.disclosure}>
-            🔊 The PREVIEW above plays the exact tone. Android limits notification
-            sounds to bundled files — picked custom files preview here but the
-            actual notification may fall back to default.
+            🔊 Sound previews play directly. Voice out uses your phone's built-in voice.
+            Android limits notification sounds to bundled files — custom files preview here
+            but the actual notification may fall back to default.
           </Text>
-
-          <View style={ws.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={ws.toggleLabel}>🗣️  Speak my name aloud</Text>
-              <Text style={ws.toggleHint}>
-                {userName
-                  ? `"Hey ${userName}, your ${pickedName.toLowerCase() || 'practice'} is at ${time || 'this time'}"`
-                  : '"Hey friend, your practice is at this time"'}
-              </Text>
-            </View>
-            <Switch
-              value={spoken}
-              onValueChange={setSpoken}
-              trackColor={{ false: COLORS.border, true: COLORS.gold }}
-              thumbColor={spoken ? COLORS.cream : COLORS.muted}
-            />
-          </View>
         </>
       )}
     </View>
@@ -686,6 +835,28 @@ const s = StyleSheet.create({
   title:    { color: COLORS.cream, fontSize: 24, fontWeight: '800' },
   subtitle: { color: COLORS.muted, fontSize: 14, marginTop: 6, lineHeight: 19 },
 
+  // v61: AI Recommendations collapsible card
+  aiCard: {
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
+    padding: SPACING.md, borderRadius: 14,
+    backgroundColor: 'rgba(80, 200, 180, 0.08)',
+    borderWidth: 1, borderColor: 'rgba(80, 200, 180, 0.35)',
+  },
+  aiHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
+  },
+  aiTitle: { fontSize: 13, color: '#7FE8C8', fontWeight: '800', letterSpacing: 0.5, flex: 1 },
+  aiTotal: { fontSize: 15, color: '#7FE8C8', fontWeight: '800' },
+  aiSub:   { fontSize: 12, color: COLORS.muted, marginBottom: SPACING.sm, fontStyle: 'italic' },
+  aiNote:  { fontSize: 13, color: COLORS.cream, lineHeight: 18, marginBottom: 4 },
+  aiBucketRow:   { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  aiBucketIcon:  { fontSize: 16, width: 22 },
+  aiBucketLabel: { fontSize: 12, color: COLORS.cream, fontWeight: '600', width: 80 },
+  aiBucketTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.06)', overflow: 'hidden' },
+  aiBucketFill:  { height: '100%', backgroundColor: '#7FE8C8', borderRadius: 4 },
+  aiBucketMins:  { fontSize: 12, color: COLORS.cream, fontWeight: '700', width: 50, textAlign: 'right' },
+  aiProvenance:  { fontSize: 10, color: COLORS.muted, marginTop: SPACING.sm, fontStyle: 'italic' },
+
   emptyCard: {
     marginHorizontal: SPACING.md, marginTop: SPACING.md, padding: SPACING.lg,
     borderRadius: 16, backgroundColor: COLORS.cardBg,
@@ -722,13 +893,24 @@ const s = StyleSheet.create({
   toneChipText: { color: '#7FE8C8', fontSize: 12, fontWeight: '600' },
   voiceChip:    { backgroundColor: 'rgba(192,132,252,0.15)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
   voiceChipText:{ color: '#c084fc', fontSize: 12, fontWeight: '600' },
-  untilChip:    { backgroundColor: 'rgba(255,255,255,0.06)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
-  untilChipText:{ color: COLORS.muted, fontSize: 11, fontStyle: 'italic' },
 
-  reminderCardRight: { alignItems: 'center', justifyContent: 'space-between', paddingLeft: 6, height: 72 },
-  editPencil: { fontSize: 18 },
-  deleteBtn:  { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
-  deleteBtnText: { color: COLORS.muted, fontSize: 14, fontWeight: '700' },
+  // v61: right-side pillar — prominent NEXT countdown + delete button
+  reminderCardRight: {
+    alignItems: 'center', justifyContent: 'space-between',
+    paddingLeft: 8, minHeight: 76, gap: 6,
+  },
+  nextPillar: {
+    minWidth: 64, alignItems: 'center',
+    paddingVertical: 6, paddingHorizontal: 6, borderRadius: 10,
+    backgroundColor: 'rgba(255,184,0,0.10)',
+    borderWidth: 1, borderColor: 'rgba(255,184,0,0.30)',
+  },
+  nextLabel:    { color: COLORS.gold, fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
+  nextValue:    { color: COLORS.cream, fontSize: 14, fontWeight: '800', marginTop: 2 },
+  nextTomorrow: { color: COLORS.muted, fontSize: 9, marginTop: 1, fontStyle: 'italic' },
+  editPencil:   { fontSize: 18 },
+  deleteBtn:    { width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
+  deleteBtnText:{ color: COLORS.muted, fontSize: 14, fontWeight: '700' },
 
   addBar: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
@@ -793,10 +975,16 @@ const ws = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)',
   },
   pickRowActive: { backgroundColor: 'rgba(255,184,0,0.10)', borderRadius: 8 },
+  pickRowDesign: {
+    backgroundColor: 'rgba(255,184,0,0.08)',
+    borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,184,0,0.35)',
+    marginBottom: 4,
+  },
   pickIcon: { fontSize: 24, width: 32 },
   pickName: { color: COLORS.cream, fontSize: 16, fontWeight: '600' },
   pickSub:  { color: COLORS.muted, fontSize: 12, marginTop: 2 },
   pickMin:  { color: COLORS.gold, fontSize: 13, fontWeight: '700' },
+  pickArrow:{ color: COLORS.gold, fontSize: 16, fontWeight: '800' },
 
   orLabel:   { color: COLORS.muted, fontSize: 13, marginTop: SPACING.md, marginBottom: 6, textAlign: 'center' },
   nameInput: {
@@ -840,17 +1028,21 @@ const ws = StyleSheet.create({
   toggleLabel: { color: COLORS.cream, fontSize: 15, fontWeight: '700' },
   toggleHint:  { color: COLORS.muted, fontSize: 12, marginTop: 4, lineHeight: 17 },
 
-  toneGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  toneTile: {
-    width: '31%', minHeight: 100, padding: 10, borderRadius: 12,
-    backgroundColor: COLORS.cardBg, borderWidth: 2, borderColor: COLORS.border,
-    alignItems: 'center', justifyContent: 'center',
+  // v61: vertical radio list (tones + custom + voice-out) — replaces the old toneGrid
+  radioRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 12, paddingHorizontal: SPACING.md,
+    borderRadius: 12, marginBottom: 6,
+    backgroundColor: COLORS.cardBg, borderWidth: 1, borderColor: COLORS.border,
   },
-  toneTileActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(255,184,0,0.12)' },
-  toneIcon:  { fontSize: 24, marginBottom: 4 },
-  toneLabel: { color: COLORS.cream, fontSize: 13, fontWeight: '700', textAlign: 'center' },
-  toneLabelActive: { color: COLORS.gold, fontWeight: '800' },
-  toneSub:   { color: COLORS.muted, fontSize: 10, marginTop: 2, textAlign: 'center' },
+  radioRowActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(255,184,0,0.10)' },
+  radioRowVoice:  { backgroundColor: 'rgba(192,132,252,0.08)', borderColor: 'rgba(192,132,252,0.30)' },
+  radioDot:       { fontSize: 20, color: COLORS.muted, width: 24, textAlign: 'center' },
+  radioDotActive: { color: COLORS.gold },
+  radioIcon:      { fontSize: 22, width: 28, textAlign: 'center' },
+  radioLabel:     { color: COLORS.cream, fontSize: 15, fontWeight: '700' },
+  radioLabelActive:{ color: COLORS.gold, fontWeight: '800' },
+  radioSub:       { color: COLORS.muted, fontSize: 12, marginTop: 2, lineHeight: 16 },
 
   disclosure: {
     color: COLORS.muted, fontSize: 11, fontStyle: 'italic',
