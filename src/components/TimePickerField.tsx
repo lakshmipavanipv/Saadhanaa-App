@@ -45,7 +45,7 @@ interface Props {
 const pad = (n: number) => String(n).padStart(2, '0');
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);            // 0..23
-const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5);      // 0,5,10,...,55
+const MINUTES = Array.from({ length: 60 }, (_, i) => i);          // 0..59 (every minute)
 
 export const TimePickerField: React.FC<Props> = ({
   value, onChange, placeholder = 'Tap to set ⏰', label, compact,
@@ -59,10 +59,9 @@ export const TimePickerField: React.FC<Props> = ({
   useEffect(() => {
     if (value) {
       const [h, m] = value.split(':');
-      setPickedHour(parseInt(h, 10) || 0);
-      // Snap minutes to the nearest 5-min step for the grid
-      const mm = parseInt(m, 10) || 0;
-      setPickedMinute(Math.round(mm / 5) * 5 % 60);
+      setPickedHour(Math.max(0, Math.min(23, parseInt(h, 10) || 0)));
+      // v59: every minute 0..59 is selectable now — no snapping to 5-min steps.
+      setPickedMinute(Math.max(0, Math.min(59, parseInt(m, 10) || 0)));
     }
   }, [value]);
 
