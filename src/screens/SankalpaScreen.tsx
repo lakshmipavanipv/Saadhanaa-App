@@ -27,8 +27,9 @@ import { YOGA_CATALOG } from './YogaScreen';
 import { EXERCISE_CATALOG } from './ExerciseScreen';
 import { MEDITATION_CATALOG } from './MeditationScreen';
 import { ALL_CATALOG_DEITIES } from '../deityCatalog';
+import { useAudioPlayer } from 'expo-audio';
 import {
-  scheduleRoutineReminder, cancelRoutineReminder, requestNotificationPermission, previewTone,
+  scheduleRoutineReminder, cancelRoutineReminder, requestNotificationPermission,
 } from '../services/notifications';
 
 // Festival → built-in shopping / prep checklist
@@ -232,11 +233,15 @@ const PLAN_CATEGORIES: RoutineCategory[] =
 // "Enable reminder" Switch gates whether a notification is scheduled.
 
 // ── Preset alarm tones offered in the ReminderBlock ──
+// v59: each tone now carries its bundled mp3 module so we can play
+// it directly via expo-audio when the user taps the tile.  The old
+// notification-based preview was unreliable (DND, permission, channel
+// caching).
 const TONE_OPTIONS = [
-  { id: 'flute',   icon: '🪈', label: 'Flute',   sub: 'Gentle bansuri' },
-  { id: 'bell',    icon: '🔔', label: 'Bell',    sub: 'Temple ghanta' },
-  { id: 'tanpura', icon: '🎵', label: 'Tanpura', sub: 'Drone in C' },
-  { id: 'om',      icon: '🕉', label: 'Om',      sub: 'Vedic chant' },
+  { id: 'flute',   icon: '🪈', label: 'Flute',   sub: 'Gentle bansuri', module: require('../../assets/sounds/flute.mp3') },
+  { id: 'bell',    icon: '🔔', label: 'Bell',    sub: 'Temple ghanta',  module: require('../../assets/sounds/bell.mp3') },
+  { id: 'tanpura', icon: '🎵', label: 'Tanpura', sub: 'Drone in C',     module: require('../../assets/sounds/tanpura.mp3') },
+  { id: 'om',      icon: '🕉', label: 'Om',      sub: 'Vedic chant',    module: require('../../assets/sounds/om.mp3') },
 ];
 
 const ReminderBlock: React.FC<{
@@ -249,6 +254,22 @@ const ReminderBlock: React.FC<{
   onSoundChange?: (id: string) => void;
 }> = ({ enabled, onEnabledChange, time, onTimeChange, soundId, onSoundChange }) => {
   const picked = soundId || 'flute';
+
+  // v59: single audio player whose source we swap when a tile is
+  // tapped.  Plays the mp3 immediately so users hear EXACTLY what
+  // their reminder will sound like — no longer depends on notification
+  // permission, DND state, or the Android channel cache being fresh.
+  const [previewSrc, setPreviewSrc] = useState<any>(null);
+  const player = useAudioPlayer(previewSrc);
+  const playTone = (id: string) => {
+    const tone = TONE_OPTIONS.find(t => t.id === id);
+    if (!tone) return;
+    setPreviewSrc(tone.module);
+    try {
+      player.seekTo(0);
+      player.play();
+    } catch { /* first-tap may swap source before play() — silent ignore */ }
+  };
   return (
     <View style={{ marginTop: 4 }}>
       {/* Toggle row */}
@@ -281,19 +302,16 @@ const ReminderBlock: React.FC<{
         </View>
       )}
 
-      {/* Tone picker — only visible when reminder is enabled.  Users tap
-          a tone to pick it; the gold-bordered tile shows the active one.
-          The selected id flows out via onSoundChange and the parent
-          passes it to scheduleRoutineReminder. */}
+      {/* Tone picker — only visible when reminder is enabled. */}
       {enabled && onSoundChange && (
         <View style={{ marginTop: 10 }}>
-          <Text style={styles.sheetFieldLabel}>🎵  Tone</Text>
+          <Text style={styles.sheetFieldLabel}>🎵  Tone — tap to preview</Text>
           <View style={styles.toneRow}>
             {TONE_OPTIONS.map(t => (
               <TouchableOpacity
                 key={t.id}
                 style={[styles.toneTile, picked === t.id && styles.toneTileActive]}
-                onPress={() => onSoundChange(t.id)}
+                onPress={() => { onSoundChange(t.id); playTone(t.id); }}
                 activeOpacity={0.7}
               >
                 <Text style={styles.toneIcon}>{t.icon}</Text>
@@ -304,20 +322,8 @@ const ReminderBlock: React.FC<{
               </TouchableOpacity>
             ))}
           </View>
-          {/* v56: preview button — fires a 1-second-delayed test
-              notification through the same channel the real reminder
-              uses, so the user hears the EXACT tone they'll get. */}
-          <TouchableOpacity
-            style={styles.tonePreviewBtn}
-            onPress={() => { previewTone(picked); }}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.tonePreviewBtnText}>
-              ▶  Preview "{TONE_OPTIONS.find(t => t.id === picked)?.label || 'tone'}"
-            </Text>
-          </TouchableOpacity>
           <Text style={styles.tonePreviewHint}>
-            Tap to hear it now — make sure your phone isn't on silent.
+            🔊 Tap any tile to pick + hear it. Make sure your phone isn't on silent.
           </Text>
         </View>
       )}
@@ -623,9 +629,16 @@ export const SankalpaScreen = ({ navigation }: any) => {
           </View>
         ) : (
           <View>
-            {/* Highlighted "next up" hero (only if a future item has a time) */}
+            {/* v59: Highlighted "next up" hero is now tappable — opens
+                the EditItemSheet so the user can change time / duration
+                / tone right there without having to scroll down to the
+                category cards. */}
             {nextItem && (
-              <View style={styles.nextUpCard}>
+              <TouchableOpacity
+                style={styles.nextUpCard}
+                onPress={() => setEditingId(nextItem.id)}
+                activeOpacity={0.7}
+              >
                 <View style={styles.nextUpBadge}>
                   <Text style={styles.nextUpBadgeText}>
                     🔔  NEXT UP · {fmtUntil(timeUntilMap[nextItem.id])}
@@ -635,7 +648,10 @@ export const SankalpaScreen = ({ navigation }: any) => {
                   <Text style={styles.nextUpTime}>{nextItem.time}</Text>
                   <Text style={styles.nextUpIcon}>{CATEGORY_META[nextItem.category].icon}</Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.nextUpName}>{nextItem.name}</Text>
+                    <Text style={styles.nextUpName}>
+                      {nextItem.name}
+                      <Text style={styles.editChip}>  ✏️</Text>
+                    </Text>
                     <Text style={styles.nextUpSub}>
                       {nextItem.durationMin} min
                       {nextItem.notificationIds && ' · 🔔 reminder on'}
@@ -658,17 +674,20 @@ export const SankalpaScreen = ({ navigation }: any) => {
                     )}
                   </View>
                 </View>
-              </View>
+              </TouchableOpacity>
             )}
 
-            {/* All other today items as compact rows */}
+            {/* All other today items — each row is tappable to edit
+                (opens EditItemSheet); the ✕ button still deletes. */}
             <View style={styles.todayCard}>
               {todayItems
                 .filter(t => t.id !== nextItemId)
                 .map((t, i, arr) => (
-                  <View
+                  <TouchableOpacity
                     key={t.id}
                     style={[styles.todayRow, i === arr.length - 1 && { borderBottomWidth: 0 }]}
+                    onPress={() => setEditingId(t.id)}
+                    activeOpacity={0.7}
                   >
                     <Text style={styles.todayTime}>{t.time || 'Anytime'}</Text>
                     <Text style={styles.todayIcon}>{CATEGORY_META[t.category].icon}</Text>
@@ -683,10 +702,14 @@ export const SankalpaScreen = ({ navigation }: any) => {
                         {t.time && ` · ${fmtUntil(timeUntilMap[t.id])}`}
                       </Text>
                     </View>
-                    <TouchableOpacity onPress={() => handleDelete(t.id)}>
+                    <Text style={styles.editChip}>✏️</Text>
+                    <TouchableOpacity
+                      onPress={(e) => { e.stopPropagation?.(); handleDelete(t.id); }}
+                      hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                    >
                       <Text style={styles.todayDelete}>✕</Text>
                     </TouchableOpacity>
-                  </View>
+                  </TouchableOpacity>
                 ))}
             </View>
           </View>
@@ -1583,6 +1606,7 @@ const styles = StyleSheet.create({
   todayName: { color: COLORS.cream, fontSize: 13, fontWeight: '600' },
   todaySub:  { color: COLORS.muted, fontSize: 11, marginTop: 1 },
   todayDelete: { color: COLORS.muted, fontSize: 16, paddingHorizontal: 6 },
+  editChip: { fontSize: 14, paddingHorizontal: 6, color: COLORS.gold },
 
   itemBell: { color: COLORS.gold, fontSize: 11 },
   prepBox: {

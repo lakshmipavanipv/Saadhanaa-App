@@ -220,6 +220,12 @@ export const scheduleRoutineReminder = async (params: {
   const { hour, minute } = parseHHMM(time);
   const sound     = soundForId(soundId);
   const channelId = channelForId(soundId);
+  // v59: log the routing so we can see exactly what Android will use
+  // when the reminder fires. Helps debug "ringtones not playing" reports.
+  console.log(
+    `[notifications] scheduleRoutineReminder routineId=${routineId} ` +
+    `soundId=${soundId || 'default'} → sound=${sound} channelId=${channelId} time=${time}`
+  );
 
   const ids: Record<number, string> = {};
   for (const day of days) {
