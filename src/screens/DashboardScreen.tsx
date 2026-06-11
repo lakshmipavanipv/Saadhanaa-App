@@ -140,6 +140,9 @@ export const DashboardScreen = ({ navigation }: any) => {
   // Body Health + Soul Depth shown as breakdown inside the hero
   const [scorePack, setScorePack] = useState<{ bodyHealth: number | null; soulDepth: number | null }>({ bodyHealth: null, soulDepth: null });
   const [todayRoutine, setTodayRoutine] = useState<any[]>([]);
+  // v62: ALL routine items (not just today's) — used to compute the
+  // next-occurrence-per-item entries for the new Upcoming Reminders feed.
+  const [allRoutine, setAllRoutine] = useState<any[]>([]);
   // Demo-mode flag — true while no real ring data has landed yet.
   const [demoMode, setDemoMode] = useState(true);
   // v49: vitals start COLLAPSED behind a "Know more about your body vitals?"
@@ -192,6 +195,7 @@ export const DashboardScreen = ({ navigation }: any) => {
       // Today's planned activities (read from Plan tab's routine store)
       try {
         const items = await routineRepo.list();
+        setAllRoutine(items);
         const dow = new Date().getDay();
         setTodayRoutine(items.filter(e =>
           e.frequency === 'daily' || (Array.isArray(e.frequency) && e.frequency.includes(dow))
@@ -405,6 +409,129 @@ export const DashboardScreen = ({ navigation }: any) => {
   }, [deities, sandhyaSettings, festReminders, _tick]);
 
   const nextJapa = feedItems.find(i => i.icon === '⏰');
+
+  // ── v62: Upcoming Reminders feed ─────────────────────────────────
+  // Aggregates the *next* occurrence of each routine item (walk / jog /
+  // sadhana / japa / sandhya) plus the next ekadashi, next festival,
+  // and any shopping reminders the user enabled.  Sorted by time-to-event.
+  interface HomeReminder {
+    id: string;
+    kind: 'routine' | 'ekadashi' | 'festival' | 'shopping';
+    icon: string;
+    title: string;
+    subtitle: string;
+    when: Date;
+    countdown: string;
+    tab?: string;
+    accent: string;
+  }
+  const nextReminders: HomeReminder[] = useMemo(() => {
+    const out: HomeReminder[] = [];
+    const now = Date.now();
+
+    // Compute next occurrence of an HH:MM time + frequency rule
+    const nextOcc = (hhmm?: string | null, freq?: 'daily' | number[]): Date | null => {
+      if (!hhmm) return null;
+      const [h, m] = hhmm.split(':').map(s => parseInt(s, 10) || 0);
+      const days: number[] | null = Array.isArray(freq) ? freq : null;
+      for (let i = 0; i < 14; i++) {
+        const d = new Date(); d.setDate(d.getDate() + i); d.setHours(h, m, 0, 0);
+        if (d.getTime() < now) continue;
+        if (!days || days.length === 0 || days.includes(d.getDay())) return d;
+      }
+      return null;
+    };
+    const fmtCountdown = (when: Date): string => {
+      const ms = when.getTime() - now;
+      const mins = Math.round(ms / 60_000);
+      if (mins < 1) return 'now';
+      if (mins < 60) return `in ${mins}m`;
+      const hrs = Math.floor(mins / 60); const rem = mins % 60;
+      if (hrs < 24) return rem ? `in ${hrs}h ${rem}m` : `in ${hrs}h`;
+      const days = Math.round(hrs / 24);
+      return days === 1 ? 'tomorrow' : `in ${days}d`;
+    };
+    const parseLocalDate = (s: string): Date => {
+      const [y, mo, d] = s.split('-').map(Number);
+      return new Date(y, (mo || 1) - 1, d || 1, 9, 0, 0);
+    };
+
+    // Routine items (walk / jog / sadhana / japa / sandhya / meditate)
+    const catMeta: Record<string, { icon: string; tab: string; accent: string }> = {
+      exercise: { icon: '🏃',  tab: 'Exercise', accent: '#4ea8de' },
+      yoga:     { icon: '🧘‍♀️', tab: 'Yoga',     accent: '#FFB800' },
+      japa:     { icon: '📿',  tab: 'Japa',     accent: '#FF8C42' },
+      sandhya:  { icon: '🌅',  tab: 'Japa',     accent: '#FFD9A8' },
+      meditate: { icon: '🪷',  tab: 'Yoga',     accent: '#c084fc' },
+    };
+    for (const it of allRoutine) {
+      const when = nextOcc(it.time, it.frequency);
+      if (!when) continue;
+      // Prefer walking/jog-specific icons when the name is explicit
+      const lower = (it.name || '').toLowerCase();
+      let icon = catMeta[it.category]?.icon ?? '📌';
+      if (lower.includes('jog')) icon = '🏃‍♂️';
+      else if (lower.includes('walk')) icon = '🚶';
+      const meta = catMeta[it.category] || { tab: 'Plan', accent: COLORS.gold };
+      out.push({
+        id: 'r-' + it.id,
+        kind: 'routine',
+        icon,
+        title: it.name,
+        subtitle: `${it.durationMin} min · ⏰ ${it.time}`,
+        when,
+        countdown: fmtCountdown(when),
+        tab: meta.tab,
+        accent: meta.accent,
+      });
+    }
+
+    // Next ekadashi + next non-ekadashi festival
+    try {
+      const fests = getUpcomingFestivals(20);
+      const ekadashi = fests.find(f => /ekadashi/i.test(f.name));
+      if (ekadashi) {
+        const when = parseLocalDate(ekadashi.date);
+        out.push({
+          id: 'e-' + ekadashi.id, kind: 'ekadashi', icon: '🪷',
+          title: ekadashi.name, subtitle: `Ekadashi · ${formatShortDate(ekadashi.date)}`,
+          when, countdown: fmtCountdown(when), tab: 'Panchang', accent: COLORS.saffron,
+        });
+      }
+      const fest = fests.find(f => !/ekadashi/i.test(f.name));
+      if (fest) {
+        const when = parseLocalDate(fest.date);
+        out.push({
+          id: 'f-' + fest.id, kind: 'festival', icon: fest.deityIcon || '🛕',
+          title: fest.name, subtitle: `Festival · ${formatShortDate(fest.date)}`,
+          when, countdown: fmtCountdown(when), tab: 'Panchang', accent: COLORS.gold,
+        });
+      }
+    } catch { /* festivals lib not ready */ }
+
+    // Shopping reminders
+    try {
+      const PANCHANG = require('../festivalsData').PANCHANG_FESTIVALS as any[];
+      for (const [festId, r] of Object.entries(festReminders)) {
+        if (!r.shopping?.enabled || !r.shopping.date) continue;
+        const fest = PANCHANG.find(f => f.id === festId);
+        if (!fest) continue;
+        const [y, mo, d] = r.shopping.date.split('-').map(Number);
+        const [h, mi] = (r.shopping.time || '10:00').split(':').map(Number);
+        const when = new Date(y, (mo || 1) - 1, d || 1, h || 0, mi || 0);
+        if (when.getTime() < now) continue;
+        out.push({
+          id: 's-' + festId, kind: 'shopping', icon: '🛒',
+          title: `Shopping for ${fest.name}`,
+          subtitle: `${r.shopping.date} at ${r.shopping.time}`,
+          when, countdown: fmtCountdown(when), tab: 'Panchang', accent: COLORS.leaf,
+        });
+      }
+    } catch { /* */ }
+
+    out.sort((a, b) => a.when.getTime() - b.when.getTime());
+    return out.slice(0, 10);
+  }, [allRoutine, festReminders, _tick]);
 
   // ── Render ───────────────────────────────────────────────────────
   return (
@@ -710,6 +837,41 @@ export const DashboardScreen = ({ navigation }: any) => {
 
         {/* TodayPrayersCard removed per the earlier ask — its "in 4h"
             countdown semantics now live inline on each TPA row above. */}
+
+        {/* ── v62: Upcoming Reminders feed ─────────────────────────────
+             Unified, time-sorted list of next walk / jog / sadhana /
+             japa / ekadashi / sandhya / festival / shopping.  Sits
+             right below Today's Planned Activities. */}
+        <View style={styles.remBox}>
+          <Text style={styles.remTitle}>🔔  Upcoming Reminders</Text>
+          {nextReminders.length === 0 ? (
+            <Text style={styles.remEmpty}>
+              Nothing scheduled yet. Add a routine in the Plan tab or set a festival reminder
+              under Panchang to see it here.
+            </Text>
+          ) : (
+            nextReminders.map(r => (
+              <TouchableOpacity
+                key={r.id}
+                style={styles.remCard}
+                onPress={() => r.tab && navigation?.navigate?.(r.tab)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.remIconBubble, { backgroundColor: `${r.accent}22`, borderColor: `${r.accent}55` }]}>
+                  <Text style={styles.remIcon}>{r.icon}</Text>
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.remTitleText} numberOfLines={1}>{r.title}</Text>
+                  <Text style={styles.remSub} numberOfLines={1}>{r.subtitle}</Text>
+                </View>
+                <View style={[styles.remPill, { borderColor: `${r.accent}66`, backgroundColor: `${r.accent}1A` }]}>
+                  <Text style={[styles.remPillText, { color: r.accent }]}>{r.countdown}</Text>
+                </View>
+                <Text style={styles.remChevron}>›</Text>
+              </TouchableOpacity>
+            ))
+          )}
+        </View>
 
         {/* #9 — Today's festival banner */}
         {todayFest && (
@@ -1100,6 +1262,39 @@ const styles = StyleSheet.create({
   },
   tpaCardTime:    { color: COLORS.gold, fontSize: 13, fontWeight: '800' },
   tpaCardChevron: { color: COLORS.gold, fontSize: 22, marginLeft: 8, fontWeight: '700' },
+
+  // v62: Upcoming Reminders feed (Home tab, below Today's Planned Activities)
+  remBox: {
+    marginHorizontal: SPACING.md, marginTop: SPACING.md, padding: SPACING.md,
+    borderRadius: 16, backgroundColor: COLORS.cardBg,
+    borderWidth: 1, borderColor: 'rgba(127,232,200,0.25)',
+  },
+  remTitle: {
+    color: COLORS.cream, fontSize: 14, fontWeight: '800',
+    letterSpacing: 0.5, marginBottom: SPACING.sm,
+  },
+  remEmpty: {
+    color: COLORS.muted, fontSize: 12, fontStyle: 'italic',
+    textAlign: 'center', padding: SPACING.sm, lineHeight: 18,
+  },
+  remCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 10, paddingHorizontal: 4,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  remIconBubble: {
+    width: 40, height: 40, borderRadius: 20,
+    borderWidth: 1, alignItems: 'center', justifyContent: 'center',
+  },
+  remIcon: { fontSize: 20 },
+  remTitleText: { color: COLORS.cream, fontSize: 15, fontWeight: '700' },
+  remSub: { color: COLORS.muted, fontSize: 12, marginTop: 2 },
+  remPill: {
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
+    borderWidth: 1,
+  },
+  remPillText: { fontSize: 12, fontWeight: '800' },
+  remChevron: { color: COLORS.muted, fontSize: 22, marginLeft: 4, fontWeight: '700' },
 
   // v49: "in 4h" countdown pill on each Today's Plan row (replaces TodayPrayersCard)
   tpaCardUntilPill: {
