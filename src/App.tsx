@@ -20,6 +20,7 @@ import { FestivalScreen } from './screens/FestivalScreen';
 import { HistoryScreen } from './screens/HistoryScreen';
 import { ExerciseScreen } from './screens/ExerciseScreen';
 import { SankalpaScreen } from './screens/SankalpaScreen';
+import { WellBeingPlanScreen } from './screens/WellBeingPlanScreen';
 import { JapaScreen } from './screens/JapaScreen';
 import { OnboardingScreen } from './screens/OnboardingScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
@@ -77,12 +78,23 @@ const TabNavigator = () => {
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🏠</Text>,
         }}
       />
+      {/* v60 redesigned Plan tab — elderly-friendly step-by-step
+          wizard with clear reminder structure and tone preview. The
+          legacy SankalpaScreen is still mounted as a hidden route
+          ('PlanLegacy') so any existing Home CTAs keep working until
+          they're swept. */}
       <Tab.Screen
         name="Plan"
+        component={WellBeingPlanScreen}
+        options={{
+          tabBarLabel: 'Plan',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🎯</Text>,
+        }}
+      />
+      <Tab.Screen
+        name="PlanLegacy"
         component={SankalpaScreen}
         options={{
-          // Hidden from the bottom tab bar — accessible only via the
-          // "Plan your routine" CTA on the Home tab. Keeps the bar lean.
           tabBarButton: () => null,
           tabBarItemStyle: { display: 'none' },
         }}
