@@ -28,6 +28,7 @@ import { EXERCISE_CATALOG } from './ExerciseScreen';
 import { MEDITATION_CATALOG } from './MeditationScreen';
 import { ALL_CATALOG_DEITIES } from '../deityCatalog';
 import { useAudioPlayer } from 'expo-audio';
+import * as DocumentPicker from 'expo-document-picker';
 import {
   scheduleRoutineReminder, cancelRoutineReminder, requestNotificationPermission,
 } from '../services/notifications';
@@ -252,23 +253,66 @@ const ReminderBlock: React.FC<{
   /** Selected alarm-tone id (v48: ringtone picker built in). */
   soundId?: string;
   onSoundChange?: (id: string) => void;
-}> = ({ enabled, onEnabledChange, time, onTimeChange, soundId, onSoundChange }) => {
+  /** v60: file:// URI of a user-picked custom audio file (when
+   *  soundId === 'custom').  Preview plays from this URI. */
+  customUri?: string;
+  customName?: string;
+  onCustomPick?: (uri: string, name: string) => void;
+  /** v60: "🗣️ Speak personalised reminder" toggle. */
+  spoken?: boolean;
+  onSpokenChange?: (v: boolean) => void;
+}> = ({
+  enabled, onEnabledChange, time, onTimeChange,
+  soundId, onSoundChange,
+  customUri, customName, onCustomPick,
+  spoken, onSpokenChange,
+}) => {
   const picked = soundId || 'flute';
 
   // v59: single audio player whose source we swap when a tile is
   // tapped.  Plays the mp3 immediately so users hear EXACTLY what
   // their reminder will sound like — no longer depends on notification
   // permission, DND state, or the Android channel cache being fresh.
+  // v60: also accepts a { uri } source for the user's custom file.
   const [previewSrc, setPreviewSrc] = useState<any>(null);
   const player = useAudioPlayer(previewSrc);
   const playTone = (id: string) => {
-    const tone = TONE_OPTIONS.find(t => t.id === id);
-    if (!tone) return;
-    setPreviewSrc(tone.module);
+    if (id === 'custom') {
+      if (!customUri) return;
+      setPreviewSrc({ uri: customUri });
+    } else {
+      const tone = TONE_OPTIONS.find(t => t.id === id);
+      if (!tone) return;
+      setPreviewSrc(tone.module);
+    }
     try {
       player.seekTo(0);
       player.play();
     } catch { /* first-tap may swap source before play() — silent ignore */ }
+  };
+
+  // v60: open the OS document picker for an audio file.  Result URI is
+  // saved on the routine item; preview replays from it; on the real
+  // notification fire we fall back to the default channel sound
+  // (Android can't reference arbitrary URIs from a channel — disclosed
+  // in the help text below the tile).
+  const pickCustomFile = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['audio/*'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      onCustomPick?.(asset.uri, asset.name || 'Custom tone');
+      onSoundChange?.('custom');
+      // Preview immediately so user knows it worked
+      setPreviewSrc({ uri: asset.uri });
+      setTimeout(() => { try { player.seekTo(0); player.play(); } catch { /* */ } }, 50);
+    } catch (e) {
+      console.warn('[ReminderBlock] custom pick failed', e);
+    }
   };
   return (
     <View style={{ marginTop: 4 }}>
@@ -321,10 +365,61 @@ const ReminderBlock: React.FC<{
                 <Text style={styles.toneSub}>{t.sub}</Text>
               </TouchableOpacity>
             ))}
+
+            {/* v60: Custom-from-device tile — opens the OS file picker.
+                 Once a file is picked, the tile re-labels to the filename
+                 and previews via expo-audio. */}
+            {onCustomPick && (
+              <TouchableOpacity
+                style={[styles.toneTile, picked === 'custom' && styles.toneTileActive]}
+                onPress={() => {
+                  if (customUri) {
+                    onSoundChange('custom');
+                    playTone('custom');
+                  } else {
+                    pickCustomFile();
+                  }
+                }}
+                onLongPress={pickCustomFile}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.toneIcon}>{customUri ? '🎶' : '＋'}</Text>
+                <Text style={[styles.toneLabel, picked === 'custom' && styles.toneLabelActive]} numberOfLines={1}>
+                  {customUri ? (customName || 'Custom') : 'Custom'}
+                </Text>
+                <Text style={styles.toneSub} numberOfLines={1}>
+                  {customUri ? 'Long-press to change' : 'From your phone'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
           <Text style={styles.tonePreviewHint}>
             🔊 Tap any tile to pick + hear it. Make sure your phone isn't on silent.
+            {picked === 'custom' && '\n⚠️ Custom files preview here, but the actual reminder uses the default Android tone — Android can\'t play arbitrary files as a notification sound.'}
           </Text>
+        </View>
+      )}
+
+      {/* v60: Spoken reminder toggle — when ON the notification title +
+          body get personalised ("Hey Lakshmi, your Walk is at 06:30") so
+          the lock screen reads warmly.  Tapping the notification also
+          triggers expo-speech to announce it in the user's language. */}
+      {enabled && onSpokenChange && (
+        <View style={[styles.reminderRow, { marginTop: 10 }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.sheetFieldLabel}>🗣️  Spoken reminder</Text>
+            <Text style={styles.reminderHint}>
+              {spoken
+                ? 'Lock screen + voice will say "Hey [name], your [item] is at [time]"'
+                : 'Standard reminder text (no voice announcement)'}
+            </Text>
+          </View>
+          <Switch
+            value={!!spoken}
+            onValueChange={onSpokenChange}
+            trackColor={{ false: COLORS.border, true: COLORS.gold }}
+            thumbColor={spoken ? COLORS.cream : COLORS.muted}
+          />
         </View>
       )}
     </View>
@@ -967,6 +1062,7 @@ const AddItemSheet: React.FC<{
   onClose: () => void;
   onAdded: () => void;
 }> = ({ category, onClose, onAdded }) => {
+  const { userProfile } = useSadhana();
   const meta = CATEGORY_META[category];
   // Exercise stays simple — no Sadhana Path option. For body activities
   // the picker stays a single-item list (Walk · Run · Gym etc.) without
@@ -988,6 +1084,10 @@ const AddItemSheet: React.FC<{
   // ── Reminder toggle + tone ──
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [alarmSoundId,    setAlarmSoundId]    = useState<string>('flute');
+  // v60: custom audio file URI + spoken-reminder flag
+  const [alarmCustomUri,   setAlarmCustomUri]   = useState<string>('');
+  const [alarmCustomName,  setAlarmCustomName]  = useState<string>('');
+  const [spokenReminder,   setSpokenReminder]   = useState<boolean>(false);
 
   // ── Custom multi-step path editor ──
   const [steps, setSteps] = useState<Array<{ name: string; value: number }>>([]);
@@ -1033,16 +1133,27 @@ const AddItemSheet: React.FC<{
       steps: isCustomPath && steps.length > 0
         ? steps.map(s => ({ name: s.name, value: s.value, unit: stepUnit, done: false }))
         : undefined,
-      alarmSoundId: reminderEnabled ? alarmSoundId : undefined,
+      alarmSoundId:    reminderEnabled ? alarmSoundId : undefined,
+      alarmCustomUri:  reminderEnabled && alarmSoundId === 'custom' ? alarmCustomUri || undefined : undefined,
+      alarmCustomName: reminderEnabled && alarmSoundId === 'custom' ? alarmCustomName || undefined : undefined,
+      spokenReminder:  reminderEnabled ? spokenReminder : false,
     });
 
     // Schedule reminder if toggle is ON + time is set
     if (reminderEnabled && time) {
       const granted = await requestNotificationPermission();
       if (granted) {
+        // v60: personalise the lock-screen text when spokenReminder is on.
+        const userName = userProfile?.name || 'friend';
+        const title = spokenReminder
+          ? `🪷 Hey ${userName}`
+          : `🎯 ${finalName}`;
+        const body  = spokenReminder
+          ? `Your ${finalName.toLowerCase()} is at ${time} — ${dur} min`
+          : `Your committed ${dur}-min practice`;
         const ids = await scheduleRoutineReminder({
-          title: `🎯 ${finalName}`,
-          body: `Your committed ${dur}-min practice`,
+          title,
+          body,
           time,
           frequency: freq,
           routineId: added.id,
@@ -1311,7 +1422,7 @@ const AddItemSheet: React.FC<{
             </View>
           )}
 
-          {/* Reminder toggle + clock picker + tone picker */}
+          {/* Reminder toggle + clock picker + tone picker + spoken option */}
           <ReminderBlock
             enabled={reminderEnabled}
             onEnabledChange={setReminderEnabled}
@@ -1319,6 +1430,11 @@ const AddItemSheet: React.FC<{
             onTimeChange={setTime}
             soundId={alarmSoundId}
             onSoundChange={setAlarmSoundId}
+            customUri={alarmCustomUri}
+            customName={alarmCustomName}
+            onCustomPick={(uri, name) => { setAlarmCustomUri(uri); setAlarmCustomName(name); }}
+            spoken={spokenReminder}
+            onSpokenChange={setSpokenReminder}
           />
 
           <Text style={styles.sheetFieldLabel}>Frequency</Text>
@@ -1371,11 +1487,15 @@ const EditItemSheet: React.FC<{
   onClose: () => void;
   onSaved: () => void;
 }> = ({ item, onClose, onSaved }) => {
+  const { userProfile } = useSadhana();
   const [name, setName] = useState(item.name);
   const [duration, setDuration] = useState(String(item.durationMin));
   const [time, setTime] = useState<string | null>(item.time ?? null);
   const [reminderEnabled, setReminderEnabled] = useState(!!item.notificationIds);
   const [alarmSoundId,    setAlarmSoundId]    = useState<string>(item.alarmSoundId || 'flute');
+  const [alarmCustomUri,   setAlarmCustomUri]   = useState<string>(item.alarmCustomUri || '');
+  const [alarmCustomName,  setAlarmCustomName]  = useState<string>(item.alarmCustomName || '');
+  const [spokenReminder,   setSpokenReminder]   = useState<boolean>(!!item.spokenReminder);
 
   const save = async () => {
     const newTime = reminderEnabled ? time : null;
@@ -1387,9 +1507,19 @@ const EditItemSheet: React.FC<{
     if (reminderEnabled && newTime) {
       const granted = await requestNotificationPermission();
       if (granted) {
+        // v60: personalise the title/body when spokenReminder is on
+        const userName = userProfile?.name || 'friend';
+        const finalName = name.trim() || item.name;
+        const dur = parseInt(duration, 10) || item.durationMin;
+        const title = spokenReminder
+          ? `🪷 Hey ${userName}`
+          : `🎯 ${finalName}`;
+        const body  = spokenReminder
+          ? `Your ${finalName.toLowerCase()} is at ${newTime} — ${dur} min`
+          : `Your committed ${dur}-min practice`;
         newIds = await scheduleRoutineReminder({
-          title: `🎯 ${name.trim() || item.name}`,
-          body: `Your committed ${parseInt(duration, 10) || item.durationMin}-min practice`,
+          title,
+          body,
           time: newTime,
           frequency: item.frequency,
           routineId: item.id,
@@ -1402,7 +1532,10 @@ const EditItemSheet: React.FC<{
       durationMin: parseInt(duration, 10) || item.durationMin,
       time: newTime,
       notificationIds: newIds,
-      alarmSoundId: reminderEnabled ? alarmSoundId : undefined,
+      alarmSoundId:    reminderEnabled ? alarmSoundId : undefined,
+      alarmCustomUri:  reminderEnabled && alarmSoundId === 'custom' ? alarmCustomUri || undefined : undefined,
+      alarmCustomName: reminderEnabled && alarmSoundId === 'custom' ? alarmCustomName || undefined : undefined,
+      spokenReminder:  reminderEnabled ? spokenReminder : false,
     });
     onSaved();
   };
@@ -1430,7 +1563,7 @@ const EditItemSheet: React.FC<{
             keyboardType="number-pad"
           />
 
-          {/* Reminder toggle + cross-platform clock picker + tone picker */}
+          {/* Reminder toggle + cross-platform clock picker + tone picker + spoken */}
           <ReminderBlock
             enabled={reminderEnabled}
             onEnabledChange={setReminderEnabled}
@@ -1438,6 +1571,11 @@ const EditItemSheet: React.FC<{
             onTimeChange={setTime}
             soundId={alarmSoundId}
             onSoundChange={setAlarmSoundId}
+            customUri={alarmCustomUri}
+            customName={alarmCustomName}
+            onCustomPick={(uri, name) => { setAlarmCustomUri(uri); setAlarmCustomName(name); }}
+            spoken={spokenReminder}
+            onSpokenChange={setSpokenReminder}
           />
 
           <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md }}>

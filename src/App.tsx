@@ -169,14 +169,36 @@ const AppContent = () => {
 
   // Subscribe to incoming notifications. When a prayer-reminder
   // notification fires (foreground or user tap), show the big popup.
+  // v60: also speak the notification title+body via expo-speech when
+  // a plan-reminder fires AND the user enabled "Spoken reminder" on it.
   React.useEffect(() => {
-    const handle = (resp: Notifications.NotificationResponse | Notifications.Notification) => {
-      const data = (resp as any).notification?.request?.content?.data
-                 ?? (resp as any).request?.content?.data
-                 ?? {};
+    const handle = async (resp: Notifications.NotificationResponse | Notifications.Notification) => {
+      const content = (resp as any).notification?.request?.content
+                   ?? (resp as any).request?.content
+                   ?? {};
+      const data = content.data ?? {};
+
+      // Existing deity-prayer flow
       if (data?.type === 'prayer-reminder' && data?.deityId) {
         const d = deities.find(x => x.id === data.deityId);
         if (d) setPrayerDeity(d);
+      }
+
+      // v60: plan-reminder voice announcement.  If the routine item was
+      // saved with spokenReminder: true, the schedule call set a
+      // personalised title/body ("🪷 Hey Lakshmi" + "Your walk is at
+      // 06:30 — 20 min").  Read that out via the system TTS engine.
+      if (data?.type === 'plan-reminder') {
+        try {
+          const text = `${content.title || ''}. ${content.body || ''}`.replace(/[🪷🎯]/g, '').trim();
+          if (text) {
+            const ExpoSpeech = await import('expo-speech');
+            ExpoSpeech.stop();
+            ExpoSpeech.speak(text, { language: 'en-IN', rate: 0.92, pitch: 1.0 });
+          }
+        } catch (e) {
+          console.warn('[App] plan-reminder speak failed', e);
+        }
       }
     };
     const fgSub = Notifications.addNotificationReceivedListener(n => handle(n as any));

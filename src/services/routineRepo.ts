@@ -30,9 +30,21 @@ export interface RoutineItem {
   createdAt: string;
   /** If reminder is on, holds the scheduled-notification ids keyed by day-of-week. */
   notificationIds?: Record<number, string>;
-  /** Optional preset alarm-tone id (flute / bell / tanpura / om).
+  /** Optional preset alarm-tone id (flute / bell / tanpura / om / custom).
    *  Falls back to the system default if unset. */
   alarmSoundId?: string;
+  /** v60: when alarmSoundId === 'custom', this is the file:// URI of the
+   *  audio file the user picked from their phone.  Preview plays from
+   *  here; the notification system itself falls back to default (Android
+   *  channels can't reference arbitrary URIs). */
+  alarmCustomUri?: string;
+  /** Display name for the custom file (so the picker tile can show it). */
+  alarmCustomName?: string;
+  /** v60: speak a personalised "Hey {name}, your {item} is at {time}"
+   *  message when the user taps the reminder notification.  The title +
+   *  body of the notification are also personalised so the lock screen
+   *  reads warmly. */
+  spokenReminder?: boolean;
   /** For festivals: built-in shopping/prep list with done flags. */
   prepList?: Array<{ item: string; done: boolean }>;
   /** Multi-step routine path — e.g. a custom yoga kriya with sequenced
