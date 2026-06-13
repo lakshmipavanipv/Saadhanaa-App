@@ -83,15 +83,15 @@ const configureGoogle = async (): Promise<boolean> => {
   if (!m) return false;
   if (googleConfigured) return true;
   try {
-    // React Native Firebase exposes the web client ID from the
-    // google-services.json automatically via firebase().options.
-    const opts = m.app().options;
-    const webClientId = opts?.webClientId
-      || opts?.clientId
-      || opts?.androidClientInfo?.client_info?.android_client_info?.package_name;
+    // 'autoDetect' makes Google Sign-In read R.string.default_web_client_id,
+    // the resource the com.google.gms.google-services Gradle plugin emits
+    // from google-services.json (the client_type:3 web OAuth client). The
+    // previous code read app().options.webClientId — a field that is
+    // undefined on Android — so no idToken was ever returned and sign-in
+    // failed silently.
     if (m.GoogleSignin) {
       m.GoogleSignin.configure({
-        webClientId,
+        webClientId: 'autoDetect',
         offlineAccess: false,
         scopes: ['profile', 'email'],
       });
