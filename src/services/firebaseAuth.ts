@@ -83,15 +83,18 @@ const configureGoogle = async (): Promise<boolean> => {
   if (!m) return false;
   if (googleConfigured) return true;
   try {
-    // 'autoDetect' makes Google Sign-In read R.string.default_web_client_id,
-    // the resource the com.google.gms.google-services Gradle plugin emits
-    // from google-services.json (the client_type:3 web OAuth client). The
-    // previous code read app().options.webClientId — a field that is
-    // undefined on Android — so no idToken was ever returned and sign-in
-    // failed silently.
+    // The OAuth WEB client id (client_type:3) from google-services.json for
+    // the body-and-soul-ring Firebase project. Hardcoded because the
+    // 'autoDetect' string isn't reliably supported across @react-native-
+    // google-signin versions — when unsupported it gets passed verbatim as
+    // the web client id, which causes DEVELOPER_ERROR right after the
+    // account picker. This value is embedded in the APK anyway (it's the
+    // generated default_web_client_id resource), so it isn't a secret.
+    const WEB_CLIENT_ID =
+      '283536111171-6e2fs7u0f1t9rc6l56rqugufnsiga9kc.apps.googleusercontent.com';
     if (m.GoogleSignin) {
       m.GoogleSignin.configure({
-        webClientId: 'autoDetect',
+        webClientId: WEB_CLIENT_ID,
         offlineAccess: false,
         scopes: ['profile', 'email'],
       });
