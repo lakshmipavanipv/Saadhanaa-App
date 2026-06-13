@@ -38,8 +38,11 @@ backend/otp-service/.dev.vars
 backend/local/node_modules/
 backend/otp-service/node_modules/
 
-# Firebase config (drop your real one in; placeholder ships with repo)
-# google-services.json
+# Firebase configs — contain real OAuth client IDs and API keys.
+# Use google-services.example.json as a schema reference; copy it to
+# google-services.json and replace placeholder values with the file
+# downloaded from Firebase Console → Project Settings → Your Apps.
+google-services.json
 GoogleService-Info.plist
 
 # typescript
