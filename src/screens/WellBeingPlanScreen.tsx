@@ -307,13 +307,21 @@ export const WellBeingPlanScreen = ({ navigation }: any) => {
           </View>
         )}
 
+        {/* ── PRIMARY section: Daily Practice Reminders (body & soul) ── */}
+        <View style={s.occHeaderRow}>
+          <Text style={s.groupLabel}>🔔  DAILY PRACTICE REMINDERS</Text>
+        </View>
+        <Text style={s.occIntro}>
+          Walk · yoga · japa · meditation · sandhya — your everyday body & soul practice.
+        </Text>
+
         {/* Empty state */}
         {items.length === 0 && (
           <View style={s.emptyCard}>
             <Text style={s.emptyIcon}>🌱</Text>
-            <Text style={s.emptyTitle}>No reminders yet</Text>
+            <Text style={s.emptyTitle}>No daily reminders yet</Text>
             <Text style={s.emptySub}>
-              Tap the gold button below to set your first reminder.
+              Tap the gold button below to add your first one.
               {'\n\n'}
               Start small — a 15-minute walk or one round of japa.
             </Text>
@@ -393,6 +401,15 @@ export const WellBeingPlanScreen = ({ navigation }: any) => {
           );
         })}
 
+        {/* Inline gold CTA for the daily-practice section */}
+        <TouchableOpacity
+          style={s.dailyAddBtn}
+          onPress={() => setWizardOpen(true)}
+          activeOpacity={0.85}
+        >
+          <Text style={s.dailyAddBtnText}>＋  Add a daily practice reminder</Text>
+        </TouchableOpacity>
+
         {/* ── Sacred Days & Occasions ── */}
         <View style={s.occHeaderRow}>
           <Text style={s.groupLabel}>🗓  SACRED DAYS & OCCASIONS</Text>
@@ -435,20 +452,9 @@ export const WellBeingPlanScreen = ({ navigation }: any) => {
           <Text style={s.occAddBtnText}>＋  Add a sacred day / occasion</Text>
         </TouchableOpacity>
 
-        {/* Bottom spacer so the floating Save bar doesn't cover content */}
-        <View style={{ height: 100 }} />
+        {/* Bottom spacer */}
+        <View style={{ height: 40 }} />
       </ScrollView>
-
-      {/* Big gold Add button */}
-      <View style={s.addBar}>
-        <TouchableOpacity
-          style={s.addBtn}
-          onPress={() => setWizardOpen(true)}
-          activeOpacity={0.85}
-        >
-          <Text style={s.addBtnText}>＋  Add a new reminder</Text>
-        </TouchableOpacity>
-      </View>
 
       {/* Wizard modal */}
       <WizardModal
@@ -1240,6 +1246,17 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   occAddBtnText: { color: '#f472b6', fontSize: 15, fontWeight: '800', letterSpacing: 0.3 },
+
+  // v68: inline gold CTA for the daily-practice section (replaces the old
+  // floating bottom bar so body & soul reminders have a clear add button).
+  dailyAddBtn: {
+    marginHorizontal: SPACING.md, marginTop: 4, marginBottom: SPACING.md,
+    paddingVertical: 16, borderRadius: 14, backgroundColor: COLORS.gold,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#FFB800', shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 0 },
+    elevation: 3,
+  },
+  dailyAddBtnText: { color: COLORS.deep, fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
 });
 
 const ws = StyleSheet.create({

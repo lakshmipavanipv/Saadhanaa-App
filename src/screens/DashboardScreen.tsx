@@ -624,7 +624,11 @@ export const DashboardScreen = ({ navigation }: any) => {
           </Text>
           <Text style={styles.sadhanaHeroToday}>
             {todayCount === 0 && todayBodyMin === 0
-              ? '🌅 No exercise or soul work done yet today — gentle start awaits 🙏'
+              ? (todayRoutine.length === 0
+                  // v68: brand-new user with no plan yet — welcome them, don't
+                  // guilt-trip about "no workout" before they've planned anything.
+                  ? '🌱 Welcome — set up your daily practice in the Plan tab to begin.'
+                  : '🌅 No exercise or soul work done yet today — gentle start awaits 🙏')
               : `🌅 Today: ${todayCount > 0 ? `${todayCount} mala${todayCount !== 1 ? 's' : ''}` : 'no japa yet'}${todayBodyMin > 0 ? ` · ${todayBodyMin} min movement` : ''}`}
           </Text>
 
@@ -634,7 +638,9 @@ export const DashboardScreen = ({ navigation }: any) => {
           {(() => {
             const score = withFallback(commitmentScore, DUMMY.bodySoulHealth);
             const story = (todayCount === 0 && todayBodyMin === 0)
-              ? '💛 Tap the Plan tab to set today\'s small goal.'
+              ? (todayRoutine.length === 0
+                  ? '💛 Plan your well-being to begin your journey.'
+                  : '💛 Tap the Plan tab to set today\'s small goal.')
               : score >= 80
                 ? '✨ You are landing on a beautiful streak — keep the gentle rhythm.'
                 : score >= 60
