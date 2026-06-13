@@ -90,25 +90,26 @@ export const OnboardingScreen = () => {
   const bodyActivities: BodyActivity[] = ['walk', 'gym'];
   const soulActivities: SoulActivity[] = ['japa', 'meditation'];
 
-  const submitIdentity = async () => {
-    if (!name.trim()) {
-      showToast('Please enter your name');
-      return;
-    }
-    if (!contact.trim()) {
-      showToast('Email or phone is required');
-      return;
-    }
-    if (contactType === 'email' && !validEmail(contact)) {
-      showToast('Please enter a valid email');
-      return;
-    }
-    if (contactType === 'phone' && !validPhone(contact)) {
-      showToast('Please enter a valid phone number');
-      return;
-    }
+  // v68: accepts optional direct values so Google / anonymous sign-in can
+  // pass the freshly-returned name+email WITHOUT relying on React state that
+  // hasn't flushed yet. Previously the Google handler set state then called
+  // this via setTimeout — but the captured closure still read the OLD empty
+  // contact (and onTypeChange had just cleared it), so it always failed with
+  // "Email or phone is required". Passing values directly removes both races.
+  const submitIdentity = async (override?: {
+    name?: string; contact?: string; type?: 'email' | 'phone';
+  }) => {
+    const n = (override?.name ?? name).trim();
+    const c = (override?.contact ?? contact).trim();
+    const t = override?.type ?? contactType;
+    if (!n) { showToast('Please enter your name'); return; }
+    if (!c) { showToast('Email or phone is required'); return; }
+    if (t === 'email' && !validEmail(c)) { showToast('Please enter a valid email'); return; }
+    if (t === 'phone' && !validPhone(c)) { showToast('Please enter a valid phone number'); return; }
+    // Persist the values into state so the final profile save picks them up.
+    if (override) { setName(n); setContact(c); setContactType(t); }
     // Best-effort welcome email; never blocks the flow.
-    otpClient.send(contact, contactType).catch(() => {});
+    otpClient.send(c, t).catch(() => {});
     showToast('Welcome 🙏');
     setStep('ring');
   };
@@ -299,7 +300,7 @@ const Identity = ({
   onName: (s: string) => void;
   onContact: (s: string) => void;
   onTypeChange: (t: 'email' | 'phone') => void;
-  onNext: () => void;
+  onNext: (override?: { name?: string; contact?: string; type?: 'email' | 'phone' }) => void;
 }) => {
   const { showToast } = useSadhana();
   const [signingIn, setSigningIn] = useState(false);
@@ -316,10 +317,12 @@ const Identity = ({
     try {
       const u = await signInWithGoogle();
       if (u && u.email) {
-        onName(u.name || u.email.split('@')[0]);
+        // Pass the values straight through — don't route via state setters,
+        // which raced and got cleared by onTypeChange before validation.
+        const resolvedName = u.name || u.email.split('@')[0];
+        onName(resolvedName);
         onContact(u.email);
-        onTypeChange('email');
-        setTimeout(() => onNext(), 250);
+        onNext({ name: resolvedName, contact: u.email, type: 'email' });
       } else {
         // v67: null now means ONLY user-cancelled (real failures throw and
         // are caught below with their actual error code). Calm message.
@@ -337,13 +340,11 @@ const Identity = ({
     setSkipping(true);
     try {
       await signInAnonymously();
-      if (!name.trim()) onName('Friend');
-      // Provide a placeholder contact so submitIdentity validation passes.
-      if (!contact.trim()) {
-        onContact('friend@bodyandsoul.app');
-        onTypeChange('email');
-      }
-      setTimeout(() => onNext(), 200);
+      const resolvedName = name.trim() || 'Friend';
+      const resolvedContact = contact.trim() || 'friend@bodyandsoul.app';
+      onName(resolvedName);
+      onContact(resolvedContact);
+      onNext({ name: resolvedName, contact: resolvedContact, type: 'email' });
     } finally {
       setSkipping(false);
     }
@@ -441,7 +442,7 @@ const Identity = ({
             />
             <Text style={styles.hint}>Stored only on this device.</Text>
           </View>
-          <TouchableOpacity style={[styles.primaryBtn, { marginTop: SPACING.sm }]} onPress={onNext}>
+          <TouchableOpacity style={[styles.primaryBtn, { marginTop: SPACING.sm }]} onPress={() => onNext()}>
             <Text style={styles.primaryBtnText}>Continue →</Text>
           </TouchableOpacity>
         </View>
