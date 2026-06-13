@@ -32,7 +32,7 @@ import { createDefaultRing } from '../soulsync/services/RingTelemetryService';
 import { TimePickerField } from '../components/TimePickerField';
 import { WeekSparkline } from '../components/WeekSparkline';
 import { DUMMY, withFallback } from '../services/dummyData';
-import { workoutGoalsRepo, WorkoutGoals } from '../services/workoutGoalsRepo';
+import { workoutGoalsRepo, WorkoutGoals, GoalUnit, GOAL_UNIT_META } from '../services/workoutGoalsRepo';
 import { getDB } from '../soulsync/db/database';
 
 // Shared ring instance for stage-mark buzzes during a live session
@@ -192,6 +192,8 @@ export const ExerciseScreen = ({ navigation }: any) => {
   const [stepsWeekly, setStepsWeekly] = useState<number[]>([0,0,0,0,0,0,0]);
   const [editingGoalFor, setEditingGoalFor] = useState<BodyActivity | null>(null);
   const [goalInput, setGoalInput] = useState('');
+  // v67: the metric the user picked for this goal (time/steps/calories/distance)
+  const [goalUnit, setGoalUnit] = useState<GoalUnit>('min');
   // v58: which activities should render. Walking is always on; everything
   // else only renders if the user has planned it via the Plan tab OR if
   // they've already logged minutes against it (so existing data isn't
@@ -367,8 +369,12 @@ export const ExerciseScreen = ({ navigation }: any) => {
           const fbActivityMin = withFallback(todayActivityMin, isWalk ? 0 : Math.round(15 + Math.random() * 10));
           // Walk uses ring step count, others use logged minutes
           const todayValue = isWalk ? fbSteps : fbActivityMin;
-          const goalKey = isWalk ? 'walkSteps' : (`${item.id}Min` as keyof WorkoutGoals);
-          const goalVal = (goals[goalKey] as number) ?? (isWalk ? 6000 : 30);
+          // v67: prefer the user's chosen value+unit; fall back to legacy.
+          const savedUnit = goals.goalUnit?.[item.id];
+          const savedVal  = goals.goalValue?.[item.id];
+          const cardUnit: GoalUnit = savedUnit ?? (isWalk ? 'steps' : 'min');
+          const legacyKey = isWalk ? 'walkSteps' : (`${item.id}Min` as keyof WorkoutGoals);
+          const goalVal = savedVal ?? (goals[legacyKey] as number) ?? (isWalk ? 6000 : 30);
           const pct = Math.min(100, Math.round((todayValue / Math.max(1, goalVal)) * 100));
           const sparkSeries = isWalk ? fbStepsWeekly : (todaySeries.every(x => x === 0) ? DUMMY.workoutWeek : todaySeries);
           // Calories — uses fallback step count when no real data
@@ -419,11 +425,11 @@ export const ExerciseScreen = ({ navigation }: any) => {
                     {todayValue.toLocaleString()}
                   </Text>
                   <Text style={styles.amPrimaryGoal}>
-                    {' '}/ {goalVal.toLocaleString()} {isWalk ? 'steps' : 'min'}
+                    {' '}/ {goalVal.toLocaleString()} {GOAL_UNIT_META[cardUnit].short}
                   </Text>
                   <TouchableOpacity
                     style={styles.editGoalBtn}
-                    onPress={() => { setEditingGoalFor(item.id); setGoalInput(String(goalVal)); }}
+                    onPress={() => { setEditingGoalFor(item.id); setGoalInput(String(goalVal)); setGoalUnit(cardUnit); }}
                   >
                     <Text style={styles.editGoalText}>✎ goal</Text>
                   </TouchableOpacity>
@@ -496,17 +502,35 @@ export const ExerciseScreen = ({ navigation }: any) => {
             <Text style={styles.goalTitle}>
               Set daily goal · {editingGoalFor && EXERCISE_CATALOG.find(a => a.id === editingGoalFor)?.name}
             </Text>
-            <Text style={styles.goalHint}>
-              {editingGoalFor === 'walk' ? 'Steps per day (e.g. 6000, 8000, 10000)' : 'Minutes per day'}
-            </Text>
+            <Text style={styles.goalHint}>Measure this goal by:</Text>
+            {/* v67: metric selector — time / steps / calories / distance */}
+            <View style={styles.unitRow}>
+              {(['min','steps','kcal','km'] as GoalUnit[]).map(u => {
+                const on = goalUnit === u;
+                return (
+                  <TouchableOpacity
+                    key={u}
+                    style={[styles.unitChip, on && styles.unitChipOn]}
+                    onPress={() => setGoalUnit(u)}
+                  >
+                    <Text style={[styles.unitChipText, on && styles.unitChipTextOn]}>
+                      {GOAL_UNIT_META[u].icon} {GOAL_UNIT_META[u].label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
             <TextInput
               style={styles.goalInput}
               value={goalInput}
               onChangeText={setGoalInput}
               keyboardType="number-pad"
-              placeholder={editingGoalFor === 'walk' ? '6000' : '20'}
+              placeholder={goalUnit === 'steps' ? '6000' : goalUnit === 'kcal' ? '300' : goalUnit === 'km' ? '5' : '20'}
               placeholderTextColor={COLORS.muted}
             />
+            <Text style={styles.goalUnitCaption}>
+              target in {GOAL_UNIT_META[goalUnit].short} per day
+            </Text>
             <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md }}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditingGoalFor(null)}>
                 <Text style={styles.cancelText}>Cancel</Text>
@@ -517,11 +541,8 @@ export const ExerciseScreen = ({ navigation }: any) => {
                   if (!editingGoalFor) return;
                   const v = parseInt(goalInput, 10) || 0;
                   if (v <= 0) { showToast('Enter a positive number'); return; }
-                  const patch: Partial<WorkoutGoals> = editingGoalFor === 'walk'
-                    ? { walkSteps: v }
-                    : ({ [`${editingGoalFor}Min`]: v } as any);
-                  await workoutGoalsRepo.set(patch);
-                  showToast(`✓ Goal saved · ${v} ${editingGoalFor === 'walk' ? 'steps' : 'min'}`);
+                  await workoutGoalsRepo.setGoal(editingGoalFor, v, goalUnit);
+                  showToast(`✓ Goal saved · ${v} ${GOAL_UNIT_META[goalUnit].short}`);
                   setEditingGoalFor(null);
                   refresh();
                 }}
@@ -850,6 +871,13 @@ const styles = StyleSheet.create({
   goalTitle: { color: COLORS.cream, fontSize: 16, fontWeight: '700', marginBottom: 4 },
   goalHint: { color: COLORS.muted, fontSize: 12, fontStyle: 'italic', marginBottom: SPACING.md },
   goalInput: { backgroundColor: COLORS.cardBg, borderRadius: 10, padding: SPACING.md, color: COLORS.cream, fontSize: 18, fontWeight: '700', borderWidth: 1, borderColor: COLORS.border, textAlign: 'center' },
+  // v67: metric selector chips
+  unitRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: SPACING.md },
+  unitChip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.cardBg },
+  unitChipOn: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
+  unitChipText: { color: COLORS.muted, fontSize: 13, fontWeight: '700' },
+  unitChipTextOn: { color: COLORS.gold },
+  goalUnitCaption: { color: COLORS.muted, fontSize: 11, fontStyle: 'italic', textAlign: 'center', marginTop: 6 },
   cancelBtn: { flex: 1, paddingVertical: SPACING.md, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center' },
   cancelText: { color: COLORS.muted, fontSize: 14, fontWeight: '600' },
   saveBtn: { flex: 1, paddingVertical: SPACING.md, borderRadius: 10, backgroundColor: COLORS.gold, alignItems: 'center' },

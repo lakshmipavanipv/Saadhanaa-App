@@ -321,13 +321,9 @@ const Identity = ({
         onTypeChange('email');
         setTimeout(() => onNext(), 250);
       } else {
-        // v56: signInWithGoogle returns null on EVERY failure path —
-        // user-cancelled, Firebase not configured, network down, etc.
-        // Show a clear message instead of just silently re-enabling the
-        // button so the user knows what to do.
-        showToast(
-          'Google sign-in not available on this build. Tap "Or enter details manually" below to continue.'
-        );
+        // v67: null now means ONLY user-cancelled (real failures throw and
+        // are caught below with their actual error code). Calm message.
+        showToast('Sign-in cancelled. Pick your account, or use manual entry below.');
       }
     } catch (e: any) {
       console.warn('[Onboarding] Google sign-in failed:', e?.message);

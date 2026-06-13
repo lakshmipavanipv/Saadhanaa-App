@@ -142,7 +142,12 @@ export const signInWithGoogle = async (): Promise<SignedInUser | null> => {
     const result = await m.GoogleSignin.signIn();
     const payload = result?.data ?? result;
     const idToken = payload?.idToken;
-    if (!idToken) return null;
+    // v67: surface the real reason rather than a silent null. A missing
+    // idToken after a successful account pick almost always means the
+    // web client id / SHA-1 isn't wired — throw so the UI can show it.
+    if (!idToken) {
+      throw new Error('No idToken from Google — check webClientId (default_web_client_id) and the SHA-1 registered in Firebase.');
+    }
 
     const credential = m.auth.GoogleAuthProvider.credential(idToken);
 
@@ -176,9 +181,14 @@ export const signInWithGoogle = async (): Promise<SignedInUser | null> => {
       source: 'google',
     };
   } catch (e: any) {
-    if (e?.code === 'SIGN_IN_CANCELLED' || e?.code === '12501') return null;
-    console.warn('[firebaseAuth] Google sign-in failed:', e?.message);
-    return null;
+    // User cancelled — not an error, return null quietly.
+    if (e?.code === 'SIGN_IN_CANCELLED' || e?.code === '12501' || e?.code === '-5') return null;
+    // v67: re-throw real failures so the onboarding screen can show the
+    // actual code (e.g. DEVELOPER_ERROR / 10 = SHA-1 mismatch) instead of
+    // a generic "not available". Tag the code into the message.
+    const code = e?.code ? ` [${e.code}]` : '';
+    console.warn('[firebaseAuth] Google sign-in failed:', e?.code, e?.message);
+    throw new Error(`${e?.message || 'Google sign-in failed'}${code}`);
   }
 };
 

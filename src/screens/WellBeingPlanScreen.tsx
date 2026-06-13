@@ -49,6 +49,10 @@ import {
   scheduleRoutineReminder, cancelRoutineReminder, requestNotificationPermission,
 } from '../services/notifications';
 import { vitalsPlanEngine, VitalsPlan } from '../soulsync/ai/VitalsPlanEngine';
+// v67: Sacred Days & Occasions — festivals, tithi, special days, pitru shraadha
+import { specialSadhanaRepo, SpecialSadhana } from '../services/specialSadhanaRepo';
+import { FamilyMembersCard } from '../components/FamilyMembersCard';
+import { getUpcomingFestivals, formatShortDate } from '../utils';
 
 // ─── Catalog meta ───────────────────────────────────────────────
 
@@ -152,6 +156,46 @@ const timeUntil = (hhmm?: string | null): { text: string; tomorrow: boolean } =>
   return { text: rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`, tomorrow };
 };
 
+// ─── Sacred Days & Occasions ─────────────────────────────────────
+// v67: occasion reminders distinct from daily routines — they fire on
+// calendar / lunar dates, not a daily time. Backed by specialSadhanaRepo
+// (tithi + dates triggers) and familyRepo (pitru shraadha).
+
+const TITHI_OPTIONS = [
+  { id: 'Ekadashi',  icon: '🌗', sub: 'Every 11th lunar day · fast + japa' },
+  { id: 'Pradosh',   icon: '🌘', sub: 'Shiva tithi · evening worship' },
+  { id: 'Purnima',   icon: '🌕', sub: 'Full moon · meditation' },
+  { id: 'Amavasya',  icon: '🌑', sub: 'New moon · pitru tarpana' },
+  { id: 'Sankashti', icon: '🐘', sub: 'Ganesha tithi · 4th after full moon' },
+  { id: 'Chaturthi', icon: '🪔', sub: 'Ganesha 4th tithi' },
+  { id: 'Ashtami',   icon: '🌓', sub: 'Devi / Krishna 8th tithi' },
+];
+
+type OccasionType = 'festival' | 'tithi' | 'special' | 'shraadha';
+
+const OCCASION_TYPES: Array<{ id: OccasionType; icon: string; label: string; hint: string }> = [
+  { id: 'festival', icon: '🛕', label: 'Festival',       hint: 'Diwali · Navratri · Ekadashi…' },
+  { id: 'tithi',    icon: '🌗', label: 'Tithi day',      hint: 'Recurring lunar observance' },
+  { id: 'special',  icon: '🗓', label: 'Special day',    hint: 'Your own date(s)' },
+  { id: 'shraadha', icon: '🕯️', label: 'Pitru Shraadha', hint: 'Annual ancestral remembrance' },
+];
+
+// A unified card model for rendering both specialSadhanaRepo entries and
+// (later) family-shraadha entries in one occasions list.
+const describeTrigger = (o: SpecialSadhana): string => {
+  if (o.trigger.kind === 'tithi') return `Every ${o.trigger.tithi}`;
+  if (o.trigger.kind === 'dates') {
+    const ds = o.trigger.dates || [];
+    if (ds.length === 0) return 'No date set';
+    return ds.length === 1 ? formatShortDate(ds[0]) : `${ds.length} dates`;
+  }
+  if (o.trigger.kind === 'weekdays') {
+    const names = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    return o.trigger.days.map(d => names[d]).join(' · ');
+  }
+  return '';
+};
+
 // ─── Main screen ────────────────────────────────────────────────
 
 export const WellBeingPlanScreen = ({ navigation }: any) => {
@@ -163,8 +207,14 @@ export const WellBeingPlanScreen = ({ navigation }: any) => {
   // 5-bucket walking / yoga / japa / meditation / breath breakdown.
   const [aiPlan, setAiPlan] = useState<VitalsPlan | null>(null);
   const [showAi, setShowAi] = useState(false);
+  // v67: Sacred Days & Occasions
+  const [occasions, setOccasions] = useState<SpecialSadhana[]>([]);
+  const [occasionOpen, setOccasionOpen] = useState(false);
 
-  const refresh = async () => setItems(await routineRepo.list());
+  const refresh = async () => {
+    setItems(await routineRepo.list());
+    setOccasions(await specialSadhanaRepo.list());
+  };
   useEffect(() => { refresh(); }, []);
   useEffect(() => {
     let cancelled = false;
@@ -343,6 +393,48 @@ export const WellBeingPlanScreen = ({ navigation }: any) => {
           );
         })}
 
+        {/* ── Sacred Days & Occasions ── */}
+        <View style={s.occHeaderRow}>
+          <Text style={s.groupLabel}>🗓  SACRED DAYS & OCCASIONS</Text>
+        </View>
+        <Text style={s.occIntro}>
+          Festivals, tithi days, special dates and pitru shraadha — reminders that
+          fire on the right calendar day, not every day.
+        </Text>
+
+        {occasions.length === 0 && (
+          <Text style={s.occEmpty}>None yet. Tap below to add a festival, tithi or special day.</Text>
+        )}
+
+        {occasions.map(o => {
+          const meta = OCCASION_TYPES.find(t =>
+            (o.trigger.kind === 'tithi' && t.id === 'tithi') ||
+            (o.trigger.kind === 'dates' && t.id === (o.note === 'festival' ? 'festival' : 'special'))
+          );
+          return (
+            <View key={o.id} style={s.occCard}>
+              <Text style={s.occCardIcon}>{meta?.icon || '🗓'}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={s.occCardName}>{o.name}</Text>
+                <Text style={s.occCardSub}>
+                  {describeTrigger(o)}{o.time ? `  ·  ⏰ ${o.time}` : ''}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={async () => { await specialSadhanaRepo.remove(o.id); showToast('Occasion removed'); refresh(); }}
+                hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}
+                style={s.occDelete}
+              >
+                <Text style={s.deleteBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          );
+        })}
+
+        <TouchableOpacity style={s.occAddBtn} onPress={() => setOccasionOpen(true)} activeOpacity={0.8}>
+          <Text style={s.occAddBtnText}>＋  Add a sacred day / occasion</Text>
+        </TouchableOpacity>
+
         {/* Bottom spacer so the floating Save bar doesn't cover content */}
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -373,6 +465,13 @@ export const WellBeingPlanScreen = ({ navigation }: any) => {
         editing={editingItem}
         onClose={() => setEditingItem(null)}
         onSaved={() => { setEditingItem(null); showToast('✓ Reminder updated'); refresh(); }}
+      />
+
+      {/* Sacred Days & Occasions modal */}
+      <OccasionModal
+        visible={occasionOpen}
+        onClose={() => setOccasionOpen(false)}
+        onSaved={(msg) => { setOccasionOpen(false); showToast(msg); refresh(); }}
       />
     </View>
   );
@@ -420,7 +519,10 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
       setCustomUri(editing.alarmCustomUri);
       setCustomName(editing.alarmCustomName);
       setSpoken(!!editing.spokenReminder);
-      setStep(4);   // jump straight to the editable details
+      // v67: start edit at step 2 (name/duration) so the user can walk
+      // through TIME (step 3) and TONE (step 4). Previously it jumped to
+      // step 4 and Back closed the sheet, so the time could never be edited.
+      setStep(2);
     } else if (visible && !editing) {
       // fresh
       setStep(1);
@@ -440,10 +542,33 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
     }
   }, [visible, editing]);
 
-  // Audio player for tone preview
+  // Audio player for tone preview.
+  // v67: track which tone is currently sounding so a second tap TOGGLES it
+  // off, and so we can stop playback when the modal closes or the user
+  // leaves the tone step (previously the preview kept looping/playing).
   const [previewSrc, setPreviewSrc] = useState<any>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
   const player = useAudioPlayer(previewSrc);
+
+  // Play whenever the source changes — avoids the play-before-load race
+  // the old inline play() had.
+  useEffect(() => {
+    if (!previewSrc) return;
+    try { player.seekTo(0); player.play(); } catch { /* */ }
+  }, [previewSrc]);
+
+  const stopPreview = () => {
+    try { player.pause(); } catch { /* */ }
+    setPlayingId(null);
+  };
+
+  // Stop audio when the wizard closes or the user navigates off step 4.
+  useEffect(() => { if (!visible) stopPreview(); }, [visible]);
+  useEffect(() => { if (step !== 4) stopPreview(); }, [step]);
+
   const playTone = (id: string) => {
+    // Second tap on the same tone stops it.
+    if (playingId === id) { stopPreview(); return; }
     if (id === 'custom' && customUri) {
       setPreviewSrc({ uri: customUri });
     } else {
@@ -451,7 +576,7 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
       if (!t) return;
       setPreviewSrc(t.module);
     }
-    try { player.seekTo(0); player.play(); } catch { /* */ }
+    setPlayingId(id);
   };
 
   const pickCustomFile = async () => {
@@ -463,7 +588,7 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
       setCustomName(a.name);
       setToneId('custom');
       setPreviewSrc({ uri: a.uri });
-      try { player.seekTo(0); player.play(); } catch { /* */ }
+      setPlayingId('custom');
     } catch (e) { console.warn('pick failed', e); }
   };
 
@@ -726,6 +851,7 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
             <TouchableOpacity
               style={[ws.radioRow, ws.radioRowVoice, toneId === 'voice' && ws.radioRowActive]}
               onPress={() => {
+                stopPreview();        // silence any tone before speaking
                 setToneId('voice');
                 setSpoken(true);
                 try {
@@ -774,9 +900,11 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
     if (step < 4) setStep(step + 1);
     else save();
   };
+  // v67: edit starts at step 2 (category is already known), so its lowest
+  // step is 2; a fresh add starts at 1. Back below the floor closes.
+  const minStep = editing ? 2 : 1;
   const onBack = () => {
-    if (editing && step === 4) return onClose();      // edit jumps straight to step 4
-    if (step > 1) setStep(step - 1);
+    if (step > minStep) setStep(step - 1);
     else onClose();
   };
 
@@ -785,20 +913,19 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
       <View style={ws.modal}>
         {/* Header bar */}
         <View style={ws.headerBar}>
-          <Text style={ws.headerTitle}>{editing ? 'Edit reminder' : `Step ${step} of 4`}</Text>
+          <Text style={ws.headerTitle}>{editing ? `Edit · step ${step} of 4` : `Step ${step} of 4`}</Text>
           <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}>
             <Text style={ws.headerClose}>✕</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Step indicator */}
-        {!editing && (
-          <View style={ws.stepperRow}>
-            {[1,2,3,4].map(n => (
-              <View key={n} style={[ws.stepperDot, step >= n && ws.stepperDotActive]} />
-            ))}
-          </View>
-        )}
+        {/* Step indicator — shown for add AND edit so the user can see the
+            time / tone steps are reachable when editing. */}
+        <View style={ws.stepperRow}>
+          {[1,2,3,4].map(n => (
+            <View key={n} style={[ws.stepperDot, step >= n && ws.stepperDotActive]} />
+          ))}
+        </View>
 
         <ScrollView contentContainerStyle={ws.body} showsVerticalScrollIndicator={false}>
           {step === 1 && Step1}
@@ -820,6 +947,173 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
             <Text style={ws.nextBtnText}>{step === 4 ? '✓ SAVE' : 'Next ›'}</Text>
           </TouchableOpacity>
         </View>
+      </View>
+    </Modal>
+  );
+};
+
+// ─── Occasion modal ──────────────────────────────────────────────
+
+interface OccasionProps {
+  visible: boolean;
+  onClose: () => void;
+  onSaved: (msg: string) => void;
+}
+
+const OccasionModal: React.FC<OccasionProps> = ({ visible, onClose, onSaved }) => {
+  const [type, setType] = useState<OccasionType | null>(null);
+  const [name, setName] = useState('');
+  const [tithi, setTithi] = useState('Ekadashi');
+  const [dateStr, setDateStr] = useState('');
+  const [time, setTime] = useState<string | null>('06:00');
+  const [festSearch, setFestSearch] = useState('');
+
+  useEffect(() => {
+    if (visible) { setType(null); setName(''); setTithi('Ekadashi'); setDateStr(''); setTime('06:00'); setFestSearch(''); }
+  }, [visible]);
+
+  const upcomingFests = React.useMemo(() => {
+    try {
+      const all = getUpcomingFestivals(60);
+      const q = festSearch.trim().toLowerCase();
+      return (q ? all.filter((f: any) => f.name.toLowerCase().includes(q)) : all).slice(0, 40);
+    } catch { return []; }
+  }, [festSearch, visible]);
+
+  const saveTithi = async () => {
+    if (!tithi) return;
+    await specialSadhanaRepo.add({
+      name: name.trim() || `${tithi} observance`,
+      trigger: { kind: 'tithi', tithi }, time: time || undefined,
+    });
+    onSaved(`🌗 ${tithi} reminder added`);
+  };
+  const saveSpecial = async () => {
+    const dates = dateStr.split(/[\s,]+/).filter(Boolean);
+    if (!name.trim() || dates.length === 0) return;
+    await specialSadhanaRepo.add({
+      name: name.trim(), trigger: { kind: 'dates', dates }, time: time || undefined,
+    });
+    onSaved(`🗓 ${name.trim()} added`);
+  };
+  const saveFestival = async (fest: any) => {
+    await specialSadhanaRepo.add({
+      name: fest.name, note: 'festival',
+      trigger: { kind: 'dates', dates: [fest.date] }, time: time || undefined,
+    });
+    onSaved(`🛕 ${fest.name} reminder added`);
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <View style={ws.modal}>
+        <View style={ws.headerBar}>
+          <Text style={ws.headerTitle}>{type ? OCCASION_TYPES.find(t => t.id === type)?.label : 'Add an occasion'}</Text>
+          <TouchableOpacity onPress={type ? () => setType(null) : onClose} hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}>
+            <Text style={ws.headerClose}>{type ? '‹' : '✕'}</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView contentContainerStyle={ws.body} showsVerticalScrollIndicator={false}>
+          {/* Step 1 — pick a type */}
+          {!type && (
+            <>
+              <Text style={ws.stepTitle}>What would you like to remember?</Text>
+              <Text style={ws.stepHint}>Pick one.</Text>
+              <View style={ws.catGrid}>
+                {OCCASION_TYPES.map(t => (
+                  <TouchableOpacity key={t.id} style={ws.catTile} onPress={() => setType(t.id)} activeOpacity={0.7}>
+                    <Text style={ws.catTileIcon}>{t.icon}</Text>
+                    <Text style={ws.catTileLabel}>{t.label}</Text>
+                    <Text style={ws.catTileHint}>{t.hint}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Festival — pick from upcoming list */}
+          {type === 'festival' && (
+            <>
+              <Text style={ws.stepTitle}>Pick a festival</Text>
+              <Text style={ws.stepHint}>Tap one to add a reminder on its date.</Text>
+              <Text style={ws.fieldLabel}>Remind me at</Text>
+              <TimePickerField value={time} onChange={setTime} placeholder="Tap to set time ⏰" />
+              <TextInput style={ws.searchInput} value={festSearch} onChangeText={setFestSearch}
+                placeholder="🔍  Search festivals…" placeholderTextColor={COLORS.muted} />
+              {upcomingFests.map((f: any) => (
+                <TouchableOpacity key={f.id || f.name + f.date} style={ws.pickRow} onPress={() => saveFestival(f)} activeOpacity={0.7}>
+                  <Text style={ws.pickIcon}>{f.deityIcon || '🛕'}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={ws.pickName}>{f.name}</Text>
+                    <Text style={ws.pickSub} numberOfLines={1}>{formatShortDate(f.date)}{f.deity ? ` · ${f.deity}` : ''}</Text>
+                  </View>
+                  <Text style={ws.pickArrow}>＋</Text>
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
+
+          {/* Tithi — recurring lunar day */}
+          {type === 'tithi' && (
+            <>
+              <Text style={ws.stepTitle}>Recurring tithi observance</Text>
+              <Text style={ws.stepHint}>Fires every time this lunar day comes around.</Text>
+              <Text style={ws.fieldLabel}>Which tithi?</Text>
+              {TITHI_OPTIONS.map(t => (
+                <TouchableOpacity key={t.id}
+                  style={[ws.radioRow, tithi === t.id && ws.radioRowActive]}
+                  onPress={() => setTithi(t.id)} activeOpacity={0.7}>
+                  <Text style={[ws.radioDot, tithi === t.id && ws.radioDotActive]}>{tithi === t.id ? '◉' : '○'}</Text>
+                  <Text style={ws.radioIcon}>{t.icon}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[ws.radioLabel, tithi === t.id && ws.radioLabelActive]}>{t.id}</Text>
+                    <Text style={ws.radioSub}>{t.sub}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+              <Text style={ws.fieldLabel}>Name (optional)</Text>
+              <TextInput style={ws.nameInput} value={name} onChangeText={setName}
+                placeholder={`${tithi} observance`} placeholderTextColor={COLORS.muted} />
+              <Text style={ws.fieldLabel}>Remind me at</Text>
+              <TimePickerField value={time} onChange={setTime} placeholder="Tap to set time ⏰" />
+              <TouchableOpacity style={ws.nextBtn} onPress={saveTithi}><Text style={ws.nextBtnText}>✓ SAVE</Text></TouchableOpacity>
+            </>
+          )}
+
+          {/* Special day — custom dates */}
+          {type === 'special' && (
+            <>
+              <Text style={ws.stepTitle}>Your special day</Text>
+              <Text style={ws.stepHint}>An anniversary, vrat, birthday or personal date.</Text>
+              <Text style={ws.fieldLabel}>Name</Text>
+              <TextInput style={ws.nameInput} value={name} onChangeText={setName}
+                placeholder="e.g. Guru Diksha day" placeholderTextColor={COLORS.muted} />
+              <Text style={ws.fieldLabel}>Date(s) — YYYY-MM-DD</Text>
+              <TextInput style={ws.nameInput} value={dateStr} onChangeText={setDateStr}
+                placeholder="2026-07-15, 2027-07-04" placeholderTextColor={COLORS.muted} />
+              <Text style={ws.fieldLabel}>Remind me at</Text>
+              <TimePickerField value={time} onChange={setTime} placeholder="Tap to set time ⏰" />
+              <TouchableOpacity
+                style={[ws.nextBtn, (!name.trim() || !dateStr.trim()) && { opacity: 0.4 }]}
+                onPress={saveSpecial} disabled={!name.trim() || !dateStr.trim()}>
+                <Text style={ws.nextBtnText}>✓ SAVE</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {/* Pitru Shraadha — reuse the family-members form */}
+          {type === 'shraadha' && (
+            <>
+              <Text style={ws.stepTitle}>Pitru Shraadha</Text>
+              <Text style={ws.stepHint}>
+                Add a departed loved one. We compute the annual shraadha day from the
+                lunar tithi and remind you each year.
+              </Text>
+              <FamilyMembersCard />
+            </>
+          )}
+        </ScrollView>
       </View>
     </Modal>
   );
@@ -925,6 +1219,27 @@ const s = StyleSheet.create({
     elevation: 4,
   },
   addBtnText: { color: COLORS.deep, fontSize: 17, fontWeight: '800', letterSpacing: 0.4 },
+
+  // v67: Sacred Days & Occasions
+  occHeaderRow: { marginTop: SPACING.lg },
+  occIntro: { color: COLORS.muted, fontSize: 12, paddingHorizontal: SPACING.md, marginBottom: SPACING.sm, lineHeight: 17, fontStyle: 'italic' },
+  occEmpty: { color: COLORS.muted, fontSize: 13, textAlign: 'center', paddingVertical: SPACING.md, fontStyle: 'italic' },
+  occCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginHorizontal: SPACING.md, marginBottom: SPACING.sm,
+    padding: SPACING.md, borderRadius: 14,
+    backgroundColor: COLORS.cardBg, borderWidth: 1, borderColor: 'rgba(244,114,182,0.30)',
+  },
+  occCardIcon: { fontSize: 26, width: 36, textAlign: 'center' },
+  occCardName: { color: COLORS.cream, fontSize: 16, fontWeight: '700' },
+  occCardSub:  { color: COLORS.muted, fontSize: 12, marginTop: 2 },
+  occDelete:   { width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
+  occAddBtn: {
+    marginHorizontal: SPACING.md, marginTop: 4, paddingVertical: 14, borderRadius: 14,
+    backgroundColor: 'rgba(244,114,182,0.12)', borderWidth: 1, borderColor: 'rgba(244,114,182,0.45)',
+    alignItems: 'center',
+  },
+  occAddBtnText: { color: '#f472b6', fontSize: 15, fontWeight: '800', letterSpacing: 0.3 },
 });
 
 const ws = StyleSheet.create({
