@@ -45,7 +45,7 @@ import {
 } from '../services/ble';
 import { RingSpinner } from '../components/RingSpinner';
 
-type Step = 'welcome' | 'identity' | 'ring' | 'about' | 'plan-prompt';
+type Step = 'welcome' | 'identity' | 'otp' | 'ring' | 'about' | 'plan-prompt';
 
 type Gender = NonNullable<UserProfile['gender']>;
 type Religion = NonNullable<UserProfile['religion']>;
@@ -77,6 +77,9 @@ export const OnboardingScreen = () => {
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
   const [contactType, setContactType] = useState<'email' | 'phone'>('email');
+  // v71: OTP verification for the manual email/phone path.
+  const [otpDemo, setOtpDemo] = useState<string | null>(null);
+  const [otpSending, setOtpSending] = useState(false);
 
   // About you
   const [dob, setDob] = useState('');
@@ -106,12 +109,41 @@ export const OnboardingScreen = () => {
     if (!c) { showToast('Email or phone is required'); return; }
     if (t === 'email' && !validEmail(c)) { showToast('Please enter a valid email'); return; }
     if (t === 'phone' && !validPhone(c)) { showToast('Please enter a valid phone number'); return; }
-    // Persist the values into state so the final profile save picks them up.
-    if (override) { setName(n); setContact(c); setContactType(t); }
-    // Best-effort welcome email; never blocks the flow.
-    otpClient.send(c, t).catch(() => {});
-    showToast('Welcome 🙏');
-    setStep('ring');
+    if (override) {
+      // Google / anonymous — the provider already verified this identity,
+      // so no OTP is needed. Persist and continue straight to the ring step.
+      setName(n); setContact(c); setContactType(t);
+      showToast('Welcome 🙏');
+      setStep('ring');
+      return;
+    }
+    // v71: manual email/phone — require an OTP code. Send it, then show the
+    // OTP entry screen. In demo mode (no OTP_BACKEND_URL configured) the code
+    // is generated on-device and shown on screen so the user can enter it.
+    setOtpSending(true);
+    const res = await otpClient.send(c, t);
+    setOtpSending(false);
+    if (!res.sent) {
+      showToast(`Could not send code: ${res.error}`);
+      return;
+    }
+    setOtpDemo(res.demoOtp ?? null);
+    showToast(c.includes('@') ? `Code sent to ${c}` : `Code sent to ${c}`);
+    setStep('otp');
+  };
+
+  const resendOtp = async () => {
+    setOtpSending(true);
+    const res = await otpClient.send(contact, contactType);
+    setOtpSending(false);
+    if (res.sent) { setOtpDemo(res.demoOtp ?? null); showToast('New code sent'); }
+    else showToast(`Could not resend: ${res.error}`);
+  };
+
+  const verifyOtp = async (code: string) => {
+    const res = await otpClient.verify(contact, code, otpDemo ?? undefined);
+    if (res.verified) { showToast('✓ Verified 🙏'); setStep('ring'); }
+    else showToast('Incorrect code — please try again');
   };
 
   // ── Bluetooth pairing ───────────────────────────────────────────
@@ -227,6 +259,17 @@ export const OnboardingScreen = () => {
           />
         )}
 
+        {step === 'otp' && (
+          <OtpStep
+            contact={contact}
+            demoOtp={otpDemo}
+            sending={otpSending}
+            onVerify={verifyOtp}
+            onResend={resendOtp}
+            onBack={() => setStep('identity')}
+          />
+        )}
+
         {step === 'ring' && (
           <RingStep
             scanning={scanning}
@@ -283,6 +326,75 @@ const Welcome = ({ onDone }: { onDone: () => void }) => {
   return (
     <View style={{ paddingTop: 60 }}>
       <WellBeingHero />
+    </View>
+  );
+};
+
+// ─── OTP verification step (manual email/phone path) ─────────────
+
+const OtpStep = ({
+  contact, demoOtp, sending, onVerify, onResend, onBack,
+}: {
+  contact: string;
+  demoOtp: string | null;
+  sending: boolean;
+  onVerify: (code: string) => void;
+  onResend: () => void;
+  onBack: () => void;
+}) => {
+  // v71: in demo mode the code is generated on-device — auto-fill it so the
+  // user can SEE it and just tap Verify (matches the requested UX). With a
+  // real backend, demoOtp is null and the box starts empty.
+  const [code, setCode] = useState(demoOtp ?? '');
+  useEffect(() => { if (demoOtp) setCode(demoOtp); }, [demoOtp]);
+
+  return (
+    <View style={styles.stepContent}>
+      <Text style={styles.stepLabel}>VERIFY</Text>
+      <Text style={styles.title}>Enter your code</Text>
+      <Text style={styles.subtitle}>
+        We sent a 6-digit verification code to{'\n'}
+        <Text style={{ color: COLORS.gold, fontWeight: '700' }}>{contact}</Text>
+      </Text>
+
+      {demoOtp ? (
+        <View style={styles.otpDemoBanner}>
+          <Text style={styles.otpDemoText}>
+            Demo mode — no email server is set up yet, so your code is shown here:
+          </Text>
+          <Text style={styles.otpDemoCode}>{demoOtp}</Text>
+        </View>
+      ) : null}
+
+      <TextInput
+        style={styles.otpInput}
+        value={code}
+        onChangeText={t => setCode(t.replace(/[^0-9]/g, '').slice(0, 6))}
+        keyboardType="number-pad"
+        maxLength={6}
+        placeholder="••••••"
+        placeholderTextColor={COLORS.muted}
+        textAlign="center"
+      />
+
+      <TouchableOpacity
+        style={[styles.primaryBtn, { marginTop: SPACING.md }, code.trim().length < 4 && { opacity: 0.5 }]}
+        onPress={() => onVerify(code)}
+        disabled={code.trim().length < 4}
+      >
+        <Text style={styles.primaryBtnText}>Verify &amp; continue →</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity onPress={onResend} disabled={sending} style={{ alignSelf: 'center', marginTop: SPACING.md, padding: SPACING.sm }}>
+        <Text style={{ color: COLORS.gold, fontSize: 13, fontWeight: '600' }}>
+          {sending ? 'Sending…' : 'Resend code'}
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onBack} style={{ alignSelf: 'center', padding: SPACING.sm }}>
+        <Text style={{ color: COLORS.muted, fontSize: 12, textDecorationLine: 'underline' }}>
+          ‹ Change email / phone
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 };
@@ -753,6 +865,20 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
   },
   hint: { fontSize: 11, color: COLORS.muted, marginTop: 6, fontStyle: 'italic' },
+
+  // ── v71: OTP step ──
+  otpDemoBanner: {
+    marginTop: SPACING.md, padding: SPACING.md, borderRadius: 10,
+    backgroundColor: 'rgba(255,184,0,0.10)', borderWidth: 1, borderColor: 'rgba(255,184,0,0.35)',
+    alignItems: 'center',
+  },
+  otpDemoText: { color: COLORS.muted, fontSize: 12, textAlign: 'center', fontStyle: 'italic' },
+  otpDemoCode: { color: COLORS.gold, fontSize: 26, fontWeight: '800', letterSpacing: 6, marginTop: 6 },
+  otpInput: {
+    marginTop: SPACING.lg, backgroundColor: COLORS.cardBg, borderRadius: 12,
+    paddingVertical: SPACING.md, color: COLORS.cream, fontSize: 30, fontWeight: '800',
+    letterSpacing: 12, borderWidth: 1, borderColor: COLORS.gold,
+  },
 
   // ── Grid of selectable chips (gender, religion) ──
   gridRow: {
