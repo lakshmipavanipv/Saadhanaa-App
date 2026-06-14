@@ -2,7 +2,7 @@
   "expo": {
     "name": "Body & Soul Ring",
     "slug": "sadhana-app",
-    "version": "1.0.74",
+    "version": "1.0.75",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "sadhana",
@@ -78,6 +78,7 @@
       "expo-speech-recognition"
     ],
     "extra": {
+      "API_BASE_URL": "https://api.velvue.in",
       "eas": {
         "projectId": "ddbfda35-d73f-4196-b00a-ed623f1bd1a3"
       }

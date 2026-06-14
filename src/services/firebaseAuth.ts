@@ -108,6 +108,23 @@ const configureGoogle = async (): Promise<boolean> => {
 };
 
 /**
+ * Get the current user's Firebase ID token (JWT) for authenticating requests
+ * to our own backend. Returns null if not signed in / unavailable. The backend
+ * verifies this with the Firebase Admin SDK.
+ */
+export const getIdToken = async (): Promise<string | null> => {
+  const m = await loadModules();
+  if (!m) return null;
+  try {
+    const u = m.auth().currentUser;
+    if (!u) return null;
+    return await u.getIdToken();
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Get the currently-signed-in user (across app restarts). Returns null
  * if nobody is signed in or Firebase isn't available.
  */

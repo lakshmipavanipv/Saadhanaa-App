@@ -8,6 +8,9 @@ import { StyleSheet, View, Text, StatusBar, TouchableOpacity, Modal } from 'reac
 import { SplashScreen } from './components/SplashScreen';
 import { initNotifications } from './services/notifications';
 import { startStepTracking } from './services/stepTracker';
+import { ConsentScreen } from './screens/ConsentScreen';
+import { consentRepo } from './services/consentRepo';
+import { telemetry } from './services/telemetry';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
@@ -170,8 +173,21 @@ const AppContent = () => {
     pendingRoute, setPendingRoute,
   } = useSadhana();
   const [showSettings, setShowSettings] = useState(false);
+  // v75: DPDP consent gate — null = still loading, true = must show consent.
+  const [needsConsent, setNeedsConsent] = useState<boolean | null>(null);
   // Listen for emotional events — routes to the right overlay
   const { activeEvent, dismiss } = useEmotionalState();
+
+  // Load consent state on mount; once granted, sync it + profile to the server.
+  React.useEffect(() => {
+    consentRepo.needsConsent().then(setNeedsConsent);
+  }, []);
+  React.useEffect(() => {
+    if (needsConsent === false) {
+      telemetry.syncConsent();
+      telemetry.profile({ name: userProfile?.name || undefined });
+    }
+  }, [needsConsent, userProfile?.name]);
 
   // ── Prayer reminder popup state ──────────────────────────────
   const [prayerDeity, setPrayerDeity] = useState<Deity | null>(null);
@@ -254,8 +270,19 @@ const AppContent = () => {
     return () => clearTimeout(t);
   }, [pendingRoute, userProfile?.onboarded, setPendingRoute]);
 
-  if (isLoading) {
+  if (isLoading || needsConsent === null) {
     return <SplashScreen label="Awakening your body & soul" />;
+  }
+
+  // v75: DPDP consent gate — shown before anything else collects data.
+  if (needsConsent) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={COLORS.deep} translucent />
+        <ConsentScreen onAgree={() => setNeedsConsent(false)} />
+        {toast && <Toast message={toast} />}
+      </View>
+    );
   }
 
   if (!userProfile?.onboarded) {
