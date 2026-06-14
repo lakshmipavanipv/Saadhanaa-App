@@ -53,6 +53,7 @@ import { vitalsPlanEngine, VitalsPlan } from '../soulsync/ai/VitalsPlanEngine';
 import { specialSadhanaRepo, SpecialSadhana } from '../services/specialSadhanaRepo';
 import { FamilyMembersCard } from '../components/FamilyMembersCard';
 import { getUpcomingFestivals, formatShortDate } from '../utils';
+import { GoalUnit, GOAL_UNIT_META } from '../services/workoutGoalsRepo';
 
 // ─── Catalog meta ───────────────────────────────────────────────
 
@@ -352,7 +353,9 @@ export const WellBeingPlanScreen = ({ navigation }: any) => {
                     <View style={{ flex: 1 }}>
                       <Text style={s.reminderName}>{it.name}</Text>
                       <Text style={s.reminderMeta}>
-                        {it.durationMin} min · {fmtFrequency(it.frequency)}
+                        {it.goalUnit && it.goalUnit !== 'min' && it.goalValue
+                          ? `${it.goalValue.toLocaleString()} ${GOAL_UNIT_META[it.goalUnit].short}`
+                          : `${it.durationMin} min`} · {fmtFrequency(it.frequency)}
                       </Text>
                       <View style={s.reminderChipsRow}>
                         {it.time && (
@@ -499,6 +502,9 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
   const [pickedName, setPickedName] = useState('');
   const [pickedSub, setPickedSub] = useState('');
   const [duration, setDuration] = useState(20);
+  // v71: for exercise items the goal can be minutes/steps/calories/distance.
+  // `duration` doubles as the goal VALUE field; goalUnit picks the metric.
+  const [goalUnit, setGoalUnit] = useState<GoalUnit>('min');
   const [time, setTime] = useState<string | null>(null);
   const [freqMode, setFreqMode] = useState<'daily' | 'days'>('daily');
   const [days, setDays] = useState<number[]>([]);
@@ -514,7 +520,8 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
     if (visible && editing) {
       setCategory(editing.category);
       setPickedName(editing.name);
-      setDuration(editing.durationMin);
+      setGoalUnit(editing.goalUnit ?? 'min');
+      setDuration(editing.goalValue ?? editing.durationMin);
       setTime(editing.time ?? null);
       setFreqMode(editing.frequency === 'daily' ? 'daily' : 'days');
       setDays(Array.isArray(editing.frequency) ? editing.frequency : []);
@@ -536,6 +543,7 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
       setPickedName('');
       setPickedSub('');
       setDuration(20);
+      setGoalUnit('min');
       setTime(null);
       setFreqMode('daily');
       setDays([]);
@@ -607,25 +615,37 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
     const isVoiceOnly = toneId === 'voice';
     const persistSpoken = spoken || isVoiceOnly;
     const persistSoundId = isVoiceOnly ? 'default' : toneId;
+    // v71: exercise goal metric. `duration` holds the goal value. durationMin
+    // stays minutes-only for time accounting (default 30 when the goal isn't
+    // time-based so step/calorie targets don't pollute "minutes" totals).
+    const isExercise = category === 'exercise';
+    const persistGoalUnit: GoalUnit | undefined = isExercise ? goalUnit : undefined;
+    const persistGoalValue: number | undefined = isExercise ? duration : undefined;
+    const persistDurationMin = (!isExercise || goalUnit === 'min') ? duration : 30;
+    const goalFields = { goalUnit: persistGoalUnit, goalValue: persistGoalValue };
     let saved: RoutineItem;
     if (editing) {
       if (editing.notificationIds) await cancelRoutineReminder(editing.notificationIds);
       await routineRepo.update(editing.id, {
-        category, name: pickedName, durationMin: duration, time,
+        category, name: pickedName, durationMin: persistDurationMin, time, ...goalFields,
         frequency: freq, alarmSoundId: reminderOn ? persistSoundId : undefined,
         alarmCustomUri: customUri, alarmCustomName: customName,
         spokenReminder: persistSpoken,
       });
-      saved = { ...editing, name: pickedName, durationMin: duration, time, frequency: freq };
+      saved = { ...editing, name: pickedName, durationMin: persistDurationMin, time, frequency: freq, ...goalFields };
     } else {
       saved = await routineRepo.add({
-        category, name: pickedName, durationMin: duration, time,
+        category, name: pickedName, durationMin: persistDurationMin, time, ...goalFields,
         frequency: freq, custom: false,
         alarmSoundId: reminderOn ? persistSoundId : undefined,
         alarmCustomUri: customUri, alarmCustomName: customName,
         spokenReminder: persistSpoken,
       });
     }
+    // Human label for the goal, used in the notification body.
+    const goalLabel = isExercise && goalUnit !== 'min'
+      ? `${duration} ${GOAL_UNIT_META[goalUnit].short}`
+      : `${persistDurationMin} min`;
     if (reminderOn && time) {
       const granted = await requestNotificationPermission();
       if (granted) {
@@ -633,8 +653,8 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
           ? `🪷 Hey ${userName || 'friend'}`
           : `🎯 ${pickedName}`;
         const body = persistSpoken
-          ? `Your ${pickedName.toLowerCase()} is at ${time} — ${duration} min`
-          : `Your committed ${duration}-min practice`;
+          ? `Your ${pickedName.toLowerCase()} is at ${time} — ${goalLabel}`
+          : `Your committed ${goalLabel} ${isExercise && goalUnit !== 'min' ? 'goal' : 'practice'}`;
         const ids = await scheduleRoutineReminder({
           title, body, time, frequency: freq,
           routineId: saved.id, soundId: persistSoundId,
@@ -655,7 +675,7 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
           <TouchableOpacity
             key={c.id}
             style={[ws.catTile, category === c.id && ws.catTileActive]}
-            onPress={() => { setCategory(c.id); setDuration(c.defaultMin); setStep(2); }}
+            onPress={() => { setCategory(c.id); setDuration(c.defaultMin); setGoalUnit('min'); setStep(2); }}
             activeOpacity={0.7}
           >
             <Text style={ws.catTileIcon}>{c.icon}</Text>
@@ -680,8 +700,17 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
 
   const Step2 = (
     <View>
-      <Text style={ws.stepTitle}>Pick a {cat ? CAT_META[cat].label.toLowerCase() : 'practice'}</Text>
-      <Text style={ws.stepHint}>Tap one of these, or type your own name below.</Text>
+      {/* v71: when editing an existing item the practice is already chosen,
+          so we hide the "pick from catalog" list and jump straight to the
+          name + goal fields. New items still show the full picker. */}
+      <Text style={ws.stepTitle}>
+        {editing ? 'Edit details' : `Pick a ${cat ? CAT_META[cat].label.toLowerCase() : 'practice'}`}
+      </Text>
+      <Text style={ws.stepHint}>
+        {editing ? 'Adjust the name and goal — then Next for time & reminder.'
+                 : 'Tap one of these, or type your own name below.'}
+      </Text>
+      {!editing && (
       <TextInput
         style={ws.searchInput}
         value={search}
@@ -689,6 +718,8 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
         placeholder="🔍  Search…"
         placeholderTextColor={COLORS.muted}
       />
+      )}
+      {!editing && (
       <ScrollView style={{ maxHeight: 340 }} nestedScrollEnabled>
         {filteredCatalog.map(e => {
           const isDesign = e.id === '__design__';
@@ -727,7 +758,9 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
           );
         })}
       </ScrollView>
-      <Text style={ws.orLabel}>OR type your own:</Text>
+      )}
+      {!editing && <Text style={ws.orLabel}>OR type your own:</Text>}
+      {editing && <Text style={ws.fieldLabel}>Name</Text>}
       <TextInput
         style={ws.nameInput}
         value={pickedName}
@@ -735,16 +768,52 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
         placeholder="e.g. Morning walk"
         placeholderTextColor={COLORS.muted}
       />
-      <View style={ws.durationRow}>
-        <Text style={ws.durLabel}>Minutes:</Text>
-        <TextInput
-          style={ws.durInput}
-          value={String(duration)}
-          onChangeText={(t) => setDuration(parseInt(t, 10) || 0)}
-          keyboardType="numeric"
-          maxLength={3}
-        />
-      </View>
+      {/* v71: exercise items pick a GOAL metric (minutes / steps / calories /
+          distance); other categories keep a simple minutes field. */}
+      {cat === 'exercise' ? (
+        <View style={{ marginTop: SPACING.md }}>
+          <Text style={ws.fieldLabel}>Set your goal</Text>
+          <View style={ws.goalMetricRow}>
+            {(['min','steps','kcal','km'] as GoalUnit[]).map(u => {
+              const on = goalUnit === u;
+              return (
+                <TouchableOpacity
+                  key={u}
+                  style={[ws.goalChip, on && ws.goalChipActive]}
+                  onPress={() => setGoalUnit(u)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[ws.goalChipText, on && ws.goalChipTextActive]}>
+                    {GOAL_UNIT_META[u].icon} {GOAL_UNIT_META[u].label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <View style={ws.durationRow}>
+            <Text style={ws.durLabel}>Target:</Text>
+            <TextInput
+              style={ws.durInput}
+              value={String(duration)}
+              onChangeText={(t) => setDuration(parseInt(t, 10) || 0)}
+              keyboardType="numeric"
+              maxLength={6}
+            />
+            <Text style={ws.durLabel}>{GOAL_UNIT_META[goalUnit].short}/day</Text>
+          </View>
+        </View>
+      ) : (
+        <View style={ws.durationRow}>
+          <Text style={ws.durLabel}>Minutes:</Text>
+          <TextInput
+            style={ws.durInput}
+            value={String(duration)}
+            onChangeText={(t) => setDuration(parseInt(t, 10) || 0)}
+            keyboardType="numeric"
+            maxLength={3}
+          />
+        </View>
+      )}
     </View>
   );
 
@@ -1331,6 +1400,16 @@ const ws = StyleSheet.create({
     color: COLORS.cream, fontSize: 16, textAlign: 'center',
     borderWidth: 1, borderColor: COLORS.border,
   },
+
+  // v71: exercise goal-metric chips
+  goalMetricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  goalChip: {
+    paddingVertical: 9, paddingHorizontal: 12, borderRadius: 20,
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.cardBg,
+  },
+  goalChipActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(255,184,0,0.14)' },
+  goalChipText: { color: COLORS.muted, fontSize: 13, fontWeight: '700' },
+  goalChipTextActive: { color: COLORS.gold },
 
   fieldLabel: { color: COLORS.cream, fontSize: 14, fontWeight: '800', letterSpacing: 0.5, marginTop: SPACING.md, marginBottom: 8 },
 

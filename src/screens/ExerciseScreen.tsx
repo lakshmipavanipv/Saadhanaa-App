@@ -339,6 +339,31 @@ export const ExerciseScreen = ({ navigation }: any) => {
           </Text>
         </View>
 
+        {/* v72: since-morning summary — steps + calories at a glance */}
+        {(() => {
+          const steps = withFallback(stepsToday, DUMMY.stepsToday ?? 3200);
+          const kcal = Math.round(steps * 0.04 + todayMin * 5);
+          const km = (steps * 0.000762).toFixed(2);   // ~0.762 m per step
+          return (
+            <View style={styles.sinceMorningRow}>
+              <View style={styles.sinceCell}>
+                <Text style={styles.sinceVal}>{steps.toLocaleString()}</Text>
+                <Text style={styles.sinceLabel}>👟 steps{'\n'}since morning</Text>
+              </View>
+              <View style={styles.sinceDivider} />
+              <View style={styles.sinceCell}>
+                <Text style={styles.sinceVal}>{kcal.toLocaleString()}</Text>
+                <Text style={styles.sinceLabel}>🔥 kcal{'\n'}burnt</Text>
+              </View>
+              <View style={styles.sinceDivider} />
+              <View style={styles.sinceCell}>
+                <Text style={styles.sinceVal}>{km}</Text>
+                <Text style={styles.sinceLabel}>📏 km{'\n'}covered</Text>
+              </View>
+            </View>
+          );
+        })()}
+
         {/* v58: quick gateway to Plan tab — add a new exercise routine
             without having to remember where Plan lives. */}
         <AddToPlanCta
@@ -771,6 +796,18 @@ const styles = StyleSheet.create({
   },
   progressFill: { height: '100%', backgroundColor: COLORS.gold },
   kpiHint: { fontSize: 12, color: COLORS.cream, fontStyle: 'italic', textAlign: 'center', marginTop: 4 },
+
+  // v72: since-morning summary strip (steps · kcal · km)
+  sinceMorningRow: {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
+    paddingVertical: SPACING.md, borderRadius: 14,
+    backgroundColor: COLORS.cardBg, borderWidth: 1, borderColor: 'rgba(78,168,222,0.30)',
+  },
+  sinceCell: { flex: 1, alignItems: 'center' },
+  sinceVal: { color: COLORS.cream, fontSize: 20, fontWeight: '800' },
+  sinceLabel: { color: COLORS.muted, fontSize: 10, textAlign: 'center', marginTop: 3, lineHeight: 13 },
+  sinceDivider: { width: 1, height: 34, backgroundColor: 'rgba(255,255,255,0.08)' },
 
   autoDetectCard: {
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,

@@ -20,6 +20,11 @@ export interface RoutineItem {
   name: string;
   /** Minutes the user intends to spend per occurrence. */
   durationMin: number;
+  /** v71: for exercise items the goal can be measured in minutes, steps,
+   *  calories or distance — the user picks the metric in the Plan wizard.
+   *  goalValue is the target in that unit (e.g. 6000 steps, 300 kcal). */
+  goalUnit?: 'min' | 'steps' | 'kcal' | 'km';
+  goalValue?: number;
   /** Optional daily time slot (e.g. "06:00"). Null = no time pinned. */
   time?: string | null;
   /** Daily, or selected weekdays (0=Sun … 6=Sat). */

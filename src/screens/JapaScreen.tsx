@@ -885,6 +885,13 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
           );
         })()}
 
+        {/* v71: Plan CTA sits right under the KPI/stats box — same position
+            as the Yoga and Exercise tabs for cross-tab consistency. */}
+        <AddToPlanCta
+          label="a japa session"
+          onPress={() => navigation?.navigate?.('Plan')}
+        />
+
         {/* Deities breakdown moved to the very bottom of this screen in v43 —
             shown below the Soul Sync trends so it doesn't compete with the
             primary "Pick a Sadhana" entry point. */}
@@ -953,11 +960,6 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
         </Text>
 
         {/* ─── #5 · START SOULSYNC ─── */}
-        {/* v58: quick gateway to Plan tab for adding a japa routine */}
-        <AddToPlanCta
-          label="a japa session"
-          onPress={() => navigation?.navigate?.('Plan')}
-        />
 
         <PulseHighlight
           active={hintMode !== 'none'}
@@ -1234,7 +1236,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
               {/* ── + Add new Sadhana ── */}
               <TouchableOpacity
                 style={styles.picAddRow}
-                onPress={() => { setShowSadhanaPicker(false); setShowSadhanaMenu(true); }}
+                onPress={() => { setShowSadhanaPicker(false); setTimeout(() => setShowSadhanaMenu(true), 320); }}
               >
                 <Text style={styles.picIcon}>＋</Text>
                 <View style={{ flex: 1, marginLeft: 8 }}>
@@ -1261,7 +1263,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
 
             <TouchableOpacity
               style={styles.sadhanaMenuRow}
-              onPress={() => { setShowSadhanaMenu(false); setShowDeityManager(true); }}
+              onPress={() => { setShowSadhanaMenu(false); setTimeout(() => setShowDeityManager(true), 320); }}
             >
               <Text style={styles.sadhanaMenuIcon}>🪷</Text>
               <View style={{ flex: 1 }}>
@@ -1285,11 +1287,11 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
 
             <TouchableOpacity
               style={styles.sadhanaMenuRow}
-              onPress={() => { setShowSadhanaMenu(false); setShowSadhanaPathSheet(true); }}
+              onPress={() => { setShowSadhanaMenu(false); setTimeout(() => setShowSadhanaPathSheet(true), 320); }}
             >
               <Text style={styles.sadhanaMenuIcon}>🛤</Text>
               <View style={{ flex: 1 }}>
-                <Text style={styles.sadhanaMenuLabel}>Sadhana Path</Text>
+                <Text style={styles.sadhanaMenuLabel}>Design your own Sadhana Path</Text>
                 <Text style={styles.sadhanaMenuSub}>Multi-step japa flow · daily / weekday / specific tithi / specific dates</Text>
               </View>
               <Text style={styles.sadhanaMenuArrow}>›</Text>
@@ -1641,6 +1643,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.darkBg,
     borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: SPACING.md, paddingBottom: SPACING.xl,
+    maxHeight: '88%',
   },
   sadhanaMenuTitle: { color: COLORS.cream, fontSize: 20, fontWeight: '800' },
   sadhanaMenuHint: { color: COLORS.muted, fontSize: 12, fontStyle: 'italic', marginBottom: SPACING.md },
