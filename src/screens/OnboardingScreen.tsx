@@ -30,6 +30,7 @@ import { useSadhana } from '../context';
 import { UserProfile } from '../types';
 import { COLORS, SPACING } from '../theme';
 import { WellBeingHero } from '../components/WellBeingHero';
+import { BodySoulLogo } from '../soulsync/components/BodySoulLogo';
 import { otpClient } from '../soulsync/auth/otpClient';
 import { BodyActivity, SoulActivity, UserGoals } from '../types';
 import {
@@ -100,7 +101,7 @@ export const OnboardingScreen = () => {
   // contact (and onTypeChange had just cleared it), so it always failed with
   // "Email or phone is required". Passing values directly removes both races.
   const submitIdentity = async (override?: {
-    name?: string; contact?: string; type?: 'email' | 'phone';
+    name?: string; contact?: string; type?: 'email' | 'phone'; skipOtp?: boolean;
   }) => {
     const n = (override?.name ?? name).trim();
     const c = (override?.contact ?? contact).trim();
@@ -109,17 +110,17 @@ export const OnboardingScreen = () => {
     if (!c) { showToast('Email or phone is required'); return; }
     if (t === 'email' && !validEmail(c)) { showToast('Please enter a valid email'); return; }
     if (t === 'phone' && !validPhone(c)) { showToast('Please enter a valid phone number'); return; }
-    if (override) {
-      // Google / anonymous — the provider already verified this identity,
-      // so no OTP is needed. Persist and continue straight to the ring step.
-      setName(n); setContact(c); setContactType(t);
+    // Persist the resolved identity so later steps + the final save have it.
+    if (override) { setName(n); setContact(c); setContactType(t); }
+    // v74: anonymous skip is the ONLY path that bypasses OTP. BOTH manual
+    // entry AND Google sign-in now go through the OTP screen (the user wants
+    // to verify the code after signing in). In demo mode the code shows
+    // on-screen; with the backend deployed it's a real emailed code.
+    if (override?.skipOtp) {
       showToast('Welcome 🙏');
       setStep('ring');
       return;
     }
-    // v71: manual email/phone — require an OTP code. Send it, then show the
-    // OTP entry screen. In demo mode (no OTP_BACKEND_URL configured) the code
-    // is generated on-device and shown on screen so the user can enter it.
     setOtpSending(true);
     const res = await otpClient.send(c, t);
     setOtpSending(false);
@@ -128,7 +129,7 @@ export const OnboardingScreen = () => {
       return;
     }
     setOtpDemo(res.demoOtp ?? null);
-    showToast(c.includes('@') ? `Code sent to ${c}` : `Code sent to ${c}`);
+    showToast(`Code sent to ${c}`);
     setStep('otp');
   };
 
@@ -314,18 +315,20 @@ export const OnboardingScreen = () => {
   );
 };
 
-// ─── Welcome — reuses the shared WellBeingHero (also used on Home tab) ──
+// ─── Welcome — animated BodySoulLogo (no lotus/yantra) ──
+// v74: previously showed WellBeingHero (a lotus + dashed-mandala "yantra"),
+// which the user flagged as an unwanted extra window. Replaced with the same
+// animated infinity-ribbon logo as the boot splash for one consistent brand.
 
 const Welcome = ({ onDone }: { onDone: () => void }) => {
   useEffect(() => {
-    // Auto-advance after 2.5 s — no button required.
-    const t = setTimeout(onDone, 2500);
+    const t = setTimeout(onDone, 2200);
     return () => clearTimeout(t);
   }, []);
 
   return (
-    <View style={{ paddingTop: 60 }}>
-      <WellBeingHero />
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 }}>
+      <BodySoulLogo width={280} />
     </View>
   );
 };
@@ -412,7 +415,7 @@ const Identity = ({
   onName: (s: string) => void;
   onContact: (s: string) => void;
   onTypeChange: (t: 'email' | 'phone') => void;
-  onNext: (override?: { name?: string; contact?: string; type?: 'email' | 'phone' }) => void;
+  onNext: (override?: { name?: string; contact?: string; type?: 'email' | 'phone'; skipOtp?: boolean }) => void;
 }) => {
   const { showToast } = useSadhana();
   const [signingIn, setSigningIn] = useState(false);
@@ -456,7 +459,8 @@ const Identity = ({
       const resolvedContact = contact.trim() || 'friend@bodyandsoul.app';
       onName(resolvedName);
       onContact(resolvedContact);
-      onNext({ name: resolvedName, contact: resolvedContact, type: 'email' });
+      // Anonymous skip — no OTP (placeholder contact, nothing to verify).
+      onNext({ name: resolvedName, contact: resolvedContact, type: 'email', skipOtp: true });
     } finally {
       setSkipping(false);
     }
