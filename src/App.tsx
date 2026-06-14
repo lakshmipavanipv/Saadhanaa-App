@@ -7,6 +7,7 @@ import { CoolingOverlay } from './soulsync/components/CoolingOverlay';
 import { StyleSheet, View, Text, StatusBar, TouchableOpacity, Modal } from 'react-native';
 import { SplashScreen } from './components/SplashScreen';
 import { initNotifications } from './services/notifications';
+import { startStepTracking } from './services/stepTracker';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
@@ -387,17 +388,21 @@ export default function App() {
   // ── Soulsync bootstrap — open DB, start ambient ingestion ──
   useEffect(() => {
     let cancelled = false;
+    let stopSteps: (() => void) | null = null;
     (async () => {
       try {
         await getDB();               // runs migrations on first launch
         if (!cancelled) await ambientIngestion.start();
         await initNotifications();   // register Android channel for prayer reminders
+        // v73: start the foreground pedometer — accumulates today's steps and
+        // fires a "goal achieved" notification when a planned walk goal is met.
+        if (!cancelled) stopSteps = await startStepTracking();
       } catch (e) {
         // Failures here must NEVER block the rest of the app
         console.warn('[Soulsync] bootstrap failed:', e);
       }
     })();
-    return () => { cancelled = true; ambientIngestion.stop(); };
+    return () => { cancelled = true; ambientIngestion.stop(); stopSteps?.(); };
   }, []);
 
   return (

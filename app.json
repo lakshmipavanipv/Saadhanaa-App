@@ -2,7 +2,7 @@
   "expo": {
     "name": "Body & Soul Ring",
     "slug": "sadhana-app",
-    "version": "1.0.72",
+    "version": "1.0.73",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "sadhana",
@@ -29,7 +29,8 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.ACTIVITY_RECOGNITION"
       ]
     },
     "web": {

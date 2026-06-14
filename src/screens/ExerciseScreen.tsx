@@ -33,6 +33,7 @@ import { TimePickerField } from '../components/TimePickerField';
 import { WeekSparkline } from '../components/WeekSparkline';
 import { DUMMY, withFallback } from '../services/dummyData';
 import { workoutGoalsRepo, WorkoutGoals, GoalUnit, GOAL_UNIT_META } from '../services/workoutGoalsRepo';
+import { getTodaySteps } from '../services/stepTracker';
 import { getDB } from '../soulsync/db/database';
 
 // Shared ring instance for stage-mark buzzes during a live session
@@ -217,7 +218,11 @@ export const ExerciseScreen = ({ navigation }: any) => {
         'SELECT step_count FROM daily_activity WHERE activity_date = ?',
         [today]
       );
-      setStepsToday(row?.step_count ?? 0);
+      // v73: use the larger of the ring/DB step count and the phone
+      // pedometer's accumulated count for today, so the strip reflects
+      // whichever source captured more movement.
+      const pedSteps = await getTodaySteps().catch(() => 0);
+      setStepsToday(Math.max(row?.step_count ?? 0, pedSteps));
       // 7-day step series (oldest first → today last)
       const cutoff = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
       const rows = await db.getAllAsync<{ activity_date: string; step_count: number }>(
