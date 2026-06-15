@@ -1,0 +1,14 @@
+name = "body-soul-otp"
+main = "src/worker.js"
+compatibility_date = "2026-01-01"
+
+# KV namespace that stores codes (10-min TTL). Create it with:
+#   npx wrangler kv namespace create OTP_KV
+# then paste the returned id below.
+[[kv_namespaces]]
+binding = "OTP_KV"
+id = "PASTE_KV_NAMESPACE_ID_HERE"
+
+# Public, non-secret default sender shown if OTP_FROM secret isn't set.
+[vars]
+OTP_FROM = "Body & Soul <onboarding@resend.dev>"

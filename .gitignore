@@ -61,3 +61,11 @@ app-example
 # nested empty repo
 /Saadhana App
 scripts/__pycache__/
+
+# Backend (server/) + worker secrets — never commit
+server/node_modules/
+server/.env
+server/firebase-service-account.json
+**/firebase-service-account*.json
+otp-worker/node_modules/
+otp-worker/.dev.vars
