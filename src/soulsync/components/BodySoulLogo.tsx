@@ -15,6 +15,7 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, StyleSheet, Easing } from 'react-native';
 import Svg, { Path, Defs, LinearGradient, Stop, G, Ellipse } from 'react-native-svg';
 import { COLORS } from '../../theme';
+import { useTheme } from '../../ThemeContext';
 
 const VBW = 280;
 const VBH = 110;
@@ -28,6 +29,7 @@ const INF_PATH =
 const INF_LENGTH = 420; // approx path length — used for dasharray draw-in effect
 
 export const BodySoulLogo: React.FC<{ width?: number }> = ({ width = 240 }) => {
+  const { palette } = useTheme();
   const ratio = width / VBW;
   const height = VBH * ratio;
 
@@ -126,7 +128,7 @@ export const BodySoulLogo: React.FC<{ width?: number }> = ({ width = 240 }) => {
         </Svg>
       </Animated.View>
 
-      <Animated.Text style={[styles.brandText, { opacity: textFade }]}>
+      <Animated.Text style={[styles.brandText, { color: palette.cream, opacity: textFade }]}>
         BODY & SOUL
       </Animated.Text>
     </View>

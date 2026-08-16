@@ -26,6 +26,7 @@ import {
   formatShortDate,
 } from '../utils';
 import { COLORS, SPACING } from '../theme';
+import { useTheme } from '../ThemeContext';
 import { AIInsightsCard } from '../soulsync/components/AIInsightsCard';
 import { SolutionMatrixCard } from '../soulsync/components/SolutionMatrixCard';
 import { MicroSadhanaCard } from '../soulsync/components/MicroSadhanaCard';
@@ -121,6 +122,10 @@ const timeUntilLabel = (hhmm?: string | null): string => {
 };
 
 export const DashboardScreen = ({ navigation }: any) => {
+  const { palette } = useTheme();
+  // Build styles from the active palette so light/dark toggles actually recolor
+  // every card, KPI tile, chip, and text on this screen.
+  const styles = React.useMemo(() => makeStyles(palette), [palette]);
   const { deities, history, setSelectedDeity, alarmQueue, dismissAlarm, deityProgress, userProfile } = useSadhana();
   // Subscribe to emotional events — used to suppress 108-goal pressure when lethargy is flagged
   const { activeEvent, dismiss: dismissEmotional } = useEmotionalState();
@@ -535,7 +540,7 @@ export const DashboardScreen = ({ navigation }: any) => {
 
   // ── Render ───────────────────────────────────────────────────────
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: palette.deep }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         {/* Header — restored animated BODY & SOUL infinity-ribbon logo
             (BodySoulLogo). The ribbon draws itself in with a blue → purple
@@ -949,8 +954,12 @@ export const DashboardScreen = ({ navigation }: any) => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.deep },
+// Module-level dark `styles` object — kept so helper components outside
+// DashboardScreen (rendered before we have palette in scope) still resolve.
+// DashboardScreen itself SHADOWS this with a palette-aware set via useMemo,
+// so its cards flip properly when the user toggles the theme.
+const makeStyles = (C: typeof COLORS) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.deep },
   scroll: { paddingBottom: 80 },
   header: {
     paddingHorizontal: SPACING.md,
@@ -958,30 +967,30 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.md,
     alignItems: 'center',
   },
-  greeting: { fontSize: 26, color: COLORS.cream, fontWeight: '600', marginBottom: 4 },
-  tagline: { fontSize: 13, color: COLORS.muted, marginBottom: 6 },
+  greeting: { fontSize: 26, color: C.cream, fontWeight: '600', marginBottom: 4 },
+  tagline: { fontSize: 13, color: C.muted, marginBottom: 6 },
 
   // v49: small text brand replaces the animated logo on the Home tab.
   smallBrand: {
-    fontSize: 22, color: COLORS.cream, fontWeight: '800',
+    fontSize: 22, color: C.cream, fontWeight: '800',
     letterSpacing: 3, marginBottom: 2,
     textShadowColor: '#FFB800', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 8,
   },
   smallTagline: {
-    fontSize: 11, color: COLORS.gold, fontStyle: 'italic',
+    fontSize: 11, color: C.gold, fontStyle: 'italic',
     letterSpacing: 1, marginBottom: SPACING.sm,
   },
   // Caretaker line — personal, body+soul-sync promise, rotates with time-of-day
   personalLine: {
     fontSize: 13,
-    color: '#d6e040',                 // citron — matches the Soulsync theme
+    color: C.gold,                    // palette-aware; darkens on light bg
     fontStyle: 'italic',
     textAlign: 'center',
     marginBottom: 8,
     paddingHorizontal: SPACING.md,
     lineHeight: 18,
   },
-  date: { fontSize: 12, color: COLORS.gold, fontWeight: '500' },
+  date: { fontSize: 12, color: C.gold, fontWeight: '500' },
 
   alarmBanner: {
     marginHorizontal: SPACING.md,
@@ -992,8 +1001,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  alarmTitle: { fontSize: 14, color: COLORS.cream, fontWeight: '600' },
-  alarmDetail: { fontSize: 12, color: COLORS.saffron, marginTop: 2 },
+  alarmTitle: { fontSize: 14, color: C.cream, fontWeight: '600' },
+  alarmDetail: { fontSize: 12, color: C.saffron, marginTop: 2 },
   alarmDismiss: { paddingHorizontal: SPACING.sm },
 
   todayFestCard: {
@@ -1004,8 +1013,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: SPACING.md,
   },
-  todayFestName: { fontSize: 18, color: COLORS.cream, fontWeight: '700', marginTop: 4 },
-  todayFestWish: { fontSize: 13, color: COLORS.gold, marginTop: 4, textAlign: 'center', fontStyle: 'italic' },
+  todayFestName: { fontSize: 18, color: C.cream, fontWeight: '700', marginTop: 4 },
+  todayFestWish: { fontSize: 13, color: C.gold, marginTop: 4, textAlign: 'center', fontStyle: 'italic' },
 
   nextJapaCard: {
     marginHorizontal: SPACING.md,
@@ -1014,19 +1023,19 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
     marginBottom: SPACING.md,
     borderLeftWidth: 3,
-    borderLeftColor: COLORS.gold,
+    borderLeftColor: C.gold,
   },
   nextJapaLabel: {
     fontSize: 10,
-    color: COLORS.gold,
+    color: C.gold,
     letterSpacing: 2,
     fontWeight: '700',
     marginBottom: 4,
   },
   nextJapaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  nextJapaName: { fontSize: 16, color: COLORS.cream, fontWeight: '600', flex: 1 },
-  nextJapaWhen: { fontSize: 13, color: COLORS.saffron, fontWeight: '600' },
-  nextJapaDetail: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
+  nextJapaName: { fontSize: 16, color: C.cream, fontWeight: '600', flex: 1 },
+  nextJapaWhen: { fontSize: 13, color: C.saffron, fontWeight: '600' },
+  nextJapaDetail: { fontSize: 11, color: C.muted, marginTop: 2 },
 
   // ── Big hero card for total prayer time (priority #1 for elderly users) ──
   sadhanaHero: {
@@ -1035,15 +1044,15 @@ const styles = StyleSheet.create({
     marginHorizontal: SPACING.md,
     marginBottom: SPACING.md,
     padding: SPACING.lg,
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderRadius: 16,
     borderWidth: 2,
-    borderColor: COLORS.gold,
+    borderColor: C.gold,
     alignItems: 'center',
   },
   sadhanaHeroLabel: {
     fontSize: 14,           // v48: bumped from 13 for elderly readability
-    color: COLORS.muted,
+    color: C.muted,
     fontWeight: '800',
     letterSpacing: 1.5,
     textTransform: 'uppercase',
@@ -1051,13 +1060,13 @@ const styles = StyleSheet.create({
   },
   sadhanaHeroValue: {
     fontSize: 56,           // v48: bumped from 38 — hero number should be unmissable
-    color: COLORS.gold,
+    color: C.gold,
     fontWeight: '800',
     lineHeight: 60,
   },
   sadhanaHeroSource: {
     fontSize: 12,           // v48: bumped from 11
-    color: COLORS.muted,
+    color: C.muted,
     fontStyle: 'italic',
     marginTop: 4,
   },
@@ -1069,7 +1078,7 @@ const styles = StyleSheet.create({
   },
   sadhanaHeroToday: {
     fontSize: 15,           // v48: bumped from 13
-    color: COLORS.cream,
+    color: C.cream,
     textAlign: 'center',
     marginTop: SPACING.sm,
     lineHeight: 20,
@@ -1078,14 +1087,14 @@ const styles = StyleSheet.create({
   // v48: storytelling line — short, warm narrative shown under the hero
   sadhanaHeroStory: {
     fontSize: 13,
-    color: COLORS.gold,
+    color: C.gold,
     textAlign: 'center',
     marginTop: 6,
     fontStyle: 'italic',
     fontWeight: '600',
   },
 
-  heroOutOf: { fontSize: 20, color: COLORS.muted, fontWeight: '600' },     // v48: 16 → 20
+  heroOutOf: { fontSize: 20, color: C.muted, fontWeight: '600' },     // v48: 16 → 20
 
   // Hero horizontal bars — Body Health Score + Soul Depth Score
   heroBarsBlock: {
@@ -1094,7 +1103,7 @@ const styles = StyleSheet.create({
   },
   heroBarRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   heroBarIcon: { fontSize: 14 },
-  heroBarLabel: { flex: 1, fontSize: 12, color: COLORS.cream, fontWeight: '600' },
+  heroBarLabel: { flex: 1, fontSize: 12, color: C.cream, fontWeight: '600' },
   heroBarScore: { fontSize: 14, fontWeight: '800' },
   heroBarTrack: {
     height: 8, borderRadius: 4,
@@ -1115,8 +1124,8 @@ const styles = StyleSheet.create({
     borderRadius: 10, backgroundColor: 'rgba(212,160,23,0.10)',
     borderWidth: 1, borderColor: 'rgba(212,160,23,0.30)',
   },
-  heroScorePillValue: { color: COLORS.gold, fontSize: 20, fontWeight: '800', lineHeight: 22 },
-  heroScorePillLabel: { color: COLORS.muted, fontSize: 9, fontWeight: '700', letterSpacing: 0.6, marginTop: 2 },
+  heroScorePillValue: { color: C.gold, fontSize: 20, fontWeight: '800', lineHeight: 22 },
+  heroScorePillLabel: { color: C.muted, fontSize: 9, fontWeight: '700', letterSpacing: 0.6, marginTop: 2 },
 
   // 4-box health grid (Stress / Sleep / Heart / Lung)
   h4Grid: {
@@ -1126,14 +1135,14 @@ const styles = StyleSheet.create({
   h4Box: {
     flexBasis: '48%', flexGrow: 1,
     paddingVertical: SPACING.md, paddingHorizontal: SPACING.sm,
-    backgroundColor: COLORS.cardBg, borderRadius: 14,
+    backgroundColor: C.cardBg, borderRadius: 14,
     borderWidth: 1.5,
     alignItems: 'center',
   },
   h4Icon: { fontSize: 24, marginBottom: 4 },
   h4Value: { fontSize: 26, fontWeight: '800', lineHeight: 28 },
-  h4Out: { fontSize: 12, color: COLORS.muted, fontWeight: '500' },
-  h4Label: { color: COLORS.cream, fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginTop: 2 },
+  h4Out: { fontSize: 12, color: C.muted, fontWeight: '500' },
+  h4Label: { color: C.cream, fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginTop: 2 },
 
   // Plan CTA — calm, restful card with gentle glow
   planCta: {
@@ -1141,45 +1150,45 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.md, paddingHorizontal: SPACING.md,
     borderRadius: 14,
     backgroundColor: 'rgba(212,160,23,0.10)',
-    borderWidth: 1, borderColor: COLORS.gold,
+    borderWidth: 1, borderColor: C.gold,
   },
   // Soft gold halo behind the card (subtle)
   planCtaGlow: {
     position: 'absolute', top: -6, left: -6, right: -6, bottom: -6,
     borderRadius: 18,
-    backgroundColor: COLORS.gold,
-    shadowColor: COLORS.gold,
+    backgroundColor: C.gold,
+    shadowColor: C.gold,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,
     shadowRadius: 10,
   },
   planCtaIcon: { fontSize: 26, marginRight: 2 },
   planCtaTitle: {
-    color: COLORS.cream, fontSize: 14, fontWeight: '700',
+    color: C.cream, fontSize: 14, fontWeight: '700',
     letterSpacing: 0.2,
   },
   planCtaSub: {
-    color: COLORS.muted, fontSize: 11, marginTop: 2, fontWeight: '500',
+    color: C.muted, fontSize: 11, marginTop: 2, fontWeight: '500',
   },
   planCtaArrow: {
-    color: COLORS.gold, fontSize: 22, paddingHorizontal: 6, fontWeight: '700',
+    color: C.gold, fontSize: 22, paddingHorizontal: 6, fontWeight: '700',
   },
 
   // ── Commitment Score box (visuals copied from SoulsyncScoreCard) ──
   cscBox: {
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,
     padding: SPACING.lg, borderRadius: 16,
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderWidth: 1, borderColor: 'rgba(255, 184, 0, 0.25)',
   },
   cscTitle: {
-    fontSize: 13, color: COLORS.muted, fontWeight: '700',
+    fontSize: 13, color: C.muted, fontWeight: '700',
     letterSpacing: 1.5, textTransform: 'uppercase',
     textAlign: 'center', marginBottom: 4,
   },
   cscBigRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', marginTop: 6, marginBottom: SPACING.md },
   cscBigNumber: { fontSize: 56, fontWeight: '700', lineHeight: 60 },
-  cscBigOutOf: { fontSize: 16, color: COLORS.muted, marginLeft: 6, fontWeight: '500' },
+  cscBigOutOf: { fontSize: 16, color: C.muted, marginLeft: 6, fontWeight: '500' },
 
   cscBarRow: { flexDirection: 'row', gap: SPACING.md, marginTop: SPACING.sm },
   cscBarCol: { flex: 1, minWidth: 0 },        // minWidth:0 lets text shrink instead of overflow
@@ -1191,7 +1200,7 @@ const styles = StyleSheet.create({
   cscBarLabelNew: {
     flex: 1,
     fontSize: 13,
-    color: COLORS.cream,
+    color: C.cream,
     fontWeight: '700',
     letterSpacing: 0.2,
   },
@@ -1206,7 +1215,7 @@ const styles = StyleSheet.create({
   },
   cscBarFillNew: { height: '100%', borderRadius: 4 },
   cscBarSubtle: {
-    color: COLORS.cream, opacity: 0.55,
+    color: C.cream, opacity: 0.55,
     fontSize: 11, marginTop: 6, fontWeight: '500',
   },
 
@@ -1218,34 +1227,34 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(78,168,222,0.30)',
   },
   vbtTitle: { color: '#4ea8de', fontSize: 13, fontWeight: '800', marginBottom: 4 },
-  vbtHint:  { color: COLORS.muted, fontSize: 11, fontStyle: 'italic', marginBottom: SPACING.sm },
+  vbtHint:  { color: C.muted, fontSize: 11, fontStyle: 'italic', marginBottom: SPACING.sm },
   vbtRow:   { flexDirection: 'row', alignItems: 'center', paddingVertical: 5 },
   vbtIcon:  { fontSize: 16, width: 24 },
-  vbtLabel: { flex: 1, color: COLORS.cream, fontSize: 12, fontWeight: '600' },
-  vbtBefore:{ color: COLORS.muted, fontSize: 13, width: 44, textAlign: 'right' },
-  vbtArrow: { color: COLORS.muted, fontSize: 12, paddingHorizontal: 4 },
-  vbtAfter: { color: COLORS.cream, fontSize: 13, fontWeight: '700', width: 44, textAlign: 'right' },
+  vbtLabel: { flex: 1, color: C.cream, fontSize: 12, fontWeight: '600' },
+  vbtBefore:{ color: C.muted, fontSize: 13, width: 44, textAlign: 'right' },
+  vbtArrow: { color: C.muted, fontSize: 12, paddingHorizontal: 4 },
+  vbtAfter: { color: C.cream, fontSize: 13, fontWeight: '700', width: 44, textAlign: 'right' },
   vbtDelta: { fontSize: 11, fontWeight: '700', width: 70, textAlign: 'right' },
-  vbtFooter:{ color: COLORS.cream, fontSize: 11, fontStyle: 'italic', marginTop: SPACING.sm },
+  vbtFooter:{ color: C.cream, fontSize: 11, fontStyle: 'italic', marginTop: SPACING.sm },
 
   // Today's Planned Activities
   tpaBox: {
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,
     padding: SPACING.md, borderRadius: 14,
-    backgroundColor: COLORS.cardBg, borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: C.cardBg, borderWidth: 1, borderColor: C.border,
   },
-  tpaTitle: { color: COLORS.cream, fontSize: 13, fontWeight: '800', marginBottom: SPACING.sm },
+  tpaTitle: { color: C.cream, fontSize: 13, fontWeight: '800', marginBottom: SPACING.sm },
   tpaSummary: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10, paddingVertical: 10, marginBottom: SPACING.sm },
   tpaSummaryCol: { flex: 1, alignItems: 'center' },
-  tpaSummaryValue: { color: COLORS.gold, fontSize: 18, fontWeight: '800' },
-  tpaSummaryLabel: { color: COLORS.muted, fontSize: 9, fontWeight: '600', textAlign: 'center', marginTop: 2 },
-  tpaEmpty: { color: COLORS.muted, fontSize: 12, fontStyle: 'italic', textAlign: 'center', padding: SPACING.sm },
+  tpaSummaryValue: { color: C.gold, fontSize: 18, fontWeight: '800' },
+  tpaSummaryLabel: { color: C.muted, fontSize: 9, fontWeight: '600', textAlign: 'center', marginTop: 2 },
+  tpaEmpty: { color: C.muted, fontSize: 12, fontStyle: 'italic', textAlign: 'center', padding: SPACING.sm },
   tpaRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)' },
   tpaStar: { fontSize: 16, width: 26 },
-  tpaTime: { color: COLORS.gold, fontSize: 12, fontWeight: '700', width: 54 },
-  tpaName: { color: COLORS.cream, fontSize: 13, fontWeight: '600' },
-  tpaMeta: { color: COLORS.muted, fontSize: 11, marginTop: 1 },
-  tpaBell: { fontSize: 12, color: COLORS.gold, paddingHorizontal: 4 },
+  tpaTime: { color: C.gold, fontSize: 12, fontWeight: '700', width: 54 },
+  tpaName: { color: C.cream, fontSize: 13, fontWeight: '600' },
+  tpaMeta: { color: C.muted, fontSize: 11, marginTop: 1 },
+  tpaBell: { fontSize: 12, color: C.gold, paddingHorizontal: 4 },
 
   // ── v47: redesigned tappable card per planned activity ──
   tpaCard: {
@@ -1258,29 +1267,29 @@ const styles = StyleSheet.create({
     minHeight: 60,
   },
   tpaCardIcon:    { fontSize: 26, marginRight: 12, width: 32 },
-  tpaCardName:    { color: COLORS.cream, fontSize: 15, fontWeight: '700' },
+  tpaCardName:    { color: C.cream, fontSize: 15, fontWeight: '700' },
   tpaCardDone:    { color: '#FFB800', fontSize: 14 },
-  tpaCardMeta:    { color: COLORS.muted, fontSize: 12, marginTop: 2 },
+  tpaCardMeta:    { color: C.muted, fontSize: 12, marginTop: 2 },
   tpaCardTimePill: {
     backgroundColor: 'rgba(255,184,0,0.15)',
     borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4,
     marginLeft: 8,
   },
-  tpaCardTime:    { color: COLORS.gold, fontSize: 13, fontWeight: '800' },
-  tpaCardChevron: { color: COLORS.gold, fontSize: 22, marginLeft: 8, fontWeight: '700' },
+  tpaCardTime:    { color: C.gold, fontSize: 13, fontWeight: '800' },
+  tpaCardChevron: { color: C.gold, fontSize: 22, marginLeft: 8, fontWeight: '700' },
 
   // v62: Upcoming Reminders feed (Home tab, below Today's Planned Activities)
   remBox: {
     marginHorizontal: SPACING.md, marginTop: SPACING.md, padding: SPACING.md,
-    borderRadius: 16, backgroundColor: COLORS.cardBg,
+    borderRadius: 16, backgroundColor: C.cardBg,
     borderWidth: 1, borderColor: 'rgba(127,232,200,0.25)',
   },
   remTitle: {
-    color: COLORS.cream, fontSize: 14, fontWeight: '800',
+    color: C.cream, fontSize: 14, fontWeight: '800',
     letterSpacing: 0.5, marginBottom: SPACING.sm,
   },
   remEmpty: {
-    color: COLORS.muted, fontSize: 12, fontStyle: 'italic',
+    color: C.muted, fontSize: 12, fontStyle: 'italic',
     textAlign: 'center', padding: SPACING.sm, lineHeight: 18,
   },
   remCard: {
@@ -1293,14 +1302,14 @@ const styles = StyleSheet.create({
     borderWidth: 1, alignItems: 'center', justifyContent: 'center',
   },
   remIcon: { fontSize: 20 },
-  remTitleText: { color: COLORS.cream, fontSize: 15, fontWeight: '700' },
-  remSub: { color: COLORS.muted, fontSize: 12, marginTop: 2 },
+  remTitleText: { color: C.cream, fontSize: 15, fontWeight: '700' },
+  remSub: { color: C.muted, fontSize: 12, marginTop: 2 },
   remPill: {
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
     borderWidth: 1,
   },
   remPillText: { fontSize: 12, fontWeight: '800' },
-  remChevron: { color: COLORS.muted, fontSize: 22, marginLeft: 4, fontWeight: '700' },
+  remChevron: { color: C.muted, fontSize: 22, marginLeft: 4, fontWeight: '700' },
 
   // v49: "in 4h" countdown pill on each Today's Plan row (replaces TodayPrayersCard)
   tpaCardUntilPill: {
@@ -1317,46 +1326,46 @@ const styles = StyleSheet.create({
     // the gap every other Home-tab section uses (h4Grid, cscBox, tpaBox).
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,
     paddingVertical: SPACING.md, paddingHorizontal: SPACING.md,
-    backgroundColor: COLORS.cardBg, borderRadius: 14,
+    backgroundColor: C.cardBg, borderRadius: 14,
     borderWidth: 1, borderColor: 'rgba(255, 184, 0, 0.35)',
     minHeight: 64,
   },
   vitalsToggleIcon: { fontSize: 26, marginRight: 12, width: 32 },
-  vitalsToggleTitle: { fontSize: 15, color: COLORS.cream, fontWeight: '700' },
-  vitalsToggleSub:   { fontSize: 11, color: COLORS.muted, marginTop: 2 },
-  vitalsToggleChev:  { fontSize: 18, color: COLORS.gold, fontWeight: '800', paddingHorizontal: 4 },
+  vitalsToggleTitle: { fontSize: 15, color: C.cream, fontWeight: '700' },
+  vitalsToggleSub:   { fontSize: 11, color: C.muted, marginTop: 2 },
+  vitalsToggleChev:  { fontSize: 18, color: C.gold, fontWeight: '800', paddingHorizontal: 4 },
 
   // Commitment box (legacy — kept for compatibility but unused)
   commitmentBox: {
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,
     padding: SPACING.md, borderRadius: 16,
-    backgroundColor: COLORS.cardBg, borderWidth: 2, borderColor: COLORS.gold,
+    backgroundColor: C.cardBg, borderWidth: 2, borderColor: C.gold,
   },
-  commitmentLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1.5, marginBottom: 6 },
-  commitmentBig: { color: COLORS.gold, fontSize: 38, fontWeight: '800', lineHeight: 40 },
-  commitmentOut: { color: COLORS.muted, fontSize: 14, fontWeight: '500' },
-  commitmentTotalTime: { color: COLORS.cream, fontSize: 12, marginTop: 2, fontStyle: 'italic' },
+  commitmentLabel: { color: C.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1.5, marginBottom: 6 },
+  commitmentBig: { color: C.gold, fontSize: 38, fontWeight: '800', lineHeight: 40 },
+  commitmentOut: { color: C.muted, fontSize: 14, fontWeight: '500' },
+  commitmentTotalTime: { color: C.cream, fontSize: 12, marginTop: 2, fontStyle: 'italic' },
   commitmentSplit: {
     flexDirection: 'row', marginTop: SPACING.md,
     backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10,
     paddingVertical: 10, paddingHorizontal: 8,
   },
   commitmentSplitDivider: { width: 1, backgroundColor: 'rgba(212,160,23,0.20)' },
-  commitmentSubLabel: { color: COLORS.muted, fontSize: 10, fontWeight: '700', letterSpacing: 0.8, marginBottom: 2 },
-  commitmentSubValue: { color: COLORS.cream, fontSize: 22, fontWeight: '800', lineHeight: 24 },
-  commitmentSubOut: { color: COLORS.muted, fontSize: 11, fontWeight: '500' },
-  commitmentSubTime: { color: COLORS.gold, fontSize: 10, fontWeight: '700', marginTop: 2 },
+  commitmentSubLabel: { color: C.muted, fontSize: 10, fontWeight: '700', letterSpacing: 0.8, marginBottom: 2 },
+  commitmentSubValue: { color: C.cream, fontSize: 22, fontWeight: '800', lineHeight: 24 },
+  commitmentSubOut: { color: C.muted, fontSize: 11, fontWeight: '500' },
+  commitmentSubTime: { color: C.gold, fontSize: 10, fontWeight: '700', marginTop: 2 },
 
   // Sadhana motivational note
   sadhanaNote: {
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,
     padding: SPACING.md, borderRadius: 14,
     backgroundColor: 'rgba(212,160,23,0.06)',
-    borderLeftWidth: 4, borderLeftColor: COLORS.gold,
+    borderLeftWidth: 4, borderLeftColor: C.gold,
   },
-  sadhanaNoteTitle: { color: COLORS.gold, fontSize: 13, fontWeight: '800', marginBottom: 6 },
-  sadhanaNoteBody:  { color: COLORS.cream, fontSize: 13, lineHeight: 19 },
-  sadhanaNoteBold:  { color: COLORS.gold, fontWeight: '800' },
+  sadhanaNoteTitle: { color: C.gold, fontSize: 13, fontWeight: '800', marginBottom: 6 },
+  sadhanaNoteBody:  { color: C.cream, fontSize: 13, lineHeight: 19 },
+  sadhanaNoteBold:  { color: C.gold, fontWeight: '800' },
 
   // v51: short single-line "Body & Soul" message under the Plan CTA
   // v52: marginBottom normalised to SPACING.md for consistent gaps.
@@ -1365,18 +1374,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md, paddingVertical: 10,
     borderRadius: 12,
     backgroundColor: 'rgba(212,160,23,0.06)',
-    borderLeftWidth: 3, borderLeftColor: COLORS.gold,
+    borderLeftWidth: 3, borderLeftColor: C.gold,
   },
   shortNoteText: {
-    color: COLORS.cream, fontSize: 13, lineHeight: 18,
+    color: C.cream, fontSize: 13, lineHeight: 18,
     fontStyle: 'italic',
   },
-  shortNoteBold: { color: COLORS.gold, fontWeight: '800', fontStyle: 'normal' },
+  shortNoteBold: { color: C.gold, fontWeight: '800', fontStyle: 'normal' },
 
   kpiCard: {
     flexDirection: 'row',
     marginHorizontal: SPACING.md,
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderRadius: 14,
     paddingVertical: SPACING.md,
     marginBottom: SPACING.sm,
@@ -1384,10 +1393,10 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(212, 160, 23, 0.2)',
   },
   kpiCol: { flex: 1, alignItems: 'center', paddingHorizontal: SPACING.sm },
-  kpiValue: { fontSize: 26, color: COLORS.gold, fontWeight: '700' },
+  kpiValue: { fontSize: 26, color: C.gold, fontWeight: '700' },
   kpiLabel: {
     fontSize: 11,
-    color: COLORS.cream,
+    color: C.cream,
     marginTop: 6,
     textAlign: 'center',
     lineHeight: 14,
@@ -1402,7 +1411,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: SPACING.md,
   },
-  todayStripText: { fontSize: 12, color: COLORS.saffron, fontWeight: '500', textAlign: 'center' },
+  todayStripText: { fontSize: 12, color: C.saffron, fontWeight: '500', textAlign: 'center' },
 
   section: {
     paddingHorizontal: SPACING.md,
@@ -1410,7 +1419,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 11,
-    color: COLORS.muted,
+    color: C.muted,
     fontWeight: '700',
     letterSpacing: 1.5,
     marginBottom: SPACING.sm,
@@ -1420,7 +1429,7 @@ const styles = StyleSheet.create({
   deityRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderRadius: 10,
     padding: SPACING.sm,
     marginBottom: 6,
@@ -1433,8 +1442,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   deityRowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  deityRowName: { flex: 1, fontSize: 13, color: COLORS.cream, fontWeight: '600' },
-  deityRowMalas: { fontSize: 12, color: COLORS.gold, fontWeight: '600' },
+  deityRowName: { flex: 1, fontSize: 13, color: C.cream, fontWeight: '600' },
+  deityRowMalas: { fontSize: 12, color: C.gold, fontWeight: '600' },
   deityBarTrack: {
     height: 6,
     backgroundColor: 'rgba(212, 160, 23, 0.12)',
@@ -1443,8 +1452,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   deityBarFill: { height: '100%', borderRadius: 3 },
-  deityRowTime: { fontSize: 10, color: COLORS.muted, marginTop: 4 },
-  deityRowChevron: { fontSize: 22, color: COLORS.gold, marginLeft: SPACING.sm, opacity: 0.7 },
+  deityRowTime: { fontSize: 10, color: C.muted, marginTop: 4 },
+  deityRowChevron: { fontSize: 22, color: C.gold, marginLeft: SPACING.sm, opacity: 0.7 },
 
   feedRow: {
     flexDirection: 'row',
@@ -1454,14 +1463,14 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255,255,255,0.04)',
   },
   feedIcon: { fontSize: 18 },
-  feedLabel: { fontSize: 13, color: COLORS.cream, fontWeight: '500' },
-  feedDetail: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
+  feedLabel: { fontSize: 13, color: C.cream, fontWeight: '500' },
+  feedDetail: { fontSize: 11, color: C.muted, marginTop: 2 },
   feedWhen: { fontSize: 11, fontWeight: '600', marginLeft: SPACING.sm },
 
   quickStartGrid: { flexDirection: 'row', gap: SPACING.sm },
   deityCard: {
     flex: 1,
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderRadius: 10,
     padding: SPACING.sm,
     alignItems: 'center',
@@ -1474,24 +1483,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
     marginBottom: 6,
   },
-  deityCardName: { fontSize: 12, color: COLORS.cream, fontWeight: '500' },
-  deityCardMalas: { fontSize: 10, color: COLORS.muted, marginTop: 2 },
+  deityCardName: { fontSize: 12, color: C.cream, fontWeight: '500' },
+  deityCardMalas: { fontSize: 10, color: C.muted, marginTop: 2 },
 
   upcomingFest: {
     marginHorizontal: SPACING.md,
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderRadius: 12,
     padding: SPACING.md,
     marginBottom: SPACING.lg,
   },
   upcomingTopRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  upcomingLabel: { fontSize: 10, color: COLORS.muted, letterSpacing: 1.5, fontWeight: '600' },
-  upcomingName: { fontSize: 16, color: COLORS.cream, fontWeight: '700', marginTop: 2 },
-  upcomingDays: { fontSize: 12, color: COLORS.gold, marginTop: 2 },
-  upcomingDeity: { fontSize: 12, color: COLORS.saffron, fontStyle: 'italic', marginBottom: SPACING.sm },
+  upcomingLabel: { fontSize: 10, color: C.muted, letterSpacing: 1.5, fontWeight: '600' },
+  upcomingName: { fontSize: 16, color: C.cream, fontWeight: '700', marginTop: 2 },
+  upcomingDays: { fontSize: 12, color: C.gold, marginTop: 2 },
+  upcomingDeity: { fontSize: 12, color: C.saffron, fontStyle: 'italic', marginBottom: SPACING.sm },
   checklistPreview: { gap: 4 },
   checklistItem: { flexDirection: 'row', alignItems: 'center' },
   checklistTag: { fontSize: 14, marginRight: SPACING.sm },
-  checklistText: { fontSize: 12, color: COLORS.cream },
-  checklistMore: { fontSize: 11, color: COLORS.muted, marginTop: 4, fontStyle: 'italic' },
+  checklistText: { fontSize: 12, color: C.cream },
+  checklistMore: { fontSize: 11, color: C.muted, marginTop: 4, fontStyle: 'italic' },
 });
+
+// Static dark styles for helper components outside DashboardScreen — they
+// render before we have palette in scope so keep them on the dark palette.
+const styles = makeStyles(COLORS);

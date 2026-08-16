@@ -30,6 +30,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { COLORS, SPACING } from '../theme';
+import { useTheme } from '../ThemeContext';
 import { DUMMY, withFallback } from '../services/dummyData';
 import { getDB } from '../soulsync/db/database';
 import { ambientBaselineRepo } from '../soulsync/db/ambientBaselineRepo';
@@ -80,6 +81,8 @@ interface StatsBoxProps {
 export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
   practice, minutesToday, goalMinutes, depthScore, subMetric, compact, onOpenTrend,
 }) => {
+  const { palette } = useTheme();
+  const statBoxStyles = React.useMemo(() => makeStatBoxStyles(palette), [palette]);
   const label = practice === 'yoga'
     ? 'YOGA'
     : practice === 'meditation'
@@ -204,6 +207,8 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
 const DashedBar: React.FC<{ value: number; color: string; compact?: boolean }> = ({
   value, color, compact,
 }) => {
+  const { palette } = useTheme();
+  const statBoxStyles = React.useMemo(() => makeStatBoxStyles(palette), [palette]);
   const SEGMENTS = 12;
   const filled = Math.round((value / 100) * SEGMENTS);
   return (
@@ -239,6 +244,8 @@ interface SessionListProps {
 }
 
 export const SessionList: React.FC<SessionListProps> = ({ practice }) => {
+  const { palette } = useTheme();
+  const sessionStyles = React.useMemo(() => makeSessionStyles(palette), [palette]);
   const [sessions, setSessions] = useState<SessionCard[]>([]);
   const [weekScoreSeries, setWeekScoreSeries] = useState<number[]>([]);
   const [weekMinutesTotal, setWeekMinutesTotal] = useState<number>(0);
@@ -396,6 +403,8 @@ interface VitalRow {
 }
 
 export const BeforeAfterVitals: React.FC<BeforeAfterProps> = ({ practice, isActive }) => {
+  const { palette } = useTheme();
+  const beforeAfterStyles = React.useMemo(() => makeBeforeAfterStyles(palette), [palette]);
   const [rows, setRows] = useState<VitalRow[] | null>(null);
 
   useEffect(() => {
@@ -491,28 +500,28 @@ export const BeforeAfterVitals: React.FC<BeforeAfterProps> = ({ practice, isActi
 
 // ── Styles ─────────────────────────────────────────────────────
 
-const statBoxStyles = StyleSheet.create({
+const makeStatBoxStyles = (C: typeof COLORS) => StyleSheet.create({
   wrap: { marginHorizontal: SPACING.md, marginTop: SPACING.sm },
   box: {
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderRadius: 16,
     padding: SPACING.lg,
     borderWidth: 1,
     borderColor: 'rgba(255, 184, 0, 0.30)',
   },
   heroLabel: {
-    fontSize: 13, color: COLORS.gold,
+    fontSize: 13, color: C.gold,
     fontWeight: '700', letterSpacing: 1.2,
     marginBottom: 6,
   },
-  heroValue: { fontSize: 52, color: COLORS.cream, fontWeight: '800', lineHeight: 58 },
-  heroGoal:  { fontSize: 16, color: COLORS.muted, fontWeight: '600' },
+  heroValue: { fontSize: 52, color: C.cream, fontWeight: '800', lineHeight: 58 },
+  heroGoal:  { fontSize: 16, color: C.muted, fontWeight: '600' },
   progressTrack: {
     height: 10, backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: 5, marginTop: SPACING.sm, overflow: 'hidden',
   },
-  progressFill: { height: '100%', backgroundColor: COLORS.gold, borderRadius: 5 },
-  heroPct: { fontSize: 14, color: COLORS.cream, fontWeight: '600', marginTop: 6 },
+  progressFill: { height: '100%', backgroundColor: C.gold, borderRadius: 5 },
+  heroPct: { fontSize: 14, color: C.cream, fontWeight: '600', marginTop: 6 },
 
   // Depth score tile
   depthHeaderRow: {
@@ -520,9 +529,9 @@ const statBoxStyles = StyleSheet.create({
     justifyContent: 'space-between', marginBottom: SPACING.sm,
   },
   depthValue: { fontSize: 36, fontWeight: '800' },
-  depthOf:    { fontSize: 14, color: COLORS.muted, fontWeight: '600' },
+  depthOf:    { fontSize: 14, color: C.muted, fontWeight: '600' },
   depthHint:  {
-    fontSize: 11, color: COLORS.muted, fontStyle: 'italic',
+    fontSize: 11, color: C.muted, fontStyle: 'italic',
     marginTop: SPACING.sm, lineHeight: 16,
   },
 
@@ -532,8 +541,8 @@ const statBoxStyles = StyleSheet.create({
     paddingTop: SPACING.sm, marginTop: SPACING.sm,
     borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)',
   },
-  subMetricLabel: { fontSize: 12, color: COLORS.muted, fontWeight: '700', letterSpacing: 0.5 },
-  subMetricValue: { fontSize: 24, color: COLORS.cream, fontWeight: '800' },
+  subMetricLabel: { fontSize: 12, color: C.muted, fontWeight: '700', letterSpacing: 0.5 },
+  subMetricValue: { fontSize: 24, color: C.cream, fontWeight: '800' },
 
   // ── Compact single-box mode (Japa screen) ──
   // Slightly tighter padding than the full mode so the box fits the
@@ -545,19 +554,19 @@ const statBoxStyles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'flex-start',
   },
   compactHeroLabel: {
-    fontSize: 13, color: COLORS.gold,
+    fontSize: 13, color: C.gold,
     fontWeight: '700', letterSpacing: 1.2,
     marginBottom: 4,
   },
-  compactHeroValue: { fontSize: 44, color: COLORS.cream, fontWeight: '800', lineHeight: 48 },
-  compactHeroGoal:  { fontSize: 14, color: COLORS.muted, fontWeight: '600' },
-  compactHeroPct:   { fontSize: 12, color: COLORS.cream, fontWeight: '600', marginTop: 4 },
+  compactHeroValue: { fontSize: 44, color: C.cream, fontWeight: '800', lineHeight: 48 },
+  compactHeroGoal:  { fontSize: 14, color: C.muted, fontWeight: '600' },
+  compactHeroPct:   { fontSize: 12, color: C.cream, fontWeight: '600', marginTop: 4 },
   compactRightStat: { alignItems: 'flex-end', justifyContent: 'flex-start', paddingLeft: SPACING.md },
-  compactRightValue: { fontSize: 22, color: COLORS.cream, fontWeight: '800', lineHeight: 26 },
-  compactRightLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '700', marginTop: 2 },
+  compactRightValue: { fontSize: 22, color: C.cream, fontWeight: '800', lineHeight: 26 },
+  compactRightLabel: { fontSize: 10, color: C.muted, fontWeight: '700', marginTop: 2 },
 
   compactTitle: {
-    fontSize: 11, color: COLORS.gold, fontWeight: '800', letterSpacing: 1.2,
+    fontSize: 11, color: C.gold, fontWeight: '800', letterSpacing: 1.2,
     marginBottom: 8,
   },
   compactKpiRow: {
@@ -565,9 +574,9 @@ const statBoxStyles = StyleSheet.create({
     marginBottom: SPACING.sm,
   },
   compactKpiCell: { flex: 1, alignItems: 'center' },
-  compactKpiValue: { fontSize: 28, color: COLORS.cream, fontWeight: '800', lineHeight: 30 },
+  compactKpiValue: { fontSize: 28, color: C.cream, fontWeight: '800', lineHeight: 30 },
   compactKpiLabel: {
-    fontSize: 10, color: COLORS.muted, fontWeight: '700',
+    fontSize: 10, color: C.muted, fontWeight: '700',
     textAlign: 'center', marginTop: 2, lineHeight: 12,
   },
 
@@ -576,11 +585,11 @@ const statBoxStyles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
     marginTop: 8, marginBottom: 4,
   },
-  compactBarLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '800', letterSpacing: 0.8 },
-  compactBarValue: { fontSize: 12, color: COLORS.cream, fontWeight: '700' },
-  compactTrendIcon: { fontSize: 12, color: COLORS.gold },
+  compactBarLabel: { fontSize: 10, color: C.muted, fontWeight: '800', letterSpacing: 0.8 },
+  compactBarValue: { fontSize: 12, color: C.cream, fontWeight: '700' },
+  compactTrendIcon: { fontSize: 12, color: C.gold },
   compactTrendHint: {
-    fontSize: 10, color: COLORS.muted, fontStyle: 'italic',
+    fontSize: 10, color: C.muted, fontStyle: 'italic',
     marginTop: 4, textAlign: 'right',
   },
   compactDepthBlock: { marginTop: 4 },
@@ -595,57 +604,61 @@ const statBoxStyles = StyleSheet.create({
   },
 });
 
-const sessionStyles = StyleSheet.create({
+const makeSessionStyles = (C: typeof COLORS) => StyleSheet.create({
   wrap: { marginHorizontal: SPACING.md, marginTop: SPACING.sm },
   card: {
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderRadius: 14,
     padding: SPACING.md,
-    borderWidth: 1, borderColor: COLORS.border,
+    borderWidth: 1, borderColor: C.border,
     marginBottom: SPACING.sm,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm },
   cardIcon:   { fontSize: 28, marginRight: SPACING.sm },
-  cardName:   { fontSize: 16, color: COLORS.cream, fontWeight: '700' },
-  cardSub:    { fontSize: 12, color: COLORS.muted, marginTop: 2 },
+  cardName:   { fontSize: 16, color: C.cream, fontWeight: '700' },
+  cardSub:    { fontSize: 12, color: C.muted, marginTop: 2 },
   cardScoreBox: { alignItems: 'flex-end' },
   cardScore:  { fontSize: 28, fontWeight: '800' },
-  cardScoreLabel: { fontSize: 9, color: COLORS.muted, fontWeight: '700', letterSpacing: 1 },
+  cardScoreLabel: { fontSize: 9, color: C.muted, fontWeight: '700', letterSpacing: 1 },
 
   weekLabel: {
-    fontSize: 10, color: COLORS.muted, fontWeight: '800',
+    fontSize: 10, color: C.muted, fontWeight: '800',
     letterSpacing: 1, marginTop: 6, marginBottom: 4,
   },
   weekTotal: {
-    fontSize: 11, color: COLORS.muted, fontStyle: 'italic',
+    fontSize: 11, color: C.muted, fontStyle: 'italic',
     marginTop: 6, textAlign: 'right',
   },
 });
 
-const beforeAfterStyles = StyleSheet.create({
+const makeBeforeAfterStyles = (C: typeof COLORS) => StyleSheet.create({
   card: {
     marginHorizontal: SPACING.md, marginTop: SPACING.sm,
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderRadius: 14,
     padding: SPACING.md,
     borderWidth: 1, borderColor: 'rgba(255, 184, 0, 0.18)',
   },
   title: {
-    fontSize: 12, color: COLORS.gold,
+    fontSize: 12, color: C.gold,
     fontWeight: '800', letterSpacing: 1,
     marginBottom: SPACING.sm,
   },
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
   rowIcon:  { fontSize: 18, width: 26 },
-  rowLabel: { flex: 1.1, fontSize: 13, color: COLORS.cream, fontWeight: '500' },
+  rowLabel: { flex: 1.1, fontSize: 13, color: C.cream, fontWeight: '500' },
   rowVals:  { flex: 1.4, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'flex-end', gap: 6 },
-  rowBefore: { fontSize: 13, color: COLORS.muted },
-  rowArrow:  { fontSize: 11, color: COLORS.muted },
-  rowAfter:  { fontSize: 17, color: COLORS.cream, fontWeight: '700' },
-  rowUnit:   { fontSize: 11, color: COLORS.muted, fontWeight: '500' },
+  rowBefore: { fontSize: 13, color: C.muted },
+  rowArrow:  { fontSize: 11, color: C.muted },
+  rowAfter:  { fontSize: 17, color: C.cream, fontWeight: '700' },
+  rowUnit:   { fontSize: 11, color: C.muted, fontWeight: '500' },
   rowDelta:  { width: 70, fontSize: 12, fontWeight: '700', textAlign: 'right' },
   footnote: {
-    fontSize: 10, color: COLORS.muted, fontStyle: 'italic',
+    fontSize: 10, color: C.muted, fontStyle: 'italic',
     textAlign: 'center', marginTop: SPACING.sm,
   },
 });
+
+const statBoxStyles = makeStatBoxStyles(COLORS);
+const sessionStyles = makeSessionStyles(COLORS);
+const beforeAfterStyles = makeBeforeAfterStyles(COLORS);

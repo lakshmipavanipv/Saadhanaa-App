@@ -12,6 +12,7 @@ import {
 import { useSadhana } from '../context';
 import { UserProfile } from '../types';
 import { COLORS, SPACING } from '../theme';
+import { RingDebugScreen } from './RingDebugScreen';
 
 const APP_VERSION = '1.0.9';
 
@@ -21,6 +22,7 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
     bleConnected, requestBlePair, disconnectBleRing,
   } = useSadhana();
   const [editing, setEditing] = useState(false);
+  const [showRingDebug, setShowRingDebug] = useState(false);
 
   const totalMalas = history.reduce((s, h) => s + h.malas, 0);
   const totalJapas = totalMalas * 108;
@@ -112,6 +114,15 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
           </TouchableOpacity>
         </View>
 
+        {/* Smart Ring (Jieli SDK — developer preview) */}
+        <TouchableOpacity style={styles.ringRow} onPress={() => setShowRingDebug(true)}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowLabel}>💍 Smart Ring — Debug</Text>
+            <Text style={styles.rowHint}>Scan / connect / read battery / view live BLE frames</Text>
+          </View>
+          <Text style={[styles.rowValue, { color: COLORS.gold }]}>Open ›</Text>
+        </TouchableOpacity>
+
         {/* About */}
         <Text style={styles.sectionTitle}>About</Text>
         <View style={styles.row}>
@@ -147,6 +158,12 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
           }}
           onClose={() => setEditing(false)}
         />
+      )}
+
+      {showRingDebug && (
+        <Modal visible transparent={false} animationType="slide" onRequestClose={() => setShowRingDebug(false)}>
+          <RingDebugScreen onClose={() => setShowRingDebug(false)} />
+        </Modal>
       )}
     </View>
   );

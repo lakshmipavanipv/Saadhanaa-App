@@ -20,8 +20,11 @@ import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, TextInput, Platform,
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
+import { useTheme } from '../ThemeContext';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
-import { AddToPlanCta } from '../components/AddToPlanCta';
+// AddToPlanCta removed — the big 🎯 Plan Your Wellbeing tile on this screen
+// (and the drawer's ☰ → Plan Your Wellbeing) both navigate to the Plan tab's
+// 4-step wizard, so no in-screen modal is needed.
 import { useSadhana } from '../context';
 import { exerciseRepo } from '../services/exerciseRepo';
 import { routineRepo } from '../services/routineRepo';
@@ -34,122 +37,18 @@ import { WeekSparkline } from '../components/WeekSparkline';
 import { DUMMY, withFallback } from '../services/dummyData';
 import { workoutGoalsRepo, WorkoutGoals, GoalUnit, GOAL_UNIT_META } from '../services/workoutGoalsRepo';
 import { getTodaySteps } from '../services/stepTracker';
+import { getRingStepsToday } from '../soulsync/ring';
 import { getDB } from '../soulsync/db/database';
 
 // Shared ring instance for stage-mark buzzes during a live session
 const ring = createDefaultRing();
 
-type Category = 'cardio' | 'strength' | 'recovery';
-
-export interface WorkoutItem {
-  id: BodyActivity;
-  name: string;
-  subtitle: string;
-  category: Category;
-  /** Default session length suggested by the card. */
-  durationSec: number;
-  icon: string;
-  /** What the body gets out of it. */
-  benefit: string;
-  /** Sequenced steps the user can follow. */
-  steps: string[];
-  /** Optional safety note. */
-  contraindications?: string;
-  /** If true, the ring auto-classifies this activity by cadence/heart rate. */
-  ringAutoDetect: boolean;
-}
-
-export const EXERCISE_CATALOG: WorkoutItem[] = [
-  {
-    id: 'walk', name: 'Walk', subtitle: 'Daily fundamental · cardio',
-    category: 'cardio', durationSec: 1800, icon: '🚶',
-    benefit: 'The single most underrated practice. 30 min of brisk walking lifts mood, regulates insulin, and trains zone-2 aerobic base.',
-    steps: [
-      'Aim for a "conversational" pace — you can talk but not sing',
-      'Try mindful walking japa — synchronize breath with each 4 steps',
-      'Outdoor sunlight in the first hour matters even more than the walk',
-      'Target 7-10 k steps/day (ring counts passively)',
-    ],
-    ringAutoDetect: true,
-  },
-  {
-    id: 'jog', name: 'Jog', subtitle: 'Steady pace · cardio',
-    category: 'cardio', durationSec: 1200, icon: '🏃‍♀️',
-    benefit: 'Easy aerobic effort — 130-150 bpm. Builds capillary density and fat metabolism without burning out the nervous system.',
-    steps: [
-      'Nose-breathing only is a good intensity gauge',
-      'Land midfoot, soft knees, relaxed shoulders',
-      '20 min, 3-4×/week beats 60 min once weekly',
-      'Cool down with 5 min walk + 2 min stretching',
-    ],
-    ringAutoDetect: true,
-  },
-  {
-    id: 'run', name: 'Run', subtitle: 'Endurance · cardio',
-    category: 'cardio', durationSec: 1800, icon: '🏃',
-    benefit: 'Higher intensity — 160+ bpm. Stresses VO₂ max, lactate threshold. Powerful for cardiovascular age reversal.',
-    steps: [
-      'Warm-up jog 5 min before any tempo work',
-      'Tempo: 20 min at "comfortably hard" pace',
-      'Hydrate + protein within 30 min after',
-      'Replace one weekly run with hills for power',
-    ],
-    contraindications: 'Knee/ankle injury, severe asthma without inhaler',
-    ringAutoDetect: true,
-  },
-  {
-    id: 'cycle', name: 'Cycle', subtitle: 'Outdoor or stationary · cardio',
-    category: 'cardio', durationSec: 1800, icon: '🚴',
-    benefit: 'Joint-friendly cardio. Excellent for those who can\'t run. Steady zone-2 work builds mitochondrial density.',
-    steps: [
-      'Set saddle height: leg almost-straight at bottom',
-      'Aim for 80-90 RPM cadence (smooth pedalling)',
-      '30-60 min steady, breathing through nose where possible',
-      'Hydrate + light carb top-up if > 60 min',
-    ],
-    ringAutoDetect: true,
-  },
-  {
-    id: 'swim', name: 'Swim', subtitle: 'Full-body low-impact · cardio · manual entry',
-    category: 'cardio', durationSec: 1800, icon: '🏊',
-    benefit: 'No-impact full-body workout. Builds lung capacity (essentially forced pranayama). Joint relief for arthritis.',
-    steps: [
-      'Warm up with 4 lengths easy',
-      '20-30 min of mixed strokes (freestyle + breaststroke)',
-      'Bilateral breathing trains both sides equally',
-      'Always shower before & after',
-    ],
-    ringAutoDetect: false,
-  },
-  {
-    id: 'gym', name: 'Gym / Strength', subtitle: 'Resistance training · strength',
-    category: 'strength', durationSec: 2700, icon: '🏋️',
-    benefit: 'Lifts bone density, basal metabolic rate, and grip strength — the single strongest predictor of longevity after 50.',
-    steps: [
-      'Warm-up 5 min easy cardio + dynamic mobility',
-      'Compound first: squat / deadlift / row / press',
-      '3 sets × 8-12 reps at 70-80% effort',
-      'Rest 2-3 min between heavy sets',
-      'Train 2-4×/week; muscles grow on rest days',
-    ],
-    contraindications: 'Acute injury, untreated high BP — see a trainer first',
-    ringAutoDetect: true,
-  },
-  {
-    id: 'hiit', name: 'HIIT', subtitle: 'High intensity intervals · cardio + strength',
-    category: 'strength', durationSec: 1200, icon: '🔥',
-    benefit: 'Maximum aerobic + anaerobic effect in 15-20 min. Boosts mitochondrial biogenesis. Caution: stressful, not daily.',
-    steps: [
-      'Warm up 5 min thoroughly',
-      '30 s all-out (sprint / bike / burpees) — 90 s rest',
-      'Repeat 6-8 rounds',
-      'Cool down 5 min walk',
-      '2-3×/week MAX — recovery matters',
-    ],
-    contraindications: 'Heart disease, untreated BP, pregnancy, severe joint issues',
-    ringAutoDetect: true,
-  },
-];
+// Catalog moved to `src/data/exerciseCatalog.ts` so the WellbeingPlanSheet
+// can consume it without a circular dependency. Import for local use here,
+// then re-export so screens that already `import from './ExerciseScreen'`
+// don't need to change.
+import { EXERCISE_CATALOG, type WorkoutItem, type Category } from '../data/exerciseCatalog';
+export { EXERCISE_CATALOG, type WorkoutItem };
 
 /** Roughly map an activity to kcal/min (used for the calories KPI). */
 const KCAL_PER_MIN: Record<BodyActivity, number> = {
@@ -170,6 +69,8 @@ const REMINDER_KEY = 'workout.reminders.v1';
 type ReminderMap = Partial<Record<BodyActivity, string>>;  // 'HH:MM'
 
 export const ExerciseScreen = ({ navigation }: any) => {
+  const { palette } = useTheme();
+  const styles = React.useMemo(() => makeStyles(palette), [palette]);
   const { userProfile, showToast } = useSadhana();
   const goalMin = userProfile?.goals?.bodyMinutesPerDay ?? 30;
 
@@ -200,6 +101,8 @@ export const ExerciseScreen = ({ navigation }: any) => {
   // they've already logged minutes against it (so existing data isn't
   // hidden retroactively).
   const [plannedActivities, setPlannedActivities] = useState<Set<string>>(new Set(['walk']));
+  // Calendar week strip — user can pick a day to view (display-only for now).
+  const [selectedDay, setSelectedDay] = useState<Date>(new Date());
 
   const refresh = async () => {
     setTodayMin(await exerciseRepo.todayMinutes());
@@ -222,7 +125,17 @@ export const ExerciseScreen = ({ navigation }: any) => {
       // pedometer's accumulated count for today, so the strip reflects
       // whichever source captured more movement.
       const pedSteps = await getTodaySteps().catch(() => 0);
+      // Initial paint from cheap sources — DB + pedometer.
       setStepsToday(Math.max(row?.step_count ?? 0, pedSteps));
+      // Then fetch fresh steps from the paired SR16 (5-8 s round trip:
+      // connect → sync → disconnect). Non-blocking; upgrades the count
+      // when the ring's number is higher than DB+pedometer.
+      void getRingStepsToday()
+        .then((ringToday) => {
+          if (!ringToday) return;
+          setStepsToday((prev) => Math.max(prev, ringToday.steps));
+        })
+        .catch(() => { /* silent — falls back to DB+pedometer */ });
       // 7-day step series (oldest first → today last)
       const cutoff = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
       const rows = await db.getAllAsync<{ activity_date: string; step_count: number }>(
@@ -311,15 +224,59 @@ export const ExerciseScreen = ({ navigation }: any) => {
   const autoDetectCount = EXERCISE_CATALOG.filter(i => i.ringAutoDetect).length;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: palette.deep }]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Header — title + Log past button (parallels Yoga) */}
+        {/* Header — title + Plan Your Wellbeing accent button (big, right side) */}
         <View style={styles.header}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
             <View style={{ flex: 1 }}>
               <Text style={styles.title}>Workout</Text>
               <Text style={styles.subtitle}>Cardio · strength · ring-tracked daily movement</Text>
             </View>
+            <TouchableOpacity
+              style={{
+                backgroundColor: palette.gold,
+                paddingHorizontal: SPACING.md,
+                paddingVertical: SPACING.sm,
+                borderRadius: 14,
+                alignItems: 'center',
+                marginLeft: SPACING.sm,
+                minWidth: 96,
+              }}
+              onPress={() => navigation?.navigate?.('Plan', { preset: 'exercise' })}
+              activeOpacity={0.85}
+            >
+              <Text style={{ fontSize: 24 }}>🎯</Text>
+              <Text style={{ color: '#1a1a1a', fontSize: 12, fontWeight: '800', marginTop: 2, textAlign: 'center' }}>Plan Your{'\n'}Wellbeing</Text>
+            </TouchableOpacity>
+          </View>
+          {/* Week strip — Sun→Sat, tap to focus a day */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: SPACING.md }}>
+            {Array.from({ length: 7 }, (_, i) => {
+              const start = new Date(); start.setHours(0,0,0,0);
+              start.setDate(start.getDate() - start.getDay() + i);
+              const isSel = start.toDateString() === selectedDay.toDateString();
+              const isToday = start.toDateString() === new Date().toDateString();
+              const abbrs = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+              return (
+                <TouchableOpacity key={i} onPress={() => setSelectedDay(start)} style={{ alignItems: 'center', padding: 4 }}>
+                  <Text style={{ color: COLORS.muted, fontSize: 10, marginBottom: 4 }}>{abbrs[i]}</Text>
+                  <View style={{
+                    width: 32, height: 32, borderRadius: 16,
+                    backgroundColor: isSel ? COLORS.gold : 'transparent',
+                    borderWidth: isSel ? 0 : (isToday ? 1 : 0),
+                    borderColor: COLORS.gold,
+                    alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Text style={{ color: isSel ? '#000' : COLORS.cream, fontSize: 14, fontWeight: isSel ? '700' : '500' }}>
+                      {start.getDate()}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: SPACING.sm }}>
             <TouchableOpacity style={styles.logBtn} onPress={() => { setLogActivity('walk'); setShowLog(true); }}>
               <Text style={styles.logBtnText}>+ Log past</Text>
             </TouchableOpacity>
@@ -369,12 +326,8 @@ export const ExerciseScreen = ({ navigation }: any) => {
           );
         })()}
 
-        {/* v58: quick gateway to Plan tab — add a new exercise routine
-            without having to remember where Plan lives. */}
-        <AddToPlanCta
-          label="an exercise"
-          onPress={() => navigation?.navigate?.('Plan')}
-        />
+        {/* Plan-Your-Wellbeing lives in the drawer + a big accent tile on this
+            screen. In-line CTA removed for consistency across all tabs. */}
 
         {/* Soulsync — start before any workout to capture HRV / BPM */}
         <SoulsyncSessionBar
@@ -645,6 +598,10 @@ export const ExerciseScreen = ({ navigation }: any) => {
           </View>
         </View>
       </Modal>
+
+      {/* Plan Your Wellbeing now navigates to the Plan tab's 4-step wizard —
+          the sheet component is retained for potential future reuse but is
+          no longer mounted here. */}
     </View>
   );
 };
@@ -773,45 +730,45 @@ const WorkoutDetailModal: React.FC<{
 
 // ─── Styles (parallel to YogaScreen for visual consistency) ─────
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.deep },
+const makeStyles = (C: typeof COLORS) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.deep },
   content: { paddingVertical: SPACING.lg, paddingBottom: 80 },
-  header: { paddingHorizontal: SPACING.md, marginBottom: SPACING.md },
-  title: { fontSize: 24, color: COLORS.cream, fontWeight: '600' },
-  subtitle: { fontSize: 12, color: COLORS.muted, marginTop: 4 },
+  header: { paddingLeft: 56, paddingRight: SPACING.md, marginBottom: SPACING.md, paddingTop: 4 },
+  title: { fontSize: 24, color: C.cream, fontWeight: '600' },
+  subtitle: { fontSize: 12, color: C.muted, marginTop: 4 },
 
   logBtn: {
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
-    borderWidth: 1, borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.12)',
+    borderWidth: 1, borderColor: C.gold, backgroundColor: 'rgba(212,160,23,0.12)',
   },
-  logBtnText: { color: COLORS.gold, fontSize: 11, fontWeight: '700' },
+  logBtnText: { color: C.gold, fontSize: 11, fontWeight: '700' },
 
   kpiCard: {
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,
-    padding: SPACING.lg, backgroundColor: COLORS.cardBg,
-    borderRadius: 16, borderWidth: 2, borderColor: COLORS.gold,
+    padding: SPACING.lg, backgroundColor: C.cardBg,
+    borderRadius: 16, borderWidth: 2, borderColor: C.gold,
     alignItems: 'center',
   },
-  kpiLabel: { fontSize: 11, color: COLORS.muted, fontWeight: '700', letterSpacing: 1.5, marginBottom: 4 },
-  kpiBig: { fontSize: 38, color: COLORS.gold, fontWeight: '700' },
-  kpiSmall: { fontSize: 14, color: COLORS.muted, fontWeight: '500' },
+  kpiLabel: { fontSize: 11, color: C.muted, fontWeight: '700', letterSpacing: 1.5, marginBottom: 4 },
+  kpiBig: { fontSize: 38, color: C.gold, fontWeight: '700' },
+  kpiSmall: { fontSize: 14, color: C.muted, fontWeight: '500' },
   progressTrack: {
     width: '100%', height: 8, backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: 4, marginVertical: SPACING.sm, overflow: 'hidden',
   },
-  progressFill: { height: '100%', backgroundColor: COLORS.gold },
-  kpiHint: { fontSize: 12, color: COLORS.cream, fontStyle: 'italic', textAlign: 'center', marginTop: 4 },
+  progressFill: { height: '100%', backgroundColor: C.gold },
+  kpiHint: { fontSize: 12, color: C.cream, fontStyle: 'italic', textAlign: 'center', marginTop: 4 },
 
   // v72: since-morning summary strip (steps · kcal · km)
   sinceMorningRow: {
     flexDirection: 'row', alignItems: 'center',
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,
     paddingVertical: SPACING.md, borderRadius: 14,
-    backgroundColor: COLORS.cardBg, borderWidth: 1, borderColor: 'rgba(78,168,222,0.30)',
+    backgroundColor: C.cardBg, borderWidth: 1, borderColor: 'rgba(78,168,222,0.30)',
   },
   sinceCell: { flex: 1, alignItems: 'center' },
-  sinceVal: { color: COLORS.cream, fontSize: 20, fontWeight: '800' },
-  sinceLabel: { color: COLORS.muted, fontSize: 10, textAlign: 'center', marginTop: 3, lineHeight: 13 },
+  sinceVal: { color: C.cream, fontSize: 20, fontWeight: '800' },
+  sinceLabel: { color: C.muted, fontSize: 10, textAlign: 'center', marginTop: 3, lineHeight: 13 },
   sinceDivider: { width: 1, height: 34, backgroundColor: 'rgba(255,255,255,0.08)' },
 
   autoDetectCard: {
@@ -824,19 +781,19 @@ const styles = StyleSheet.create({
     fontSize: 10, color: '#4ea8de', fontWeight: '800',
     letterSpacing: 1.2, marginBottom: 4,
   },
-  autoDetectText: { fontSize: 12, color: COLORS.cream, lineHeight: 17 },
+  autoDetectText: { fontSize: 12, color: C.cream, lineHeight: 17 },
 
   recCard: {
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,
-    padding: SPACING.md, backgroundColor: COLORS.cardBg, borderRadius: 14,
+    padding: SPACING.md, backgroundColor: C.cardBg, borderRadius: 14,
     borderWidth: 1, borderColor: 'rgba(255, 184, 0, 0.25)',
   },
-  recLabel: { fontSize: 10, color: COLORS.gold, fontWeight: '700', letterSpacing: 1.2, marginBottom: SPACING.sm },
+  recLabel: { fontSize: 10, color: C.gold, fontWeight: '700', letterSpacing: 1.2, marginBottom: SPACING.sm },
   recRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
   recIcon: { fontSize: 22, marginRight: SPACING.sm, width: 32 },
-  recName: { fontSize: 14, color: COLORS.cream, fontWeight: '600' },
-  recSub: { fontSize: 11, color: COLORS.muted, fontStyle: 'italic', marginTop: 1 },
-  recDur: { fontSize: 11, color: COLORS.gold, fontWeight: '600' },
+  recName: { fontSize: 14, color: C.cream, fontWeight: '600' },
+  recSub: { fontSize: 11, color: C.muted, fontStyle: 'italic', marginTop: 1 },
+  recDur: { fontSize: 11, color: C.gold, fontWeight: '600' },
 
   filterRow: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 6,
@@ -845,85 +802,85 @@ const styles = StyleSheet.create({
   filterChip: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
-    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.cardBg,
+    borderWidth: 1, borderColor: C.border, backgroundColor: C.cardBg,
   },
-  filterChipActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
+  filterChipActive: { borderColor: C.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
   filterIcon: { fontSize: 13 },
-  filterLabel: { fontSize: 11, color: COLORS.muted, fontWeight: '600' },
-  filterLabelActive: { color: COLORS.gold },
+  filterLabel: { fontSize: 11, color: C.muted, fontWeight: '600' },
+  filterLabelActive: { color: C.gold },
 
   listCard: {
     marginHorizontal: SPACING.md, marginBottom: 8,
-    padding: SPACING.md, backgroundColor: COLORS.cardBg, borderRadius: 12,
+    padding: SPACING.md, backgroundColor: C.cardBg, borderRadius: 12,
     flexDirection: 'row', alignItems: 'center',
-    borderWidth: 1, borderColor: COLORS.border,
+    borderWidth: 1, borderColor: C.border,
   },
   listIcon: { fontSize: 28 },
-  listName: { fontSize: 14, color: COLORS.cream, fontWeight: '600' },
-  listSub: { fontSize: 11, color: COLORS.muted, fontStyle: 'italic', marginTop: 1 },
-  listBenefit: { fontSize: 11, color: COLORS.cream, marginTop: 4, opacity: 0.85, lineHeight: 15 },
-  listDur: { fontSize: 11, color: COLORS.gold, fontWeight: '600', marginLeft: SPACING.sm },
+  listName: { fontSize: 14, color: C.cream, fontWeight: '600' },
+  listSub: { fontSize: 11, color: C.muted, fontStyle: 'italic', marginTop: 1 },
+  listBenefit: { fontSize: 11, color: C.cream, marginTop: 4, opacity: 0.85, lineHeight: 15 },
+  listDur: { fontSize: 11, color: C.gold, fontWeight: '600', marginLeft: SPACING.sm },
 
   // ── Samsung-Health-style activity metric card ──
   activityMetricCard: {
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,
-    padding: SPACING.md, backgroundColor: COLORS.cardBg,
-    borderRadius: 16, borderWidth: 1, borderColor: COLORS.border,
+    padding: SPACING.md, backgroundColor: C.cardBg,
+    borderRadius: 16, borderWidth: 1, borderColor: C.border,
   },
   amHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm },
   amIcon: { fontSize: 30, width: 42, textAlign: 'center', marginRight: 6 },
-  amName: { color: COLORS.cream, fontSize: 17, fontWeight: '800' },
+  amName: { color: C.cream, fontSize: 17, fontWeight: '800' },
   trendBtn: {
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
-    borderWidth: 1, borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.12)',
+    borderWidth: 1, borderColor: C.gold, backgroundColor: 'rgba(212,160,23,0.12)',
   },
-  trendBtnText: { color: COLORS.gold, fontSize: 11, fontWeight: '700' },
+  trendBtnText: { color: C.gold, fontSize: 11, fontWeight: '700' },
 
   amPrimary: { marginVertical: SPACING.sm },
-  amPrimaryLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '700', letterSpacing: 1.2, marginBottom: 4 },
-  amPrimaryValue: { fontSize: 30, color: COLORS.gold, fontWeight: '800', lineHeight: 32 },
-  amPrimaryGoal: { fontSize: 13, color: COLORS.muted, fontWeight: '500' },
-  editGoalBtn: { marginLeft: 8, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: COLORS.border },
-  editGoalText: { color: COLORS.muted, fontSize: 10, fontWeight: '700' },
+  amPrimaryLabel: { fontSize: 10, color: C.muted, fontWeight: '700', letterSpacing: 1.2, marginBottom: 4 },
+  amPrimaryValue: { fontSize: 30, color: C.gold, fontWeight: '800', lineHeight: 32 },
+  amPrimaryGoal: { fontSize: 13, color: C.muted, fontWeight: '500' },
+  editGoalBtn: { marginLeft: 8, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: C.border },
+  editGoalText: { color: C.muted, fontSize: 10, fontWeight: '700' },
   amProgressTrack: { height: 6, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 3, marginTop: 8, overflow: 'hidden' },
-  amProgressFill: { height: '100%', backgroundColor: COLORS.gold },
+  amProgressFill: { height: '100%', backgroundColor: C.gold },
 
-  amSubLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '700', letterSpacing: 1.2, marginTop: SPACING.sm, marginBottom: 4 },
-  amWeekTotal: { fontSize: 11, color: COLORS.muted, fontStyle: 'italic', marginTop: 2 },
+  amSubLabel: { fontSize: 10, color: C.muted, fontWeight: '700', letterSpacing: 1.2, marginTop: SPACING.sm, marginBottom: 4 },
+  amWeekTotal: { fontSize: 11, color: C.muted, fontStyle: 'italic', marginTop: 2 },
 
   amKpiGrid: { flexDirection: 'row', marginTop: SPACING.sm, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10, paddingVertical: 8 },
   amKpiCell: { flex: 1, alignItems: 'center', paddingHorizontal: 4 },
-  amKpiValue: { fontSize: 16, color: COLORS.cream, fontWeight: '700' },
-  amKpiLabel: { fontSize: 9, color: COLORS.muted, fontWeight: '600', textAlign: 'center', marginTop: 3, letterSpacing: 0.3 },
+  amKpiValue: { fontSize: 16, color: C.cream, fontWeight: '700' },
+  amKpiLabel: { fontSize: 9, color: C.muted, fontWeight: '600', textAlign: 'center', marginTop: 3, letterSpacing: 0.3 },
 
   manualBadge: { backgroundColor: 'rgba(255,184,0,0.12)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
-  manualBadgeText: { fontSize: 9, color: COLORS.gold, fontWeight: '700' },
+  manualBadgeText: { fontSize: 9, color: C.gold, fontWeight: '700' },
 
   amLogBtn: {
     marginTop: SPACING.sm, paddingVertical: 10, borderRadius: 10,
-    backgroundColor: 'rgba(212,160,23,0.15)', borderWidth: 1, borderColor: COLORS.gold,
+    backgroundColor: 'rgba(212,160,23,0.15)', borderWidth: 1, borderColor: C.gold,
     alignItems: 'center',
   },
-  amLogBtnText: { color: COLORS.gold, fontWeight: '700', fontSize: 13 },
-  amLastSession: { fontSize: 11, color: COLORS.muted, fontStyle: 'italic', marginTop: 6, textAlign: 'center' },
+  amLogBtnText: { color: C.gold, fontWeight: '700', fontSize: 13 },
+  amLastSession: { fontSize: 11, color: C.muted, fontStyle: 'italic', marginTop: 6, textAlign: 'center' },
 
   // Goal edit modal
   goalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: SPACING.md },
-  goalCard: { width: '100%', maxWidth: 360, backgroundColor: COLORS.darkBg, borderRadius: 16, padding: SPACING.lg, borderWidth: 1, borderColor: COLORS.gold },
-  goalTitle: { color: COLORS.cream, fontSize: 16, fontWeight: '700', marginBottom: 4 },
-  goalHint: { color: COLORS.muted, fontSize: 12, fontStyle: 'italic', marginBottom: SPACING.md },
-  goalInput: { backgroundColor: COLORS.cardBg, borderRadius: 10, padding: SPACING.md, color: COLORS.cream, fontSize: 18, fontWeight: '700', borderWidth: 1, borderColor: COLORS.border, textAlign: 'center' },
+  goalCard: { width: '100%', maxWidth: 360, backgroundColor: C.darkBg, borderRadius: 16, padding: SPACING.lg, borderWidth: 1, borderColor: C.gold },
+  goalTitle: { color: C.cream, fontSize: 16, fontWeight: '700', marginBottom: 4 },
+  goalHint: { color: C.muted, fontSize: 12, fontStyle: 'italic', marginBottom: SPACING.md },
+  goalInput: { backgroundColor: C.cardBg, borderRadius: 10, padding: SPACING.md, color: C.cream, fontSize: 18, fontWeight: '700', borderWidth: 1, borderColor: C.border, textAlign: 'center' },
   // v67: metric selector chips
   unitRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: SPACING.md },
-  unitChip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.cardBg },
-  unitChipOn: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
-  unitChipText: { color: COLORS.muted, fontSize: 13, fontWeight: '700' },
-  unitChipTextOn: { color: COLORS.gold },
-  goalUnitCaption: { color: COLORS.muted, fontSize: 11, fontStyle: 'italic', textAlign: 'center', marginTop: 6 },
-  cancelBtn: { flex: 1, paddingVertical: SPACING.md, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center' },
-  cancelText: { color: COLORS.muted, fontSize: 14, fontWeight: '600' },
-  saveBtn: { flex: 1, paddingVertical: SPACING.md, borderRadius: 10, backgroundColor: COLORS.gold, alignItems: 'center' },
-  saveText: { color: COLORS.deep, fontSize: 14, fontWeight: '700' },
+  unitChip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: C.border, backgroundColor: C.cardBg },
+  unitChipOn: { borderColor: C.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
+  unitChipText: { color: C.muted, fontSize: 13, fontWeight: '700' },
+  unitChipTextOn: { color: C.gold },
+  goalUnitCaption: { color: C.muted, fontSize: 11, fontStyle: 'italic', textAlign: 'center', marginTop: 6 },
+  cancelBtn: { flex: 1, paddingVertical: SPACING.md, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: 'center' },
+  cancelText: { color: C.muted, fontSize: 14, fontWeight: '600' },
+  saveBtn: { flex: 1, paddingVertical: SPACING.md, borderRadius: 10, backgroundColor: C.gold, alignItems: 'center' },
+  saveText: { color: C.deep, fontSize: 14, fontWeight: '700' },
 
   autoBadge: {
     backgroundColor: 'rgba(78,168,222,0.18)', borderRadius: 6,
@@ -934,118 +891,122 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(212,160,23,0.18)', borderRadius: 6,
     paddingHorizontal: 6, paddingVertical: 2,
   },
-  reminderBadgeText: { fontSize: 9, color: COLORS.gold, fontWeight: '700' },
+  reminderBadgeText: { fontSize: 9, color: C.gold, fontWeight: '700' },
 
   sectionLabel: {
-    fontSize: 10, color: COLORS.muted, fontWeight: '700', letterSpacing: 1.5,
+    fontSize: 10, color: C.muted, fontWeight: '700', letterSpacing: 1.5,
     marginHorizontal: SPACING.md, marginTop: SPACING.md, marginBottom: SPACING.sm,
   },
 
   breakdownCard: {
     marginHorizontal: SPACING.md,
-    padding: SPACING.md, backgroundColor: COLORS.cardBg,
-    borderRadius: 14, borderWidth: 1, borderColor: COLORS.border,
+    padding: SPACING.md, backgroundColor: C.cardBg,
+    borderRadius: 14, borderWidth: 1, borderColor: C.border,
   },
   breakdownRow: {
     flexDirection: 'row', alignItems: 'center',
     paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)',
   },
   breakdownIcon: { fontSize: 20, width: 28 },
-  breakdownLabel: { flex: 1, color: COLORS.cream, fontSize: 13, fontWeight: '600', marginLeft: 4 },
-  breakdownCount: { color: COLORS.muted, fontSize: 11, marginRight: SPACING.sm },
-  breakdownMin: { color: COLORS.gold, fontSize: 13, fontWeight: '700' },
+  breakdownLabel: { flex: 1, color: C.cream, fontSize: 13, fontWeight: '600', marginLeft: 4 },
+  breakdownCount: { color: C.muted, fontSize: 11, marginRight: SPACING.sm },
+  breakdownMin: { color: C.gold, fontSize: 13, fontWeight: '700' },
   historyRow: {
     flexDirection: 'row', alignItems: 'center',
     paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)',
   },
-  historyLabel: { color: COLORS.cream, fontSize: 13, fontWeight: '600' },
-  historyDate: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
-  deleteX: { color: COLORS.error, fontSize: 16, padding: 4 },
+  historyLabel: { color: C.cream, fontSize: 13, fontWeight: '600' },
+  historyDate: { color: C.muted, fontSize: 11, marginTop: 2 },
+  deleteX: { color: C.error, fontSize: 16, padding: 4 },
 
   // Detail modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   modalContent: {
-    backgroundColor: COLORS.darkBg,
+    backgroundColor: C.darkBg,
     borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: SPACING.md, paddingBottom: SPACING.xl,
     maxHeight: '88%',
   },
-  modalHandle: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.md },
+  modalHandle: { width: 40, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.md },
   modalHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: SPACING.md },
-  modalClose: { color: COLORS.muted, fontSize: 18, padding: 4 },
-  detailName: { fontSize: 22, color: COLORS.cream, fontWeight: '700' },
-  detailSub:  { fontSize: 13, color: COLORS.gold, fontStyle: 'italic', marginTop: 2 },
-  detailBenefit: { fontSize: 13, color: COLORS.cream, lineHeight: 19, marginBottom: SPACING.md },
+  modalClose: { color: C.muted, fontSize: 18, padding: 4 },
+  detailName: { fontSize: 22, color: C.cream, fontWeight: '700' },
+  detailSub:  { fontSize: 13, color: C.gold, fontStyle: 'italic', marginTop: 2 },
+  detailBenefit: { fontSize: 13, color: C.cream, lineHeight: 19, marginBottom: SPACING.md },
 
   autoDetectInline: {
     padding: SPACING.sm, marginBottom: SPACING.md,
     backgroundColor: 'rgba(78,168,222,0.12)', borderRadius: 10,
     borderLeftWidth: 3, borderLeftColor: '#4ea8de',
   },
-  autoDetectInlineText: { fontSize: 12, color: COLORS.cream, lineHeight: 17 },
+  autoDetectInlineText: { fontSize: 12, color: C.cream, lineHeight: 17 },
 
   timerCard: {
-    backgroundColor: COLORS.cardBg, borderRadius: 12,
+    backgroundColor: C.cardBg, borderRadius: 12,
     padding: SPACING.md, alignItems: 'center', marginBottom: SPACING.md,
     borderWidth: 1, borderColor: 'rgba(255,184,0,0.3)',
   },
-  timerClock: { fontSize: 44, color: COLORS.gold, fontWeight: '700', letterSpacing: 2 },
+  timerClock: { fontSize: 44, color: C.gold, fontWeight: '700', letterSpacing: 2 },
   timerBtnRow: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm },
-  timerBtnPrimary: { backgroundColor: COLORS.gold, paddingHorizontal: SPACING.lg, paddingVertical: 10, borderRadius: 8 },
-  timerBtnPrimaryText: { color: COLORS.deep, fontWeight: '700' },
-  timerBtnSecondary: { borderColor: COLORS.border, borderWidth: 1, paddingHorizontal: SPACING.md, paddingVertical: 10, borderRadius: 8 },
-  timerBtnSecondaryText: { color: COLORS.cream, fontWeight: '600' },
+  timerBtnPrimary: { backgroundColor: C.gold, paddingHorizontal: SPACING.lg, paddingVertical: 10, borderRadius: 8 },
+  timerBtnPrimaryText: { color: C.deep, fontWeight: '700' },
+  timerBtnSecondary: { borderColor: C.border, borderWidth: 1, paddingHorizontal: SPACING.md, paddingVertical: 10, borderRadius: 8 },
+  timerBtnSecondaryText: { color: C.cream, fontWeight: '600' },
 
   actionRow: { flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.md },
   actionBtn: {
     flex: 1, paddingVertical: 10, paddingHorizontal: SPACING.sm,
-    borderRadius: 10, borderWidth: 1, borderColor: COLORS.border,
-    backgroundColor: COLORS.cardBg, alignItems: 'center',
+    borderRadius: 10, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.cardBg, alignItems: 'center',
   },
-  actionBtnText: { color: COLORS.cream, fontSize: 12, fontWeight: '600' },
+  actionBtnText: { color: C.cream, fontSize: 12, fontWeight: '600' },
 
   stepRow: { flexDirection: 'row', paddingVertical: 4 },
-  stepBullet: { color: COLORS.gold, fontSize: 14, marginRight: 6 },
-  stepText: { flex: 1, fontSize: 13, color: COLORS.cream, lineHeight: 18 },
+  stepBullet: { color: C.gold, fontSize: 14, marginRight: 6 },
+  stepText: { flex: 1, fontSize: 13, color: C.cream, lineHeight: 18 },
 
   warnBox: {
     marginTop: SPACING.md, padding: SPACING.sm,
     backgroundColor: 'rgba(255, 140, 66, 0.1)',
-    borderRadius: 8, borderLeftWidth: 3, borderLeftColor: COLORS.saffron,
+    borderRadius: 8, borderLeftWidth: 3, borderLeftColor: C.saffron,
   },
-  warnLabel: { fontSize: 10, color: COLORS.saffron, fontWeight: '700', letterSpacing: 1, marginBottom: 4 },
-  warnText: { fontSize: 12, color: COLORS.cream, lineHeight: 17 },
+  warnLabel: { fontSize: 10, color: C.saffron, fontWeight: '700', letterSpacing: 1, marginBottom: 4 },
+  warnText: { fontSize: 12, color: C.cream, lineHeight: 17 },
 
   // Log past modal
   logOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   logCard: {
-    backgroundColor: COLORS.darkBg, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    backgroundColor: C.darkBg, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: SPACING.md, paddingBottom: SPACING.xl,
   },
-  logHandle: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.md },
-  logTitle: { fontSize: 18, color: COLORS.cream, fontWeight: '700', marginBottom: 4 },
-  logHint:  { fontSize: 12, color: COLORS.muted, marginBottom: SPACING.md },
-  logFieldLabel: { fontSize: 11, color: COLORS.muted, fontWeight: '700', letterSpacing: 1, marginBottom: 4, marginTop: 8 },
+  logHandle: { width: 40, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.md },
+  logTitle: { fontSize: 18, color: C.cream, fontWeight: '700', marginBottom: 4 },
+  logHint:  { fontSize: 12, color: C.muted, marginBottom: SPACING.md },
+  logFieldLabel: { fontSize: 11, color: C.muted, fontWeight: '700', letterSpacing: 1, marginBottom: 4, marginTop: 8 },
   logInput: {
-    backgroundColor: COLORS.cardBg, borderRadius: 10, padding: SPACING.sm,
-    color: COLORS.cream, fontSize: 16, borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: C.cardBg, borderRadius: 10, padding: SPACING.sm,
+    color: C.cream, fontSize: 16, borderWidth: 1, borderColor: C.border,
   },
   logSubmit: {
-    backgroundColor: COLORS.gold, padding: SPACING.md, borderRadius: 10,
+    backgroundColor: C.gold, padding: SPACING.md, borderRadius: 10,
     marginTop: SPACING.md, alignItems: 'center',
   },
-  logSubmitText: { color: COLORS.deep, fontWeight: '700', fontSize: 15 },
+  logSubmitText: { color: C.deep, fontWeight: '700', fontSize: 15 },
   logCancel: {
-    color: COLORS.muted, fontSize: 13, textAlign: 'center', marginTop: SPACING.sm,
+    color: C.muted, fontSize: 13, textAlign: 'center', marginTop: SPACING.sm,
   },
   activityPickerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
   activityPickerChip: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
-    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.cardBg,
+    borderWidth: 1, borderColor: C.border, backgroundColor: C.cardBg,
   },
-  activityPickerChipActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
+  activityPickerChipActive: { borderColor: C.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
   activityPickerIcon: { fontSize: 14 },
-  activityPickerLabel: { fontSize: 11, color: COLORS.muted, fontWeight: '600' },
-  activityPickerLabelActive: { color: COLORS.gold },
+  activityPickerLabel: { fontSize: 11, color: C.muted, fontWeight: '600' },
+  activityPickerLabelActive: { color: C.gold },
 });
+
+
+// Static dark styles for helpers rendered outside the palette-aware component.
+const styles = makeStyles(COLORS);

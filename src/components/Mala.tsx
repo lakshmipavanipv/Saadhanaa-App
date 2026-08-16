@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
 import { COLORS } from '../theme';
+import { useTheme } from '../ThemeContext';
 
 const BEADS = 108;
 const SIZE = 340;
@@ -47,6 +48,8 @@ export const Mala: React.FC<MalaProps> = ({
   beadHighlight,
   materialName,
 }) => {
+  const { palette } = useTheme();
+  const styles = React.useMemo(() => makeStyles(palette), [palette]);
   // T7: ignore per-deity color, use Universal Citron for high contrast.
   const doneColor = CITRON_BEAD;
   const doneBorder = CITRON_BORDER;
@@ -181,7 +184,7 @@ export const Mala: React.FC<MalaProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -229,9 +232,9 @@ const styles = StyleSheet.create({
   // visible overlap). Scale 1.55 ≈ ~23px effective with no layout shift.
   beadPop: {
     transform: [{ scale: 1.55 }],
-    backgroundColor: COLORS.saffron,
+    backgroundColor: C.saffron,
     borderColor: '#ffd6a8',
-    shadowColor: COLORS.saffron,
+    shadowColor: C.saffron,
     shadowOpacity: 1,
     shadowRadius: 9,
     zIndex: 10,
@@ -242,10 +245,10 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: COLORS.saffron,
+    backgroundColor: C.saffron,
     borderWidth: 2.5,
-    borderColor: COLORS.gold,
-    shadowColor: COLORS.saffron,
+    borderColor: C.gold,
+    shadowColor: C.saffron,
     shadowOpacity: 1,
     shadowRadius: 12,
     elevation: 10,
@@ -318,7 +321,7 @@ const styles = StyleSheet.create({
     width: CENTER_SIZE - 36,
     height: CENTER_SIZE - 36,
     borderRadius: (CENTER_SIZE - 36) / 2,
-    backgroundColor: '#1a1f3a',
+    backgroundColor: C.cardBg,
     top: 18,
     left: 18,
     justifyContent: 'center',
@@ -341,7 +344,7 @@ const styles = StyleSheet.create({
   },
   tapHint: {
     fontSize: 8.5,
-    color: COLORS.saffron,
+    color: C.saffron,
     fontWeight: '700',
     letterSpacing: 1.4,
     marginTop: 4,
@@ -349,7 +352,7 @@ const styles = StyleSheet.create({
   },
   materialName: {
     fontSize: 8.5,
-    color: COLORS.muted,
+    color: C.muted,
     fontStyle: 'italic',
     marginTop: 1,
     letterSpacing: 0.4,
@@ -362,7 +365,7 @@ const styles = StyleSheet.create({
   },
   malaLabel: {
     fontSize: 8.5,
-    color: COLORS.muted,
+    color: C.muted,
     letterSpacing: 2,
     marginTop: 1,
   },
@@ -374,13 +377,15 @@ const styles = StyleSheet.create({
   },
   beadCount: {
     fontSize: 20,
-    color: COLORS.cream,
+    color: C.cream,
     fontWeight: '600',
     lineHeight: 22,
   },
   beadLabelSmall: {
     fontSize: 8,
-    color: COLORS.muted,
+    color: C.muted,
     letterSpacing: 0.8,
   },
 });
+
+const styles = makeStyles(COLORS);

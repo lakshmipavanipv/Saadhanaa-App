@@ -15,7 +15,7 @@ import { getDaysUntil, formatShortDate } from '../utils';
 import { COLORS, SPACING } from '../theme';
 import { Calendar } from '../components/Calendar';
 import { FamilyMembersCard } from '../components/FamilyMembersCard';
-import { specialSadhanaRepo, SpecialSadhana, SpecialTrigger } from '../services/specialSadhanaRepo';
+import { specialSadhanaRepo, SpecialSadhana, SpecialTrigger, isFestivalEntry } from '../services/specialSadhanaRepo';
 import { TextInput as RNTextInput } from 'react-native';
 import { getUserLocation, UserLocation } from '../services/location';
 import { computeSunTimes, fmtHHMM, SunTimes } from '../services/sunTimes';
@@ -705,7 +705,7 @@ const SpecialSadhanaBuilder: React.FC = () => {
   const [weekdays, setWeekdays] = useState<number[]>([]);
   const [dates, setDates] = useState('');
 
-  const refresh = async () => setItems(await specialSadhanaRepo.list());
+  const refresh = async () => setItems((await specialSadhanaRepo.list()).filter(isFestivalEntry));
   useEffect(() => { refresh(); }, []);
 
   const reset = () => {
@@ -720,6 +720,7 @@ const SpecialSadhanaBuilder: React.FC = () => {
     else if (triggerKind === 'weekdays') trigger = { kind: 'weekdays', days: weekdays.length > 0 ? weekdays : [1] };
     else trigger = { kind: 'dates', dates: dates.split(/[\s,]+/).filter(Boolean) };
     await specialSadhanaRepo.add({
+      kind: 'festival',
       name: name.trim(),
       practice: practice.trim() || undefined,
       durationMin: parseInt(duration, 10) || undefined,

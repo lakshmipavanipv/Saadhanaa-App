@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -19,6 +19,7 @@ import { AIInsightsCard }        from '../soulsync/components/AIInsightsCard';
 import { ScoreTrendsCard }       from '../soulsync/components/ScoreTrendsCard';
 import { SleepScoreCard }        from '../soulsync/components/SleepScoreCard';
 import { HealthDashboardCard }   from '../soulsync/components/HealthDashboardCard';
+import { syncAllRingVitals }     from '../soulsync/ring';
 
 type TrendRange = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -35,6 +36,40 @@ export const HistoryScreen = () => {
     (s, p) => s + (p.count || 0), 0
   );
   const [range, setRange] = useState<TrendRange>('weekly');
+  const [ringSyncStatus, setRingSyncStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle');
+  const [ringSyncSummary, setRingSyncSummary] = useState<string | null>(null);
+
+  // Auto-sync ring vitals when the Reports tab mounts. Non-blocking — the
+  // page renders immediately; sleep/steps rows appear once the ring's
+  // connect → sync → disconnect round-trip completes (~15 s for all six
+  // metrics). Any error is silently absorbed into the summary chip.
+  useEffect(() => {
+    let cancelled = false;
+    setRingSyncStatus('syncing');
+    syncAllRingVitals()
+      .then((r) => {
+        if (cancelled) return;
+        const parts: string[] = [];
+        if (r.sleep.nightsUpserted > 0) parts.push(`${r.sleep.nightsUpserted} night${r.sleep.nightsUpserted > 1 ? 's' : ''} sleep`);
+        if (r.hr.avg !== null) parts.push(`HR ~${r.hr.avg}`);
+        if (r.hrv.avg !== null) parts.push(`HRV ~${r.hrv.avg}`);
+        if (r.spo2.avg !== null) parts.push(`SpO₂ ~${r.spo2.avg}%`);
+        if (r.steps.total > 0) parts.push(`${r.steps.total} steps today`);
+        if (r.errors.length && parts.length === 0) {
+          setRingSyncStatus('error');
+          setRingSyncSummary(r.errors[0]);
+        } else {
+          setRingSyncStatus('done');
+          setRingSyncSummary(parts.length ? parts.join(' · ') : 'ring reachable — no new samples');
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setRingSyncStatus('error');
+        setRingSyncSummary(err.message);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const trendData = useMemo(() => {
     const now = new Date();
@@ -143,6 +178,24 @@ export const HistoryScreen = () => {
             ───────────────────────────────────────────────────────── */}
 
         <ScoreTrendsCard />
+
+        {/* Ring sync status pill — shows what came in from the SR16 this session */}
+        {ringSyncStatus !== 'idle' && (
+          <View style={{
+            marginHorizontal: SPACING.md,
+            marginBottom: SPACING.sm,
+            paddingVertical: SPACING.sm,
+            paddingHorizontal: SPACING.md,
+            borderRadius: 12,
+            backgroundColor: ringSyncStatus === 'error' ? '#3a1a1a' : ringSyncStatus === 'syncing' ? '#1a2a3a' : '#1a3a2a',
+          }}>
+            <Text style={{ color: COLORS.muted, fontSize: 11 }}>
+              {ringSyncStatus === 'syncing' && '↻ Syncing ring…'}
+              {ringSyncStatus === 'done' && `💍 Ring: ${ringSyncSummary}`}
+              {ringSyncStatus === 'error' && `💍 Ring: ${ringSyncSummary}`}
+            </Text>
+          </View>
+        )}
 
         <SleepScoreCard variant="full" />
 

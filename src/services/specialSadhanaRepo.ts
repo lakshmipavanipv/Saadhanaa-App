@@ -16,6 +16,14 @@ export type SpecialTrigger =
 export interface SpecialSadhana {
   id: string;
   name: string;
+  /**
+   * Discriminator so consumer screens can filter what's theirs.
+   *  - 'path'     : multi-step japa sequence (built in JapaScreen)
+   *  - 'festival' : Panchang-driven day observance (added in FestivalScreen)
+   * Missing on legacy rows — see `isPathEntry`/`isFestivalEntry` for the
+   * back-compat detection used in that case.
+   */
+  kind?: 'path' | 'festival';
   /** Optional explanatory note. */
   note?: string;
   /** What deity / mantra / practice (free text or catalog id). */
@@ -28,6 +36,18 @@ export interface SpecialSadhana {
   time?: string;
   createdAt: string;
 }
+
+/**
+ * True for entries that should appear under Japa's "Sadhana Paths" list —
+ * either explicitly tagged, or (for legacy rows) whose `practice` text
+ * contains a "mala" token that the Sadhana Path builder always writes.
+ */
+export const isPathEntry = (e: SpecialSadhana): boolean =>
+  e.kind === 'path' || (!e.kind && !!e.practice && /\bmala\b/i.test(e.practice));
+
+/** True for entries that should appear under Festivals / Panchang. */
+export const isFestivalEntry = (e: SpecialSadhana): boolean =>
+  e.kind === 'festival' || (!e.kind && !isPathEntry(e));
 
 const KEY = 'panchang.special.v1';
 

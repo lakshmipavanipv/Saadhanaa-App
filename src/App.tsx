@@ -29,6 +29,12 @@ import { JapaScreen } from './screens/JapaScreen';
 import { OnboardingScreen } from './screens/OnboardingScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { MeditationScreen } from './screens/MeditationScreen';
+import { HealthScreen } from './screens/HealthScreen';
+import { DeviceSettingsScreen } from './screens/DeviceSettingsScreen';
+import { RingDebugScreen } from './screens/RingDebugScreen';
+import { SideDrawer, type DrawerAction } from './components/SideDrawer';
+import { ThemePicker } from './components/ThemePicker';
+import { ThemeProvider, useTheme } from './ThemeContext';
 import { YogaMeditationWrapper } from './screens/YogaMeditationWrapper';
 import { AnxietyReliefPopup } from './soulsync/components/AnxietyReliefPopup';
 import { AggressionReliefPopup } from './soulsync/components/AggressionReliefPopup';
@@ -43,26 +49,37 @@ const Tab = createBottomTabNavigator();
 
 const TabNavigator = () => {
   const insets = useSafeAreaInsets();
+  const { palette } = useTheme();
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: COLORS.darkBg,
-          borderTopColor: COLORS.border,
+          backgroundColor: palette.darkBg,
+          borderTopColor: palette.border,
           borderTopWidth: 1,
-          paddingTop: 8,
-          paddingBottom: Math.max(insets.bottom, 8),
-          height: 60 + insets.bottom,
+          paddingTop: 10,
+          paddingBottom: Math.max(insets.bottom, 10),
+          // Bigger bar so 5 evenly-distributed tabs fill it comfortably.
+          height: 78 + insets.bottom,
         },
-        tabBarActiveTintColor: COLORS.gold,
-        tabBarInactiveTintColor: COLORS.muted,
+        tabBarActiveTintColor: palette.gold,
+        tabBarInactiveTintColor: palette.muted,
         tabBarLabelStyle: {
-          fontSize: 10,
-          marginTop: 2,
+          fontSize: 12,
+          fontWeight: '600',
+          marginTop: 4,
+        },
+        tabBarIconStyle: {
+          marginBottom: 2,
+        },
+        tabBarItemStyle: {
+          // Each tab takes an equal slice so they fill the whole bar.
+          flex: 1,
+          paddingTop: 4,
         },
         sceneStyle: {
-          backgroundColor: COLORS.deep,
+          backgroundColor: palette.deep,
           paddingTop: insets.top,
         },
       }}
@@ -79,21 +96,16 @@ const TabNavigator = () => {
         component={DashboardScreen}
         options={{
           tabBarLabel: 'Home',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🏠</Text>,
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 26, color }}>🏠</Text>,
         }}
       />
-      {/* v60 redesigned Plan tab — elderly-friendly step-by-step
-          wizard with clear reminder structure and tone preview. The
-          legacy SankalpaScreen is still mounted as a hidden route
-          ('PlanLegacy') so any existing Home CTAs keep working until
-          they're swept. */}
+      {/* Plan moved to hidden route — accessed via ☰ drawer → Plan Your
+          Wellbeing, and via the big 🎯 tile on the Exercise tab. Keeping it
+          mounted so navigation.navigate('Plan') calls still resolve. */}
       <Tab.Screen
         name="Plan"
         component={WellBeingPlanScreen}
-        options={{
-          tabBarLabel: 'Plan',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🎯</Text>,
-        }}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' }, tabBarStyle: { display: 'none' } }}
       />
       <Tab.Screen
         name="PlanLegacy"
@@ -103,12 +115,14 @@ const TabNavigator = () => {
           tabBarItemStyle: { display: 'none' },
         }}
       />
+
+      {/* Reordered bottom tabs: Home → Japa → Yoga & Meditate → Exercise → Health */}
       <Tab.Screen
-        name="Exercise"
-        component={ExerciseScreen}
+        name="Japa"
+        component={JapaScreen}
         options={{
-          tabBarLabel: 'Exercise',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🏃</Text>,
+          tabBarLabel: 'Japa',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 26, color }}>📿</Text>,
         }}
       />
       <Tab.Screen
@@ -116,15 +130,15 @@ const TabNavigator = () => {
         component={YogaMeditationWrapper}
         options={{
           tabBarLabel: 'Yoga & Meditate',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🧘‍♀️</Text>,
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 26, color }}>🧘‍♀️</Text>,
         }}
       />
       <Tab.Screen
-        name="Japa"
-        component={JapaScreen}
+        name="Exercise"
+        component={ExerciseScreen}
         options={{
-          tabBarLabel: 'Japa',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📿</Text>,
+          tabBarLabel: 'Exercise',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 26, color }}>🏃</Text>,
         }}
       />
       {/* Meditation kept as a HIDDEN route so the anxiety / aggression relief
@@ -138,20 +152,25 @@ const TabNavigator = () => {
           tabBarItemStyle: { display: 'none' },
         }}
       />
+      {/* Panchang moved to left drawer (accessible via ☰ → Sadhana → Panchang).
+          History (My Reports) moved to left drawer as well. Both still exist as
+          navigable routes so drawer taps can target them. */}
       <Tab.Screen
         name="Panchang"
         component={FestivalScreen}
-        options={{
-          tabBarLabel: 'Panchang',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🛕</Text>,
-        }}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' }, tabBarStyle: { display: 'none' } }}
       />
       <Tab.Screen
         name="History"
         component={HistoryScreen}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' }, tabBarStyle: { display: 'none' } }}
+      />
+      <Tab.Screen
+        name="Health"
+        component={HealthScreen}
         options={{
-          tabBarLabel: 'My Reports',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📊</Text>,
+          tabBarLabel: 'Health',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 26, color }}>💗</Text>,
         }}
       />
     </Tab.Navigator>
@@ -172,7 +191,12 @@ const AppContent = () => {
     isLoading, toast, userProfile, deities, setSelectedDeity,
     pendingRoute, setPendingRoute,
   } = useSadhana();
+  const { palette } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
+  const [showDrawer, setShowDrawer] = useState(false);
+  const [showDeviceSettings, setShowDeviceSettings] = useState(false);
+  const [showRingDebug, setShowRingDebug] = useState(false);
+  const [showThemePicker, setShowThemePicker] = useState(false);
   // v75: DPDP consent gate — null = still loading, true = must show consent.
   const [needsConsent, setNeedsConsent] = useState<boolean | null>(null);
   // Listen for emotional events — routes to the right overlay
@@ -277,8 +301,8 @@ const AppContent = () => {
   // v75: DPDP consent gate — shown before anything else collects data.
   if (needsConsent) {
     return (
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.deep} translucent />
+      <View style={[styles.container, { backgroundColor: palette.deep }]}>
+        <StatusBar barStyle={palette.deep === '#f5f5f7' ? 'dark-content' : 'light-content'} backgroundColor={palette.deep} translucent />
         <ConsentScreen onAgree={() => setNeedsConsent(false)} />
         {toast && <Toast message={toast} />}
       </View>
@@ -287,8 +311,8 @@ const AppContent = () => {
 
   if (!userProfile?.onboarded) {
     return (
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.deep} translucent />
+      <View style={[styles.container, { backgroundColor: palette.deep }]}>
+        <StatusBar barStyle={palette.deep === '#f5f5f7' ? 'dark-content' : 'light-content'} backgroundColor={palette.deep} translucent />
         <OnboardingScreen />
         {toast && <Toast message={toast} />}
       </View>
@@ -309,11 +333,43 @@ const AppContent = () => {
       >
         <TabNavigator />
       </NavigationContainer>
-      {activeRoute !== 'Plan' && <SettingsButton onPress={() => setShowSettings(true)} />}
-      {/* Voice assistant — multilingual, elder-friendly */}
-      <VoiceAssistant navRef={navRef} />
+      {/* Settings gear removed — Profile & app settings now live under the
+          hamburger drawer (☰ → Profile & Personal Info). */}
+      {activeRoute !== 'Plan' && <HamburgerButton onPress={() => setShowDrawer(true)} />}
+      {/* Voice assistant floating mic disabled — it overlapped the Health tab.
+          Re-enable via drawer if we need it back. */}
+      {false && <VoiceAssistant navRef={navRef} />}
       <Modal visible={showSettings} animationType="slide" onRequestClose={() => setShowSettings(false)}>
         <SettingsScreen onClose={() => setShowSettings(false)} />
+      </Modal>
+      <SideDrawer
+        visible={showDrawer}
+        onClose={() => setShowDrawer(false)}
+        onSelect={(action: DrawerAction) => {
+          if (action.navigate) {
+            navRef.current?.navigate(action.navigate as never);
+          } else if (action.openModal === 'settings') {
+            setShowSettings(true);
+          } else if (action.openModal === 'deviceSettings') {
+            setShowDeviceSettings(true);
+          } else if (action.openModal === 'ringDebug') {
+            setShowRingDebug(true);
+          } else if (action.openModal === 'aiInsights') {
+            navRef.current?.navigate('History' as never);
+          } else if (action.openModal === 'themePicker') {
+            setShowThemePicker(true);
+          }
+        }}
+      />
+      <ThemePicker visible={showThemePicker} onClose={() => setShowThemePicker(false)} />
+      <Modal visible={showDeviceSettings} animationType="slide" onRequestClose={() => setShowDeviceSettings(false)}>
+        <DeviceSettingsScreen
+          onClose={() => setShowDeviceSettings(false)}
+          onOpenPair={() => { setShowDeviceSettings(false); setTimeout(() => setShowRingDebug(true), 100); }}
+        />
+      </Modal>
+      <Modal visible={showRingDebug} animationType="slide" onRequestClose={() => setShowRingDebug(false)}>
+        <RingDebugScreen onClose={() => setShowRingDebug(false)} />
       </Modal>
       {toast && <Toast message={toast} />}
 
@@ -411,6 +467,19 @@ const SettingsButton = ({ onPress }: { onPress: () => void }) => {
   );
 };
 
+const HamburgerButton = ({ onPress }: { onPress: () => void }) => {
+  const insets = useSafeAreaInsets();
+  return (
+    <TouchableOpacity
+      style={[styles.burgerBtn, { top: 8 + insets.top }]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <Text style={styles.burgerText}>☰</Text>
+    </TouchableOpacity>
+  );
+};
+
 export default function App() {
   // ── Soulsync bootstrap — open DB, start ambient ingestion ──
   useEffect(() => {
@@ -434,9 +503,11 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <SadhanaProvider>
-        <AppContent />
-      </SadhanaProvider>
+      <ThemeProvider>
+        <SadhanaProvider>
+          <AppContent />
+        </SadhanaProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
@@ -469,4 +540,18 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   cogText: { fontSize: 18, color: COLORS.gold },
+  burgerBtn: {
+    position: 'absolute',
+    left: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(212, 160, 23, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 160, 23, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  burgerText: { fontSize: 20, color: COLORS.gold },
 });

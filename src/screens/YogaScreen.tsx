@@ -16,8 +16,9 @@ import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal,
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
+import { useTheme } from '../ThemeContext';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
-import { AddToPlanCta } from '../components/AddToPlanCta';
+// AddToPlanCta removed — Plan Your Wellbeing lives in the hamburger drawer.
 import { YogaPoseAnimation } from '../components/YogaPoseAnimation';
 import { createDefaultRing } from '../soulsync/services/RingTelemetryService';
 import { TextInput } from 'react-native';
@@ -267,6 +268,8 @@ const fmtSec = (s: number): string =>
   s >= 60 ? `${Math.round(s / 60)} min` : `${s} sec`;
 
 export const YogaScreen = ({ navigation }: any) => {
+  const { palette } = useTheme();
+  const styles = React.useMemo(() => makeStyles(palette), [palette]);
   const { showToast } = useSadhana();
   // Soulsync session — same hook the Japa tab uses; live BPM/HRV streams
   // are surfaced as a wave graph + baseline card while a session is on.
@@ -330,7 +333,7 @@ export const YogaScreen = ({ navigation }: any) => {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: palette.deep }]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -359,11 +362,7 @@ export const YogaScreen = ({ navigation }: any) => {
         <SessionList practice="yoga" />
 
         {/* Soulsync — start before yoga to capture HRV / BPM changes */}
-        {/* v58: quick gateway to Plan tab for adding a yoga routine */}
-        <AddToPlanCta
-          label="a yoga session"
-          onPress={() => navigation?.navigate?.('Plan')}
-        />
+        {/* Plan CTA removed — Plan Your Wellbeing is in the ☰ drawer. */}
 
         <SoulsyncSessionBar
           practice="yoga"
@@ -601,24 +600,24 @@ const YogaDetailModal: React.FC<{ item: YogaItem; onClose: () => void }> = ({ it
 
 // ─── Styles ─────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.deep },
+const makeStyles = (C: typeof COLORS) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.deep },
   content: { paddingVertical: SPACING.lg, paddingBottom: 80 },
   header: { paddingHorizontal: SPACING.md, marginBottom: SPACING.md },
-  title: { fontSize: 24, color: COLORS.cream, fontWeight: '600' },
-  subtitle: { fontSize: 12, color: COLORS.muted, marginTop: 4 },
+  title: { fontSize: 24, color: C.cream, fontWeight: '600', paddingLeft: 56 },
+  subtitle: { fontSize: 12, color: C.muted, marginTop: 4, paddingLeft: 56 },
 
   recCard: {
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,
-    padding: SPACING.md, backgroundColor: COLORS.cardBg, borderRadius: 14,
+    padding: SPACING.md, backgroundColor: C.cardBg, borderRadius: 14,
     borderWidth: 1, borderColor: 'rgba(255, 184, 0, 0.25)',
   },
-  recLabel: { fontSize: 10, color: COLORS.gold, fontWeight: '700', letterSpacing: 1.2, marginBottom: SPACING.sm },
+  recLabel: { fontSize: 10, color: C.gold, fontWeight: '700', letterSpacing: 1.2, marginBottom: SPACING.sm },
   recRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
   recIcon: { fontSize: 20, marginRight: SPACING.sm, width: 28 },
-  recName: { fontSize: 14, color: COLORS.cream, fontWeight: '600' },
-  recSanskrit: { fontSize: 11, color: COLORS.muted, fontStyle: 'italic', marginTop: 1 },
-  recDur: { fontSize: 11, color: COLORS.gold, fontWeight: '600' },
+  recName: { fontSize: 14, color: C.cream, fontWeight: '600' },
+  recSanskrit: { fontSize: 11, color: C.muted, fontStyle: 'italic', marginTop: 1 },
+  recDur: { fontSize: 11, color: C.gold, fontWeight: '600' },
 
   filterRow: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 6,
@@ -627,84 +626,84 @@ const styles = StyleSheet.create({
   filterChip: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
-    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.cardBg,
+    borderWidth: 1, borderColor: C.border, backgroundColor: C.cardBg,
   },
-  filterChipActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
+  filterChipActive: { borderColor: C.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
   filterIcon: { fontSize: 13 },
-  filterLabel: { fontSize: 11, color: COLORS.muted, fontWeight: '600' },
-  filterLabelActive: { color: COLORS.gold },
+  filterLabel: { fontSize: 11, color: C.muted, fontWeight: '600' },
+  filterLabelActive: { color: C.gold },
 
   listCard: {
     marginHorizontal: SPACING.md, marginBottom: 8,
-    padding: SPACING.md, backgroundColor: COLORS.cardBg, borderRadius: 12,
+    padding: SPACING.md, backgroundColor: C.cardBg, borderRadius: 12,
     flexDirection: 'row', alignItems: 'center',
-    borderWidth: 1, borderColor: COLORS.border,
+    borderWidth: 1, borderColor: C.border,
   },
   listIcon: { fontSize: 28 },
-  listName: { fontSize: 14, color: COLORS.cream, fontWeight: '600' },
-  listSanskrit: { fontSize: 11, color: COLORS.muted, fontStyle: 'italic', marginTop: 1 },
-  listBenefit: { fontSize: 11, color: COLORS.cream, marginTop: 4, opacity: 0.85, lineHeight: 15 },
-  listDur: { fontSize: 11, color: COLORS.gold, fontWeight: '600', marginLeft: SPACING.sm },
+  listName: { fontSize: 14, color: C.cream, fontWeight: '600' },
+  listSanskrit: { fontSize: 11, color: C.muted, fontStyle: 'italic', marginTop: 1 },
+  listBenefit: { fontSize: 11, color: C.cream, marginTop: 4, opacity: 0.85, lineHeight: 15 },
+  listDur: { fontSize: 11, color: C.gold, fontWeight: '600', marginLeft: SPACING.sm },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   modalContent: {
-    backgroundColor: COLORS.darkBg,
+    backgroundColor: C.darkBg,
     borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: SPACING.md, paddingBottom: SPACING.xl,
     maxHeight: '88%',
   },
-  modalHandle: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.md },
+  modalHandle: { width: 40, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.md },
   modalHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: SPACING.md },
-  modalClose: { color: COLORS.muted, fontSize: 18, padding: 4 },
-  detailName: { fontSize: 22, color: COLORS.cream, fontWeight: '700' },
-  detailSanskrit: { fontSize: 13, color: COLORS.gold, fontStyle: 'italic', marginTop: 2 },
-  detailBenefit: { fontSize: 13, color: COLORS.cream, lineHeight: 19, marginBottom: SPACING.md },
+  modalClose: { color: C.muted, fontSize: 18, padding: 4 },
+  detailName: { fontSize: 22, color: C.cream, fontWeight: '700' },
+  detailSanskrit: { fontSize: 13, color: C.gold, fontStyle: 'italic', marginTop: 2 },
+  detailBenefit: { fontSize: 13, color: C.cream, lineHeight: 19, marginBottom: SPACING.md },
 
   timerCard: {
-    backgroundColor: COLORS.cardBg, borderRadius: 12,
+    backgroundColor: C.cardBg, borderRadius: 12,
     padding: SPACING.md, alignItems: 'center', marginBottom: SPACING.md,
     borderWidth: 1, borderColor: 'rgba(255,184,0,0.3)',
   },
-  timerClock: { fontSize: 44, color: COLORS.gold, fontWeight: '700', letterSpacing: 2 },
+  timerClock: { fontSize: 44, color: C.gold, fontWeight: '700', letterSpacing: 2 },
   timerBtnRow: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm },
-  timerBtnPrimary: { backgroundColor: COLORS.gold, paddingHorizontal: SPACING.lg, paddingVertical: 10, borderRadius: 8 },
-  timerBtnPrimaryText: { color: COLORS.deep, fontWeight: '700' },
-  timerBtnSecondary: { borderColor: COLORS.border, borderWidth: 1, paddingHorizontal: SPACING.md, paddingVertical: 10, borderRadius: 8 },
-  timerBtnSecondaryText: { color: COLORS.cream, fontWeight: '600' },
+  timerBtnPrimary: { backgroundColor: C.gold, paddingHorizontal: SPACING.lg, paddingVertical: 10, borderRadius: 8 },
+  timerBtnPrimaryText: { color: C.deep, fontWeight: '700' },
+  timerBtnSecondary: { borderColor: C.border, borderWidth: 1, paddingHorizontal: SPACING.md, paddingVertical: 10, borderRadius: 8 },
+  timerBtnSecondaryText: { color: C.cream, fontWeight: '600' },
 
-  sectionLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '700', letterSpacing: 1.5, marginTop: SPACING.md, marginBottom: SPACING.sm },
+  sectionLabel: { fontSize: 10, color: C.muted, fontWeight: '700', letterSpacing: 1.5, marginTop: SPACING.md, marginBottom: SPACING.sm },
   stepRow: { flexDirection: 'row', paddingVertical: 4 },
-  stepBullet: { color: COLORS.gold, fontSize: 14, marginRight: 6 },
-  stepText: { flex: 1, fontSize: 13, color: COLORS.cream, lineHeight: 18 },
+  stepBullet: { color: C.gold, fontSize: 14, marginRight: 6 },
+  stepText: { flex: 1, fontSize: 13, color: C.cream, lineHeight: 18 },
 
   warnBox: {
     marginTop: SPACING.md, padding: SPACING.sm,
     backgroundColor: 'rgba(255, 140, 66, 0.1)',
-    borderRadius: 8, borderLeftWidth: 3, borderLeftColor: COLORS.saffron,
+    borderRadius: 8, borderLeftWidth: 3, borderLeftColor: C.saffron,
   },
-  warnLabel: { fontSize: 10, color: COLORS.saffron, fontWeight: '700', letterSpacing: 1, marginBottom: 4 },
-  warnText: { fontSize: 12, color: COLORS.cream, lineHeight: 17 },
+  warnLabel: { fontSize: 10, color: C.saffron, fontWeight: '700', letterSpacing: 1, marginBottom: 4 },
+  warnText: { fontSize: 12, color: C.cream, lineHeight: 17 },
 
   // Log past button & modal
   // ── Yoga Stats Header — Samsung-Health-style block ──
   yshContainer: {
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,
-    padding: SPACING.md, backgroundColor: COLORS.cardBg,
-    borderRadius: 16, borderWidth: 1, borderColor: COLORS.border,
+    padding: SPACING.md, backgroundColor: C.cardBg,
+    borderRadius: 16, borderWidth: 1, borderColor: C.border,
   },
   yshHero: { marginBottom: SPACING.sm },
-  yshHeroLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '700', letterSpacing: 1.2, marginBottom: 2 },
-  yshHeroValue: { fontSize: 30, color: COLORS.gold, fontWeight: '800', lineHeight: 32 },
-  yshHeroGoal: { fontSize: 13, color: COLORS.muted, fontWeight: '500' },
+  yshHeroLabel: { fontSize: 10, color: C.muted, fontWeight: '700', letterSpacing: 1.2, marginBottom: 2 },
+  yshHeroValue: { fontSize: 30, color: C.gold, fontWeight: '800', lineHeight: 32 },
+  yshHeroGoal: { fontSize: 13, color: C.muted, fontWeight: '500' },
   yshProgressTrack: { height: 6, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 3, marginTop: 8, overflow: 'hidden' },
-  yshProgressFill: { height: '100%', backgroundColor: COLORS.gold },
+  yshProgressFill: { height: '100%', backgroundColor: C.gold },
 
   yshKpiGrid: { flexDirection: 'row', marginTop: SPACING.sm, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10, paddingVertical: 8 },
   yshKpiCell: { flex: 1, alignItems: 'center', paddingHorizontal: 4 },
-  yshKpiValue: { fontSize: 18, color: COLORS.cream, fontWeight: '700' },
-  yshKpiLabel: { fontSize: 9, color: COLORS.muted, fontWeight: '600', textAlign: 'center', marginTop: 3, letterSpacing: 0.3 },
+  yshKpiValue: { fontSize: 18, color: C.cream, fontWeight: '700' },
+  yshKpiLabel: { fontSize: 9, color: C.muted, fontWeight: '600', textAlign: 'center', marginTop: 3, letterSpacing: 0.3 },
 
-  yshSubLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '700', letterSpacing: 1.2, marginTop: SPACING.md, marginBottom: 4 },
+  yshSubLabel: { fontSize: 10, color: C.muted, fontWeight: '700', letterSpacing: 1.2, marginTop: SPACING.md, marginBottom: 4 },
 
   yshVitalsBox: {
     backgroundColor: 'rgba(255,255,255,0.03)',
@@ -712,39 +711,43 @@ const styles = StyleSheet.create({
   },
   yshVitalRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
   yshVitalIcon: { fontSize: 16, width: 24 },
-  yshVitalLabel: { flex: 1, color: COLORS.cream, fontSize: 12, fontWeight: '600' },
-  yshVitalNum: { color: COLORS.muted, fontSize: 13, width: 40, textAlign: 'right' },
-  yshVitalArrow: { color: COLORS.muted, fontSize: 12, paddingHorizontal: 4 },
-  yshVitalDelta: { fontSize: 11, fontWeight: '700', width: 64, textAlign: 'right', color: COLORS.muted },
+  yshVitalLabel: { flex: 1, color: C.cream, fontSize: 12, fontWeight: '600' },
+  yshVitalNum: { color: C.muted, fontSize: 13, width: 40, textAlign: 'right' },
+  yshVitalArrow: { color: C.muted, fontSize: 12, paddingHorizontal: 4 },
+  yshVitalDelta: { fontSize: 11, fontWeight: '700', width: 64, textAlign: 'right', color: C.muted },
   yshDeltaUp:   { color: '#3ddc84' },
   yshDeltaDown: { color: '#FF8C42' },
 
-  yshHint: { fontSize: 10, color: COLORS.muted, fontStyle: 'italic', marginTop: 4 },
+  yshHint: { fontSize: 10, color: C.muted, fontStyle: 'italic', marginTop: 4 },
 
   logBtn: {
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
-    borderWidth: 1, borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.12)',
+    borderWidth: 1, borderColor: C.gold, backgroundColor: 'rgba(212,160,23,0.12)',
   },
-  logBtnText: { color: COLORS.gold, fontSize: 11, fontWeight: '700' },
+  logBtnText: { color: C.gold, fontSize: 11, fontWeight: '700' },
   logOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   logCard: {
-    backgroundColor: COLORS.darkBg, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    backgroundColor: C.darkBg, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: SPACING.md, paddingBottom: SPACING.xl,
   },
-  logHandle: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.md },
-  logTitle: { fontSize: 18, color: COLORS.cream, fontWeight: '700', marginBottom: 4 },
-  logHint:  { fontSize: 12, color: COLORS.muted, marginBottom: SPACING.md },
-  logFieldLabel: { fontSize: 11, color: COLORS.muted, fontWeight: '700', letterSpacing: 1, marginBottom: 4, marginTop: 8 },
+  logHandle: { width: 40, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.md },
+  logTitle: { fontSize: 18, color: C.cream, fontWeight: '700', marginBottom: 4 },
+  logHint:  { fontSize: 12, color: C.muted, marginBottom: SPACING.md },
+  logFieldLabel: { fontSize: 11, color: C.muted, fontWeight: '700', letterSpacing: 1, marginBottom: 4, marginTop: 8 },
   logInput: {
-    backgroundColor: COLORS.cardBg, borderRadius: 10, padding: SPACING.sm,
-    color: COLORS.cream, fontSize: 16, borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: C.cardBg, borderRadius: 10, padding: SPACING.sm,
+    color: C.cream, fontSize: 16, borderWidth: 1, borderColor: C.border,
   },
   logSubmit: {
-    backgroundColor: COLORS.gold, padding: SPACING.md, borderRadius: 10,
+    backgroundColor: C.gold, padding: SPACING.md, borderRadius: 10,
     marginTop: SPACING.md, alignItems: 'center',
   },
-  logSubmitText: { color: COLORS.deep, fontWeight: '700', fontSize: 15 },
+  logSubmitText: { color: C.deep, fontWeight: '700', fontSize: 15 },
   logCancel: {
-    color: COLORS.muted, fontSize: 13, textAlign: 'center', marginTop: SPACING.sm,
+    color: C.muted, fontSize: 13, textAlign: 'center', marginTop: SPACING.sm,
   },
 });
+
+
+// Static dark styles for helpers rendered outside the palette-aware component.
+const styles = makeStyles(COLORS);

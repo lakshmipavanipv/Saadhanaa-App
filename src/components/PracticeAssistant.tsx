@@ -20,6 +20,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal,
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
+import { useTheme } from '../ThemeContext';
 import { routineRepo, RoutineItem, RoutineCategory } from '../services/routineRepo';
 
 export interface PracticeCatalogItem {
@@ -52,12 +53,11 @@ const fmtSec = (sec: number): string => {
 export const PracticeAssistant: React.FC<Props> = ({
   practice, catalog, onSelect, iconFor,
 }) => {
+  const { palette } = useTheme();
+  const styles = React.useMemo(() => makeStyles(palette), [palette]);
   const [open, setOpen] = useState(false);
   const [customs, setCustoms] = useState<RoutineItem[]>([]);
 
-  // Map UI practice to RoutineCategory.
-  // Yoga assistant shows yoga; Meditation assistant shows both meditate +
-  // sandhya since both are inward practices.
   const cats: RoutineCategory[] = practice === 'yoga'
     ? ['yoga']
     : ['meditate', 'sandhya'];
@@ -111,7 +111,6 @@ export const PracticeAssistant: React.FC<Props> = ({
           </View>
 
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: SPACING.xl }}>
-            {/* ── User's custom Sadhana Paths ── */}
             {customs.length > 0 && (
               <View>
                 <Text style={styles.sectionLabel}>🪷  YOUR SADHANA PATHS</Text>
@@ -150,7 +149,6 @@ export const PracticeAssistant: React.FC<Props> = ({
               </View>
             )}
 
-            {/* ── Built-in catalog ── */}
             <Text style={styles.sectionLabel}>
               {practice === 'yoga' ? '🧘 ASANAS · PRANAYAMA · LIBRARY' : '🪷 MEDITATION LIBRARY'}
             </Text>
@@ -180,68 +178,65 @@ export const PracticeAssistant: React.FC<Props> = ({
   );
 };
 
-const styles = StyleSheet.create({
-  // ── Single CTA button on the parent screen ──
+const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   assistantBtn: {
     marginHorizontal: SPACING.md,
     marginTop: SPACING.sm,
     paddingVertical: SPACING.md,
     paddingHorizontal: SPACING.md,
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: COLORS.gold,
+    borderColor: C.gold,
     flexDirection: 'row',
     alignItems: 'center',
     minHeight: 64,
   },
   assistantBtnLabel: {
-    color: COLORS.gold, fontSize: 17, fontWeight: '800', letterSpacing: 0.3,
+    color: C.gold, fontSize: 17, fontWeight: '800', letterSpacing: 0.3,
   },
   assistantBtnSub: {
-    color: COLORS.muted, fontSize: 12, marginTop: 3, fontWeight: '500',
+    color: C.muted, fontSize: 12, marginTop: 3, fontWeight: '500',
   },
   assistantBtnChev: {
-    color: COLORS.gold, fontSize: 28, fontWeight: '700', paddingHorizontal: 6,
+    color: C.gold, fontSize: 28, fontWeight: '700', paddingHorizontal: 6,
   },
 
-  // ── Modal ──
-  modalContainer: { flex: 1, backgroundColor: COLORS.deep, paddingTop: 48 },
+  modalContainer: { flex: 1, backgroundColor: C.deep, paddingTop: 48 },
   modalHeader: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: SPACING.md, paddingBottom: SPACING.md,
-    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+    borderBottomWidth: 1, borderBottomColor: C.border,
   },
-  modalTitle:  { fontSize: 20, color: COLORS.cream, fontWeight: '700' },
-  modalSub:    { fontSize: 12, color: COLORS.muted, marginTop: 2 },
+  modalTitle:  { fontSize: 20, color: C.cream, fontWeight: '700' },
+  modalSub:    { fontSize: 12, color: C.muted, marginTop: 2 },
   modalCloseBtn: {
     width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: COLORS.cardBg,
-    borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: C.cardBg,
+    borderWidth: 1, borderColor: C.border,
   },
-  modalCloseText: { color: COLORS.cream, fontSize: 18, fontWeight: '700' },
+  modalCloseText: { color: C.cream, fontSize: 18, fontWeight: '700' },
 
   sectionLabel: {
-    fontSize: 12, color: COLORS.gold, fontWeight: '800', letterSpacing: 1,
+    fontSize: 12, color: C.gold, fontWeight: '800', letterSpacing: 1,
     marginTop: SPACING.md, marginBottom: SPACING.sm,
     paddingHorizontal: SPACING.md,
   },
 
-  // ── Item rows in the modal ──
   itemRow: {
     flexDirection: 'row', alignItems: 'center',
     marginHorizontal: SPACING.md, marginBottom: 8,
     padding: SPACING.md,
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderRadius: 12,
-    borderWidth: 1, borderColor: COLORS.border,
+    borderWidth: 1, borderColor: C.border,
     minHeight: 72,
   },
   customItemRow: { borderColor: 'rgba(255, 184, 0, 0.45)' },
   itemIcon: { fontSize: 26, width: 32, textAlign: 'center' },
-  itemName: { fontSize: 16, color: COLORS.cream, fontWeight: '700' },
-  itemSanskrit: { fontSize: 12, color: COLORS.gold, fontStyle: 'italic', marginTop: 2 },
-  itemBenefit:  { fontSize: 12, color: COLORS.muted, marginTop: 2, lineHeight: 16 },
-  itemDur:   { fontSize: 14, color: COLORS.gold, fontWeight: '700', marginLeft: SPACING.sm },
+  itemName: { fontSize: 16, color: C.cream, fontWeight: '700' },
+  itemSanskrit: { fontSize: 12, color: C.gold, fontStyle: 'italic', marginTop: 2 },
+  itemBenefit:  { fontSize: 12, color: C.muted, marginTop: 2, lineHeight: 16 },
+  itemDur:   { fontSize: 14, color: C.gold, fontWeight: '700', marginLeft: SPACING.sm },
 });

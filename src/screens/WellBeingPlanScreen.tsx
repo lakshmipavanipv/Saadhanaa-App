@@ -199,11 +199,26 @@ const describeTrigger = (o: SpecialSadhana): string => {
 
 // ─── Main screen ────────────────────────────────────────────────
 
-export const WellBeingPlanScreen = ({ navigation }: any) => {
+export const WellBeingPlanScreen = ({ navigation, route }: any) => {
   const { showToast, userProfile } = useSadhana();
   const [items, setItems] = useState<RoutineItem[]>([]);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardPreset, setWizardPreset] = useState<RoutineCategory | null>(null);
   const [editingItem, setEditingItem] = useState<RoutineItem | null>(null);
+
+  // Deep-link handling: `navigation.navigate('Plan', { preset: 'exercise' })`
+  // opens the wizard immediately with the given category pre-selected, so
+  // users tapping the big 🎯 button on the Exercise tab skip Step 1 and
+  // land on the activity picker (walk/jog/run/cycle/swim/hiit).
+  React.useEffect(() => {
+    const preset = route?.params?.preset as RoutineCategory | undefined;
+    if (preset) {
+      setWizardPreset(preset);
+      setWizardOpen(true);
+      // Clear the param so navigating back and forth doesn't keep re-opening.
+      navigation?.setParams?.({ preset: undefined });
+    }
+  }, [route?.params?.preset]);
   // v61: AI plan card — collapsed by default; expands to show the
   // 5-bucket walking / yoga / japa / meditation / breath breakdown.
   const [aiPlan, setAiPlan] = useState<VitalsPlan | null>(null);
@@ -463,8 +478,9 @@ export const WellBeingPlanScreen = ({ navigation }: any) => {
       <WizardModal
         visible={wizardOpen}
         userName={userProfile?.name || ''}
-        onClose={() => setWizardOpen(false)}
-        onSaved={() => { setWizardOpen(false); showToast('✓ Reminder added'); refresh(); }}
+        initialCategory={wizardPreset ?? undefined}
+        onClose={() => { setWizardOpen(false); setWizardPreset(null); }}
+        onSaved={() => { setWizardOpen(false); setWizardPreset(null); showToast('✓ Reminder added'); refresh(); }}
       />
 
       {/* Edit modal — re-uses the wizard with prefilled state */}
@@ -492,11 +508,14 @@ interface WizardProps {
   visible: boolean;
   userName: string;
   editing?: RoutineItem | null;
+  /** Pre-selects the category and skips Step 1. Used by the Exercise tab's
+   *  🎯 Plan Your Wellbeing button so users go straight to the activity picker. */
+  initialCategory?: RoutineCategory;
   onClose: () => void;
   onSaved: () => void;
 }
 
-const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClose, onSaved }) => {
+const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initialCategory, onClose, onSaved }) => {
   const [step, setStep] = useState(1);
   const [category, setCategory] = useState<RoutineCategory | null>(null);
   const [pickedName, setPickedName] = useState('');
@@ -538,11 +557,12 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
       setStep(2);
     } else if (visible && !editing) {
       // fresh
-      setStep(1);
-      setCategory(null);
+      const presetCat = initialCategory ?? null;
+      setStep(presetCat ? 2 : 1);
+      setCategory(presetCat);
       setPickedName('');
       setPickedSub('');
-      setDuration(20);
+      setDuration(presetCat === 'exercise' ? 30 : 20);
       setGoalUnit('min');
       setTime(null);
       setFreqMode('daily');
@@ -554,7 +574,7 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, onClos
       setSpoken(false);
       setSearch('');
     }
-  }, [visible, editing]);
+  }, [visible, editing, initialCategory]);
 
   // Audio player for tone preview.
   // v67: track which tone is currently sounding so a second tap TOGGLES it

@@ -13,6 +13,7 @@ import {
 import { useSadhana } from '../context';
 import { todayStr, japasToSeconds, formatSadhanaTime } from '../utils';
 import { COLORS, SPACING, FONT_SIZES } from '../theme';
+import { useTheme } from '../ThemeContext';
 import { Mala } from '../components/Mala';
 import { RingSpinner } from '../components/RingSpinner';
 import { PulseHighlight } from '../components/PulseHighlight';
@@ -21,10 +22,10 @@ import { computeJapaEffect, JapaEffectSnapshot } from '../soulsync/analytics/Jap
 import { DeityScreen } from './DeityScreen';
 import { DeityIcon } from '../components/DeityIcon';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
-import { AddToPlanCta } from '../components/AddToPlanCta';
+// AddToPlanCta removed — Plan Your Wellbeing lives in the hamburger drawer.
 import { TimePickerField } from '../components/TimePickerField';
 import { ALL_CATALOG_DEITIES } from '../deityCatalog';
-import { specialSadhanaRepo, SpecialTrigger } from '../services/specialSadhanaRepo';
+import { specialSadhanaRepo, SpecialTrigger, isPathEntry } from '../services/specialSadhanaRepo';
 import { WeekSparkline } from '../components/WeekSparkline';
 import { getDB } from '../soulsync/db/database';
 import { DUMMY, withFallback } from '../services/dummyData';
@@ -37,6 +38,7 @@ import {
   ScannedDevice,
   CounterConnection,
 } from '../services/ble';
+import { JapaRingCounter, readSr16DeviceId } from '../soulsync/ring';
 
 const BEADS = 108;
 
@@ -60,6 +62,8 @@ const SadhanaPathSheet: React.FC<{
   onClose: () => void;
   onSaved: () => void;
 }> = ({ visible, onClose, onSaved }) => {
+  const { palette } = useTheme();
+  const spSheetStyles = React.useMemo(() => makeSpSheetStyles(palette), [palette]);
   const [name, setName] = useState('');
   const [steps, setSteps] = useState<Array<{ deity: string; malas: number }>>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -87,6 +91,7 @@ const SadhanaPathSheet: React.FC<{
     else                                  trigger = { kind: 'dates', dates: dates.split(/[\s,]+/).filter(Boolean) };
 
     await specialSadhanaRepo.add({
+      kind: 'path',
       name: name.trim(),
       practice: steps.map(s => `${s.deity} ${s.malas} mala`).join(' · '),
       durationMin: steps.reduce((s, x) => s + x.malas * 6, 0),  // ~6 min / mala
@@ -246,43 +251,44 @@ const SadhanaPathSheet: React.FC<{
   );
 };
 
-const spSheetStyles = StyleSheet.create({
+const makeSpSheetStyles = (C: typeof COLORS) => StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  card: { backgroundColor: COLORS.darkBg, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: SPACING.md, paddingBottom: SPACING.xl, maxHeight: '92%' },
-  handle: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.sm },
-  title: { color: COLORS.cream, fontSize: 18, fontWeight: '800', marginBottom: 4 },
-  hint: { color: COLORS.muted, fontSize: 12, fontStyle: 'italic', marginBottom: SPACING.md },
-  label: { color: COLORS.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, marginTop: 12, marginBottom: 4 },
-  input: { backgroundColor: COLORS.cardBg, borderRadius: 10, padding: SPACING.sm, color: COLORS.cream, fontSize: 14, borderWidth: 1, borderColor: COLORS.border },
+  card: { backgroundColor: C.darkBg, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: SPACING.md, paddingBottom: SPACING.xl, maxHeight: '92%' },
+  handle: { width: 40, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.sm },
+  title: { color: C.cream, fontSize: 18, fontWeight: '800', marginBottom: 4 },
+  hint: { color: C.muted, fontSize: 12, fontStyle: 'italic', marginBottom: SPACING.md },
+  label: { color: C.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, marginTop: 12, marginBottom: 4 },
+  input: { backgroundColor: C.cardBg, borderRadius: 10, padding: SPACING.sm, color: C.cream, fontSize: 14, borderWidth: 1, borderColor: C.border },
 
   stepRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
-  stepIdx: { color: COLORS.gold, width: 22, fontWeight: '700' },
-  stepName: { flex: 1, color: COLORS.cream, fontSize: 13 },
-  stepVal: { color: COLORS.gold, fontSize: 12, fontWeight: '700', marginRight: 4 },
+  stepIdx: { color: C.gold, width: 22, fontWeight: '700' },
+  stepName: { flex: 1, color: C.cream, fontSize: 13 },
+  stepVal: { color: C.gold, fontSize: 12, fontWeight: '700', marginRight: 4 },
 
-  pickBtn: { paddingVertical: 10, paddingHorizontal: 12, backgroundColor: COLORS.cardBg, borderRadius: 10, borderWidth: 1, borderColor: COLORS.gold, marginTop: 8 },
-  pickBtnText: { color: COLORS.gold, fontSize: 13, fontWeight: '700', textAlign: 'center' },
-  pickList: { maxHeight: 200, backgroundColor: COLORS.deep, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, marginTop: 4, paddingHorizontal: SPACING.sm },
+  pickBtn: { paddingVertical: 10, paddingHorizontal: 12, backgroundColor: C.cardBg, borderRadius: 10, borderWidth: 1, borderColor: C.gold, marginTop: 8 },
+  pickBtnText: { color: C.gold, fontSize: 13, fontWeight: '700', textAlign: 'center' },
+  pickList: { maxHeight: 200, backgroundColor: C.deep, borderRadius: 10, borderWidth: 1, borderColor: C.border, marginTop: 4, paddingHorizontal: SPACING.sm },
   pickRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
 
-  addBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: COLORS.gold, alignItems: 'center', justifyContent: 'center' },
-  addBtnText: { color: COLORS.deep, fontSize: 20, fontWeight: '800' },
+  addBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center' },
+  addBtnText: { color: C.deep, fontSize: 20, fontWeight: '800' },
 
-  chip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.cardBg },
-  chipActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
-  chipText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
-  chipTextActive: { color: COLORS.gold },
+  chip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.cardBg },
+  chipActive: { borderColor: C.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
+  chipText: { color: C.muted, fontSize: 11, fontWeight: '700' },
+  chipTextActive: { color: C.gold },
 
-  dayChip: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.cardBg },
-  dayChipActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
-  dayChipText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
-  dayChipTextActive: { color: COLORS.gold },
+  dayChip: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border, backgroundColor: C.cardBg },
+  dayChipActive: { borderColor: C.gold, backgroundColor: 'rgba(212,160,23,0.15)' },
+  dayChipText: { color: C.muted, fontSize: 12, fontWeight: '700' },
+  dayChipTextActive: { color: C.gold },
 
-  cancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center' },
-  cancelText: { color: COLORS.cream, fontWeight: '600' },
-  saveBtn: { flex: 2, paddingVertical: 12, borderRadius: 10, backgroundColor: COLORS.gold, alignItems: 'center' },
-  saveText: { color: COLORS.deep, fontWeight: '800' },
+  cancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: 'center' },
+  cancelText: { color: C.cream, fontWeight: '600' },
+  saveBtn: { flex: 2, paddingVertical: 12, borderRadius: 10, backgroundColor: C.gold, alignItems: 'center' },
+  saveText: { color: C.deep, fontWeight: '800' },
 });
+const spSheetStyles = makeSpSheetStyles(COLORS);
 
 // ─── Sadhana Depth Score (clickable card) ────────────────────────
 //
@@ -291,6 +297,8 @@ const spSheetStyles = StyleSheet.create({
 // their japa effect is trending across the week.
 
 const SadhanaDepthScore: React.FC<{ onOpenTrend: () => void }> = ({ onOpenTrend }) => {
+  const { palette } = useTheme();
+  const depthStyles = React.useMemo(() => makeDepthStyles(palette), [palette]);
   const [todayDepth, setTodayDepth] = useState<number | null>(null);
   const [delta7, setDelta7] = useState<number | null>(null);
 
@@ -344,23 +352,26 @@ const SadhanaDepthScore: React.FC<{ onOpenTrend: () => void }> = ({ onOpenTrend 
   );
 };
 
-const depthStyles = StyleSheet.create({
+const makeDepthStyles = (C: typeof COLORS) => StyleSheet.create({
   card: {
     flexDirection: 'row', alignItems: 'center',
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,
-    padding: SPACING.md, backgroundColor: COLORS.cardBg,
+    padding: SPACING.md, backgroundColor: C.cardBg,
     borderRadius: 14, borderWidth: 1, borderColor: 'rgba(212,160,23,0.35)',
   },
-  label: { fontSize: 10, color: COLORS.muted, fontWeight: '800', letterSpacing: 1.2, marginBottom: 4 },
-  value: { fontSize: 28, color: COLORS.gold, fontWeight: '800', lineHeight: 30 },
-  outOf: { fontSize: 14, color: COLORS.muted, fontWeight: '500' },
+  label: { fontSize: 10, color: C.muted, fontWeight: '800', letterSpacing: 1.2, marginBottom: 4 },
+  value: { fontSize: 28, color: C.gold, fontWeight: '800', lineHeight: 30 },
+  outOf: { fontSize: 14, color: C.muted, fontWeight: '500' },
   delta: { fontSize: 11, fontWeight: '700', marginLeft: 8 },
-  hint: { fontSize: 11, color: COLORS.muted, fontStyle: 'italic', marginTop: 4 },
+  hint: { fontSize: 11, color: C.muted, fontStyle: 'italic', marginTop: 4 },
 });
+const depthStyles = makeDepthStyles(COLORS);
 
 // ─── Sadhana Vitals Compare (live, during active session) ────────
 
 const SadhanaVitalsCompare: React.FC<{ liveBpm: number | null; liveRmssd: number | null }> = ({ liveBpm, liveRmssd }) => {
+  const { palette } = useTheme();
+  const vitalStyles = React.useMemo(() => makeVitalStyles(palette), [palette]);
   const [baseline, setBaseline] = useState<{ bpm: number; hrv: number; spo2: number } | null>(null);
 
   useEffect(() => {
@@ -430,25 +441,28 @@ const SadhanaVitalsCompare: React.FC<{ liveBpm: number | null; liveRmssd: number
   );
 };
 
-const vitalStyles = StyleSheet.create({
+const makeVitalStyles = (C: typeof COLORS) => StyleSheet.create({
   card: {
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,
     padding: SPACING.md, backgroundColor: 'rgba(255,255,255,0.04)',
     borderRadius: 12, borderWidth: 1, borderColor: 'rgba(212,160,23,0.20)',
   },
-  title: { fontSize: 10, color: COLORS.muted, fontWeight: '800', letterSpacing: 1.2, marginBottom: 6 },
+  title: { fontSize: 10, color: C.muted, fontWeight: '800', letterSpacing: 1.2, marginBottom: 6 },
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5 },
   icon: { fontSize: 16, width: 24 },
-  label: { flex: 1, color: COLORS.cream, fontSize: 12, fontWeight: '600' },
-  num: { color: COLORS.muted, fontSize: 13, width: 40, textAlign: 'right' },
-  arrow: { color: COLORS.muted, fontSize: 12, paddingHorizontal: 4 },
+  label: { flex: 1, color: C.cream, fontSize: 12, fontWeight: '600' },
+  num: { color: C.muted, fontSize: 13, width: 40, textAlign: 'right' },
+  arrow: { color: C.muted, fontSize: 12, paddingHorizontal: 4 },
   delta: { fontSize: 11, fontWeight: '700', width: 64, textAlign: 'right' },
-  hint: { fontSize: 10, color: COLORS.muted, fontStyle: 'italic', marginTop: 6, lineHeight: 14 },
+  hint: { fontSize: 10, color: C.muted, fontStyle: 'italic', marginTop: 6, lineHeight: 14 },
 });
+const vitalStyles = makeVitalStyles(COLORS);
 
 // ─── Depth Score Trend Modal ─────────────────────────────────────
 
 const DepthTrendModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ visible, onClose }) => {
+  const { palette } = useTheme();
+  const depthTrendStyles = React.useMemo(() => makeDepthTrendStyles(palette), [palette]);
   const [series, setSeries] = useState<number[]>([0,0,0,0,0,0,0]);
   const [labels, setLabels] = useState<string[]>(['','','','','','','']);
 
@@ -508,17 +522,24 @@ const DepthTrendModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ 
   );
 };
 
-const depthTrendStyles = StyleSheet.create({
+const makeDepthTrendStyles = (C: typeof COLORS) => StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  card: { backgroundColor: COLORS.darkBg, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: SPACING.md, paddingBottom: SPACING.xl },
-  handle: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.sm },
-  title: { color: COLORS.cream, fontSize: 18, fontWeight: '800', flex: 1 },
-  subtitle: { color: COLORS.gold, fontSize: 12, fontWeight: '700', marginTop: 4 },
-  subSection: { color: COLORS.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.2, marginTop: SPACING.md, marginBottom: 4 },
-  helper: { color: COLORS.muted, fontSize: 11, fontStyle: 'italic', marginTop: SPACING.md, lineHeight: 15 },
+  card: { backgroundColor: C.darkBg, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: SPACING.md, paddingBottom: SPACING.xl },
+  handle: { width: 40, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.sm },
+  title: { color: C.cream, fontSize: 18, fontWeight: '800', flex: 1 },
+  subtitle: { color: C.gold, fontSize: 12, fontWeight: '700', marginTop: 4 },
+  subSection: { color: C.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.2, marginTop: SPACING.md, marginBottom: 4 },
+  helper: { color: C.muted, fontSize: 11, fontStyle: 'italic', marginTop: SPACING.md, lineHeight: 15 },
 });
+const depthTrendStyles = makeDepthTrendStyles(COLORS);
 
 export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
+  const { palette } = useTheme();
+  const styles = React.useMemo(() => makeStyles(palette), [palette]);
+  const depthStyles = React.useMemo(() => makeDepthStyles(palette), [palette]);
+  const vitalStyles = React.useMemo(() => makeVitalStyles(palette), [palette]);
+  const spSheetStyles = React.useMemo(() => makeSpSheetStyles(palette), [palette]);
+  const depthTrendStyles = React.useMemo(() => makeDepthTrendStyles(palette), [palette]);
   const {
     selectedDeity, setSelectedDeity, deities, setDeities, saveSession, showToast,
     deityProgress, updateProgress, history,
@@ -652,7 +673,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   const [sadhanaPaths, setSadhanaPaths] = useState<any[]>([]);
   useEffect(() => {
     if (showSadhanaPicker) {
-      specialSadhanaRepo.list().then(setSadhanaPaths);
+      specialSadhanaRepo.list().then((all) => setSadhanaPaths(all.filter(isPathEntry)));
     }
   }, [showSadhanaPicker]);
 
@@ -778,6 +799,42 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
     };
   }, []);
 
+  // ── SR16 smart-ring physical tap → japa increment ──────────────────
+  //
+  // If the user paired an SR16 in Ring Debug, we spin up a background
+  // JapaRingCounter for this screen's lifetime. Every physical bead-touch
+  // on the ring fires a BLE frame, which we translate to a tap on the
+  // currently-selected deity. Auto-reconnects if the link drops between
+  // taps (the ring's supervision timeout kicks in after ~7 s of silence).
+  const sr16CounterRef = useRef<JapaRingCounter | null>(null);
+  const [sr16Status, setSr16Status] = useState<'off' | 'connecting' | 'connected'>('off');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const paired = await readSr16DeviceId();
+      if (!paired || cancelled) return;
+      setSr16Status('connecting');
+      try {
+        const c = await JapaRingCounter.start({
+          onTap: () => tapRef.current?.(),
+          onConnected: () => !cancelled && setSr16Status('connected'),
+          onDisconnected: () => !cancelled && setSr16Status('connecting'),
+          onError: () => !cancelled && setSr16Status('off'),
+        });
+        if (cancelled) { await c.stop(); return; }
+        sr16CounterRef.current = c;
+      } catch {
+        if (!cancelled) setSr16Status('off');
+      }
+    })();
+    return () => {
+      cancelled = true;
+      sr16CounterRef.current?.stop();
+      sr16CounterRef.current = null;
+    };
+  }, []);
+
   // Register pair / disconnect handlers in context so SettingsScreen can invoke them.
   useEffect(() => {
     registerBleHandlers({
@@ -853,7 +910,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: palette.deep }]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* ─── Header (title only — lifetime pill removed in v43) ─── */}
         <View style={styles.header}>
@@ -885,16 +942,71 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
           );
         })()}
 
-        {/* v71: Plan CTA sits right under the KPI/stats box — same position
-            as the Yoga and Exercise tabs for cross-tab consistency. */}
-        <AddToPlanCta
-          label="a japa session"
-          onPress={() => navigation?.navigate?.('Plan')}
-        />
+        {/* Plan CTA removed — Plan Your Wellbeing is in the ☰ drawer. */}
 
         {/* Deities breakdown moved to the very bottom of this screen in v43 —
             shown below the Soul Sync trends so it doesn't compete with the
             primary "Pick a Sadhana" entry point. */}
+
+        {/* ─── Quick deity strip ───
+             Persistent horizontal row of the user's added deities with
+             their live counts. Tap a chip to switch — ring taps will then
+             count against that deity. Long-press cycles to the next one
+             (mimics the on-ring counter-mode deity-selector we can't build
+             without custom firmware). */}
+        {deities.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ marginHorizontal: SPACING.md, marginBottom: SPACING.sm }}
+            contentContainerStyle={{ paddingRight: SPACING.md }}
+          >
+            {deities.map((d) => {
+              const prog = deityProgress[d.id] ?? { count: 0, malas: 0 };
+              const isSelected = selectedDeity?.id === d.id;
+              return (
+                <TouchableOpacity
+                  key={d.id}
+                  onPress={() => setSelectedDeity(d)}
+                  onLongPress={() => {
+                    // Cycle to next deity in the list.
+                    const idx = deities.findIndex((x) => x.id === d.id);
+                    const next = deities[(idx + 1) % deities.length];
+                    if (next) setSelectedDeity(next);
+                  }}
+                  style={{
+                    marginRight: SPACING.sm,
+                    paddingVertical: SPACING.sm,
+                    paddingHorizontal: SPACING.md,
+                    borderRadius: 20,
+                    borderWidth: 1.5,
+                    borderColor: isSelected ? COLORS.gold : COLORS.border,
+                    backgroundColor: isSelected ? 'rgba(212, 160, 23, 0.15)' : COLORS.cardBg,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                  }}
+                >
+                  <DeityIcon
+                    deityId={d.id}
+                    icon={d.icon}
+                    size={20}
+                    color={isSelected ? COLORS.gold : COLORS.cream}
+                  />
+                  <View style={{ marginLeft: SPACING.xs }}>
+                    <Text style={{
+                      color: isSelected ? COLORS.gold : COLORS.cream,
+                      fontSize: FONT_SIZES.sm,
+                      fontWeight: isSelected ? '700' : '500',
+                    }}>{d.name}</Text>
+                    <Text style={{ color: COLORS.muted, fontSize: FONT_SIZES.xs }}>
+                      {prog.malas} mala · {prog.count} bead
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
 
         {/* ─── #2 · UNIFIED SADHANA SELECTOR ───
              ONE dropdown that lists all existing deities + sandhya +
@@ -1534,10 +1646,10 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.deep,
+    backgroundColor: C.deep,
   },
   content: {
     paddingHorizontal: SPACING.md,
@@ -1550,13 +1662,13 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 24,
-    color: COLORS.cream,
+    color: C.cream,
     fontWeight: '600',
     marginBottom: SPACING.sm,
   },
   subtitle: {
     fontSize: 12,
-    color: COLORS.muted,
+    color: C.muted,
     textAlign: 'center',
   },
   // ── Lifetime totals pill (top-right of header, never overlaps mala) ──
@@ -1572,48 +1684,48 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 184, 0, 0.3)',
     alignItems: 'flex-end',
   },
-  lifetimePillText: { fontSize: 10, color: COLORS.cream },
-  lifetimePillNumber: { color: COLORS.gold, fontWeight: '700', fontSize: 11 },
+  lifetimePillText: { fontSize: 10, color: C.cream },
+  lifetimePillNumber: { color: C.gold, fontWeight: '700', fontSize: 11 },
   lifetimePillSubtext: {
-    fontSize: 8, color: COLORS.muted, fontStyle: 'italic',
+    fontSize: 8, color: C.muted, fontStyle: 'italic',
     letterSpacing: 0.5, textTransform: 'uppercase',
   },
 
   // ── Deities list (inline replacement for removed Deities tab) ──
   deitiesBlock: { marginHorizontal: SPACING.md, marginTop: SPACING.lg },
   deitiesHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm },
-  deitiesTitle: { fontSize: 14, color: COLORS.gold, fontWeight: '700', letterSpacing: 0.5 },
-  deitiesSubtitle: { fontSize: 11, color: COLORS.muted, marginTop: 2, fontStyle: 'italic' },
+  deitiesTitle: { fontSize: 14, color: C.gold, fontWeight: '700', letterSpacing: 0.5 },
+  deitiesSubtitle: { fontSize: 11, color: C.muted, marginTop: 2, fontStyle: 'italic' },
   deitiesChevron: {
-    fontSize: 22, color: COLORS.gold, fontWeight: '300',
+    fontSize: 22, color: C.gold, fontWeight: '300',
     paddingHorizontal: 8,
   },
   deityListRow: {
     flexDirection: 'row', alignItems: 'center',
     padding: SPACING.sm,
-    backgroundColor: COLORS.cardBg, borderRadius: 10,
-    borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: C.cardBg, borderRadius: 10,
+    borderWidth: 1, borderColor: C.border,
     marginBottom: 6,
   },
-  deityListRowActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.1)' },
+  deityListRowActive: { borderColor: C.gold, backgroundColor: 'rgba(212,160,23,0.1)' },
   deityListIconWrap: {
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: 'rgba(212,160,23,0.12)',
     justifyContent: 'center', alignItems: 'center',
   },
-  deityListName: { fontSize: 13, color: COLORS.cream, fontWeight: '600' },
-  deityListMantra: { fontSize: 10, color: COLORS.muted, fontStyle: 'italic', marginTop: 1 },
+  deityListName: { fontSize: 13, color: C.cream, fontWeight: '600' },
+  deityListMantra: { fontSize: 10, color: C.muted, fontStyle: 'italic', marginTop: 1 },
   deityListBarTrack: {
     height: 3, backgroundColor: 'rgba(212,160,23,0.15)', borderRadius: 2,
     marginTop: 4, overflow: 'hidden',
   },
-  deityListBarFill: { height: '100%', backgroundColor: COLORS.gold },
+  deityListBarFill: { height: '100%', backgroundColor: C.gold },
   deityListRight: { alignItems: 'flex-end', marginLeft: SPACING.sm },
-  deityListMalas: { fontSize: 16, color: COLORS.gold, fontWeight: '700' },
-  deityListMalasLabel: { fontSize: 8, color: COLORS.muted, letterSpacing: 0.5 },
-  deityListAlarm: { fontSize: 10, color: COLORS.muted, marginTop: 4 },
+  deityListMalas: { fontSize: 16, color: C.gold, fontWeight: '700' },
+  deityListMalasLabel: { fontSize: 8, color: C.muted, letterSpacing: 0.5 },
+  deityListAlarm: { fontSize: 10, color: C.muted, marginTop: 4 },
   deityListAlarmTap: {
-    color: COLORS.gold, fontWeight: '700',
+    color: C.gold, fontWeight: '700',
     paddingHorizontal: 6, paddingVertical: 2,
     borderRadius: 6, backgroundColor: 'rgba(212,160,23,0.12)',
     overflow: 'hidden',
@@ -1621,75 +1733,75 @@ const styles = StyleSheet.create({
   addDeityBtn: {
     marginTop: SPACING.sm, paddingVertical: 10,
     borderRadius: 8, borderWidth: 1.5, borderStyle: 'dashed',
-    borderColor: COLORS.gold, alignItems: 'center',
+    borderColor: C.gold, alignItems: 'center',
   },
-  addDeityBtnText: { color: COLORS.gold, fontSize: 12, fontWeight: '700' },
+  addDeityBtnText: { color: C.gold, fontSize: 12, fontWeight: '700' },
 
   // + Sadhana ▾ button and 3-action menu
   sadhanaActionBtn: {
     marginTop: SPACING.sm, paddingVertical: 10,
     borderRadius: 10, borderStyle: 'dashed',
-    borderWidth: 1, borderColor: COLORS.gold,
+    borderWidth: 1, borderColor: C.gold,
     backgroundColor: 'rgba(212,160,23,0.06)',
     alignItems: 'center',
   },
-  sadhanaActionText: { color: COLORS.gold, fontWeight: '700', fontSize: 13 },
+  sadhanaActionText: { color: C.gold, fontWeight: '700', fontSize: 13 },
 
   sadhanaMenuOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
     justifyContent: 'flex-end',
   },
   sadhanaMenuCard: {
-    backgroundColor: COLORS.darkBg,
+    backgroundColor: C.darkBg,
     borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: SPACING.md, paddingBottom: SPACING.xl,
     maxHeight: '88%',
   },
-  sadhanaMenuTitle: { color: COLORS.cream, fontSize: 20, fontWeight: '800' },
-  sadhanaMenuHint: { color: COLORS.muted, fontSize: 12, fontStyle: 'italic', marginBottom: SPACING.md },
+  sadhanaMenuTitle: { color: C.cream, fontSize: 20, fontWeight: '800' },
+  sadhanaMenuHint: { color: C.muted, fontSize: 12, fontStyle: 'italic', marginBottom: SPACING.md },
   sadhanaMenuRow: {
     flexDirection: 'row', alignItems: 'center',
     paddingVertical: 12, paddingHorizontal: 12,
-    borderRadius: 12, borderWidth: 1, borderColor: COLORS.border,
-    backgroundColor: COLORS.cardBg, marginBottom: 8,
+    borderRadius: 12, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.cardBg, marginBottom: 8,
   },
   sadhanaMenuIcon: { fontSize: 26, marginRight: 12, width: 32 },
-  sadhanaMenuLabel: { color: COLORS.cream, fontSize: 15, fontWeight: '700' },
-  sadhanaMenuSub: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
-  sadhanaMenuArrow: { color: COLORS.gold, fontSize: 22, paddingHorizontal: 6 },
+  sadhanaMenuLabel: { color: C.cream, fontSize: 15, fontWeight: '700' },
+  sadhanaMenuSub: { color: C.muted, fontSize: 11, marginTop: 2 },
+  sadhanaMenuArrow: { color: C.gold, fontSize: 22, paddingHorizontal: 6 },
   sadhanaMenuCancel: { paddingVertical: 10, alignItems: 'center', marginTop: 4 },
-  sadhanaMenuCancelText: { color: COLORS.muted, fontSize: 13 },
+  sadhanaMenuCancelText: { color: C.muted, fontSize: 13 },
 
   // Unified Sadhana picker rows
   picSectionLabel: {
-    fontSize: 10, color: COLORS.muted, fontWeight: '800',
+    fontSize: 10, color: C.muted, fontWeight: '800',
     letterSpacing: 1.2, marginTop: SPACING.md, marginBottom: 6,
   },
   picRow: {
     flexDirection: 'row', alignItems: 'center',
     paddingVertical: 10, paddingHorizontal: 10,
-    borderRadius: 10, borderWidth: 1, borderColor: COLORS.border,
-    backgroundColor: COLORS.cardBg, marginBottom: 6,
+    borderRadius: 10, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.cardBg, marginBottom: 6,
   },
-  picRowActive: { borderColor: COLORS.gold, backgroundColor: 'rgba(212,160,23,0.10)' },
+  picRowActive: { borderColor: C.gold, backgroundColor: 'rgba(212,160,23,0.10)' },
   picIconWrap: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: 'rgba(212,160,23,0.10)',
     alignItems: 'center', justifyContent: 'center',
   },
   picIcon: { fontSize: 22, width: 36, textAlign: 'center' },
-  picName: { color: COLORS.cream, fontSize: 14, fontWeight: '700' },
-  picSub: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
-  picArrow: { color: COLORS.gold, fontSize: 20, paddingHorizontal: 4 },
+  picName: { color: C.cream, fontSize: 14, fontWeight: '700' },
+  picSub: { color: C.muted, fontSize: 11, marginTop: 2 },
+  picArrow: { color: C.gold, fontSize: 20, paddingHorizontal: 4 },
   picAddRow: {
     flexDirection: 'row', alignItems: 'center',
     paddingVertical: 12, paddingHorizontal: 10,
-    borderRadius: 12, borderWidth: 1, borderStyle: 'dashed', borderColor: COLORS.gold,
+    borderRadius: 12, borderWidth: 1, borderStyle: 'dashed', borderColor: C.gold,
     backgroundColor: 'rgba(212,160,23,0.06)',
     marginTop: SPACING.sm, marginBottom: 8,
   },
   deitySelector: {
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderRadius: 12,
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.md,
@@ -1700,21 +1812,21 @@ const styles = StyleSheet.create({
   },
   deityLabel: {
     fontSize: 12,
-    color: COLORS.muted,
+    color: C.muted,
     marginBottom: 4,
   },
   deityName: {
     fontSize: 16,
-    color: COLORS.cream,
+    color: C.cream,
     fontWeight: '500',
   },
   chevron: {
     fontSize: 16,
-    color: COLORS.muted,
+    color: C.muted,
   },
   mantra: {
     fontSize: 14,
-    color: COLORS.gold,
+    color: C.gold,
     fontStyle: 'italic',
     textAlign: 'center',
     marginVertical: SPACING.md,
@@ -1735,7 +1847,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderWidth: 1,
     borderColor: 'rgba(214, 224, 64, 0.4)',
   },
@@ -1745,7 +1857,7 @@ const styles = StyleSheet.create({
   },
   soulsyncDot: {
     width: 8, height: 8, borderRadius: 4,
-    backgroundColor: COLORS.muted,
+    backgroundColor: C.muted,
   },
   soulsyncDotOn: {
     backgroundColor: '#d6e040',
@@ -1754,7 +1866,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 6,
   },
-  soulsyncText: { fontSize: 12, color: COLORS.muted, fontWeight: '600' },
+  soulsyncText: { fontSize: 12, color: C.muted, fontWeight: '600' },
   soulsyncTextOn: { color: '#d6e040' },
   peakCount: { fontSize: 12, color: '#fbff7a', fontWeight: '700' },
   statsContainer: {
@@ -1777,12 +1889,12 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontSize: 24,
-    color: COLORS.gold,
+    color: C.gold,
     fontWeight: 'bold',
   },
   statLabel: {
     fontSize: 11,
-    color: COLORS.muted,
+    color: C.muted,
     marginTop: 4,
   },
 
@@ -1801,10 +1913,10 @@ const styles = StyleSheet.create({
     borderRightWidth: 1, borderBottomWidth: 1,
   },
   kpiCellToday: { backgroundColor: 'rgba(212, 160, 23, 0.07)' },
-  kpiCellValue: { fontSize: 18, color: COLORS.cream, fontWeight: '700' },
-  kpiCellValueToday: { color: COLORS.gold },
+  kpiCellValue: { fontSize: 18, color: C.cream, fontWeight: '700' },
+  kpiCellValueToday: { color: C.gold },
   kpiCellLabel: {
-    fontSize: 10, color: COLORS.muted, marginTop: 2,
+    fontSize: 10, color: C.muted, marginTop: 2,
     letterSpacing: 0.5, fontWeight: '600',
   },
 
@@ -1817,13 +1929,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm,
     borderRadius: 20,
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: C.border,
   },
   resetBtnText: {
     fontSize: 13,
-    color: COLORS.muted,
+    color: C.muted,
     fontWeight: '500',
   },
   manualBtn: {
@@ -1832,11 +1944,11 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: 'rgba(212, 160, 23, 0.15)',
     borderWidth: 1,
-    borderColor: COLORS.gold,
+    borderColor: C.gold,
   },
   manualBtnText: {
     fontSize: 13,
-    color: COLORS.gold,
+    color: C.gold,
     fontWeight: '600',
   },
   bleBtn: {
@@ -1846,44 +1958,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm,
     borderRadius: 20,
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderWidth: 1,
     borderColor: 'rgba(74, 222, 128, 0.4)',
   },
   bleBtnConnected: {
     backgroundColor: 'rgba(74, 222, 128, 0.15)',
-    borderColor: COLORS.leaf,
+    borderColor: C.leaf,
   },
   bleDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: COLORS.muted,
+    backgroundColor: C.muted,
   },
   bleDotOn: {
-    backgroundColor: COLORS.leaf,
-    shadowColor: COLORS.leaf,
+    backgroundColor: C.leaf,
+    shadowColor: C.leaf,
     shadowOpacity: 1,
     shadowRadius: 4,
     elevation: 4,
   },
-  bleBtnText: { fontSize: 12, color: COLORS.muted, fontWeight: '600' },
-  bleBtnTextOn: { color: COLORS.leaf },
+  bleBtnText: { fontSize: 12, color: C.muted, fontWeight: '600' },
+  bleBtnTextOn: { color: C.leaf },
   deviceRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: SPACING.md,
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderRadius: 8,
     marginBottom: 6,
   },
-  deviceName: { fontSize: 14, color: COLORS.cream, fontWeight: '600' },
-  deviceMeta: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
-  connectArrow: { fontSize: 12, color: COLORS.gold, fontWeight: '600' },
+  deviceName: { fontSize: 14, color: C.cream, fontWeight: '600' },
+  deviceMeta: { fontSize: 11, color: C.muted, marginTop: 2 },
+  connectArrow: { fontSize: 12, color: C.gold, fontWeight: '600' },
   autoSaveHint: {
     fontSize: 11,
-    color: COLORS.muted,
+    color: C.muted,
     fontStyle: 'italic',
     textAlign: 'center',
     marginTop: SPACING.md,
@@ -1891,7 +2003,7 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     fontSize: 11,
-    color: COLORS.muted,
+    color: C.muted,
     fontWeight: '600',
     marginBottom: 4,
     marginTop: 8,
@@ -1900,41 +2012,41 @@ const styles = StyleSheet.create({
   },
   fieldHint: {
     fontSize: 11,
-    color: COLORS.gold,
+    color: C.gold,
     marginTop: 4,
     fontStyle: 'italic',
   },
   input: {
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderRadius: 8,
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.md,
-    color: COLORS.cream,
+    color: C.cream,
     fontSize: 14,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: C.border,
   },
   primaryBtn: {
-    backgroundColor: COLORS.gold,
+    backgroundColor: C.gold,
     borderRadius: 10,
     paddingVertical: SPACING.md,
     alignItems: 'center',
     marginTop: SPACING.lg,
   },
-  primaryBtnText: { color: COLORS.deep, fontWeight: '700', fontSize: 14 },
+  primaryBtnText: { color: C.deep, fontWeight: '700', fontSize: 14 },
   cancelBtn: {
     paddingVertical: SPACING.md,
     alignItems: 'center',
     marginTop: SPACING.sm,
   },
-  cancelBtnText: { color: COLORS.muted, fontSize: 13 },
+  cancelBtnText: { color: C.muted, fontSize: 13 },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: COLORS.darkBg,
+    backgroundColor: C.darkBg,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: SPACING.md,
@@ -1945,20 +2057,20 @@ const styles = StyleSheet.create({
   modalHandle: {
     width: 40,
     height: 4,
-    backgroundColor: COLORS.border,
+    backgroundColor: C.border,
     borderRadius: 2,
     alignSelf: 'center',
     marginBottom: SPACING.md,
   },
   modalTitle: {
     fontSize: 18,
-    color: COLORS.cream,
+    color: C.cream,
     fontWeight: '600',
     marginBottom: SPACING.md,
   },
   emptyText: {
     textAlign: 'center',
-    color: COLORS.muted,
+    color: C.muted,
     fontSize: 14,
     paddingVertical: SPACING.lg,
   },
@@ -1967,7 +2079,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    borderBottomColor: C.border,
   },
   deityPickerItemSelected: {
     backgroundColor: 'rgba(212, 160, 23, 0.1)',
@@ -2004,18 +2116,18 @@ const styles = StyleSheet.create({
   },
   deityPickerName: {
     fontSize: 15,
-    color: COLORS.cream,
+    color: C.cream,
     fontWeight: '500',
   },
   deityPickerMantra: {
     fontSize: 12,
-    color: COLORS.muted,
+    color: C.muted,
     marginTop: 2,
     fontStyle: 'italic',
   },
   checkmark: {
     fontSize: 18,
-    color: COLORS.gold,
+    color: C.gold,
   },
   // T5: + Add Deity row inside picker
   addDeityRow: {
@@ -2027,7 +2139,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: 'rgba(212, 160, 23, 0.10)',
     borderWidth: 1.5,
-    borderColor: COLORS.gold,
+    borderColor: C.gold,
     borderStyle: 'dashed',
   },
   addDeityIcon: {
@@ -2041,24 +2153,24 @@ const styles = StyleSheet.create({
   },
   addDeityPlus: {
     fontSize: 22,
-    color: COLORS.gold,
+    color: C.gold,
     fontWeight: '700',
     lineHeight: 24,
   },
   addDeityName: {
     fontSize: 15,
-    color: COLORS.gold,
+    color: C.gold,
     fontWeight: '700',
   },
   addDeityHint: {
     fontSize: 11,
-    color: COLORS.muted,
+    color: C.muted,
     marginTop: 2,
     fontStyle: 'italic',
   },
   addDeityArrow: {
     fontSize: 22,
-    color: COLORS.gold,
+    color: C.gold,
     fontWeight: '600',
   },
   closeBtn: {
@@ -2067,8 +2179,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   closeBtnText: {
-    color: COLORS.cream,
+    color: C.cream,
     fontSize: 14,
     fontWeight: '500',
   },
 });
+
+
+// Static dark styles for helpers rendered outside the palette-aware component.
+const styles = makeStyles(COLORS);

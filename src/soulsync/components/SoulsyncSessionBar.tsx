@@ -14,6 +14,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { COLORS, SPACING } from '../../theme';
+import { useTheme } from '../../ThemeContext';
 import { useSoulsyncSession } from '../hooks/useSoulsyncSession';
 import { SessionScorePopup } from './SessionScorePopup';
 import { computeJapaEffect, JapaEffectSnapshot } from '../analytics/JapaEffect';
@@ -44,6 +45,8 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
   onViewInsights,
   session,
 }) => {
+  const { palette } = useTheme();
+  const styles = React.useMemo(() => makeStyles(palette), [palette]);
   // Use the parent-supplied session if it exists; otherwise spin up our
   // own (so the bar still works standalone in screens that don't render
   // LiveVitalsTrends).  Note: a hook is called unconditionally to keep
@@ -120,7 +123,7 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -128,30 +131,32 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
     paddingVertical: 10,
     paddingHorizontal: SPACING.md,
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: C.cardBg,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: C.border,
   },
   barActive: {
     backgroundColor: 'rgba(255, 184, 0, 0.12)',
-    borderColor: COLORS.gold,
+    borderColor: C.gold,
   },
   dot: {
     width: 10, height: 10, borderRadius: 5,
-    backgroundColor: COLORS.muted,
+    backgroundColor: C.muted,
     marginRight: SPACING.sm,
   },
   dotActive: {
     backgroundColor: '#3ddc84',
     shadowColor: '#3ddc84', shadowOpacity: 1, shadowRadius: 6,
   },
-  label: { fontSize: 12, color: COLORS.cream, fontWeight: '500' },
-  labelActive: { color: COLORS.gold, fontWeight: '700' },
-  liveStats: { fontSize: 11, color: COLORS.cream, marginTop: 2 },
+  label: { fontSize: 12, color: C.cream, fontWeight: '500' },
+  labelActive: { color: C.gold, fontWeight: '700' },
+  liveStats: { fontSize: 11, color: C.cream, marginTop: 2 },
   action: {
-    fontSize: 12, color: COLORS.gold, fontWeight: '700',
+    fontSize: 12, color: C.gold, fontWeight: '700',
     marginLeft: SPACING.sm,
   },
-  actionActive: { color: COLORS.error },
+  actionActive: { color: C.error },
 });
+
+const styles = makeStyles(COLORS);
