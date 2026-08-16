@@ -30,6 +30,11 @@ import { OnboardingScreen } from './screens/OnboardingScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { MeditationScreen } from './screens/MeditationScreen';
 import { HealthScreen } from './screens/HealthScreen';
+import { HealthHubScreen } from './screens/health/HealthHubScreen';
+import { MetricDetailScreen } from './screens/health/MetricDetailScreen';
+import { StressDetailScreen } from './screens/health/StressDetailScreen';
+import { SleepDetailScreen } from './screens/health/SleepDetailScreen';
+import { ExerciseDetailScreen } from './screens/health/ExerciseDetailScreen';
 import { DeviceSettingsScreen } from './screens/DeviceSettingsScreen';
 import { RingDebugScreen } from './screens/RingDebugScreen';
 import { SideDrawer, type DrawerAction } from './components/SideDrawer';
@@ -167,11 +172,40 @@ const TabNavigator = () => {
       />
       <Tab.Screen
         name="Health"
-        component={HealthScreen}
+        component={HealthHubScreen}
         options={{
           tabBarLabel: 'Health',
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 26, color }}>💗</Text>,
         }}
+      />
+      {/* Health-detail routes — reachable via Health hub tile taps. Hidden
+          from the tab bar (tabBarItemStyle:display:none) and the tab bar
+          itself hides while the detail is open. */}
+      <Tab.Screen
+        name="MetricDetail"
+        component={MetricDetailScreen}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' }, tabBarStyle: { display: 'none' } }}
+      />
+      <Tab.Screen
+        name="StressDetail"
+        component={StressDetailScreen}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' }, tabBarStyle: { display: 'none' } }}
+      />
+      <Tab.Screen
+        name="SleepDetail"
+        component={SleepDetailScreen}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' }, tabBarStyle: { display: 'none' } }}
+      />
+      <Tab.Screen
+        name="ExerciseDetail"
+        component={ExerciseDetailScreen}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' }, tabBarStyle: { display: 'none' } }}
+      />
+      {/* Retained legacy full Health tab, kept mounted for deep-links but hidden. */}
+      <Tab.Screen
+        name="HealthLegacy"
+        component={HealthScreen}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' }, tabBarStyle: { display: 'none' } }}
       />
     </Tab.Navigator>
   );
