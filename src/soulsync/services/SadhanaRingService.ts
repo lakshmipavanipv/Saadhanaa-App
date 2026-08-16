@@ -105,11 +105,26 @@ export class SadhanaRingService implements RingService {
   }
 
   /**
-   * Ring has no vibration motor (confirmed) — this is a no-op. Kept to satisfy
-   * the RingService interface.
+   * Vibrate the ring. Earlier this was a no-op because the SR16 was thought
+   * motorless; the firmware opcode table (0xDF · vibration find-ring) shows
+   * it does support it.
+   *
+   * The RingService interface takes a BuzzPattern { pattern: number[] } where
+   * even indices are "on" durations and odd indices are gaps. We can only
+   * send discrete pulses (0xDF is one-shot), so we count on-segments to derive
+   * how many times to buzz: pattern [200] → 1 pulse, [100,80,100] → 2 pulses,
+   * [100,80,100,80,100] → 3 pulses. Cap at 5 to be gentle on the motor.
    */
-  async buzz(_pattern: BuzzPattern): Promise<void> {
-    /* intentionally empty */
+  async buzz(pattern: BuzzPattern): Promise<void> {
+    if (!this.ring) return;
+    const onSegments = Math.max(1, Math.ceil((pattern.pattern?.length ?? 1) / 2));
+    const pulses = Math.min(5, onSegments);
+    try {
+      await this.ring.device.vibrate(pulses);
+    } catch (e) {
+      // Non-fatal — some SR16 firmware revs don't accept the opcode.
+      console.warn('[SadhanaRing] vibrate failed:', (e as Error).message);
+    }
   }
 
   /** Current battery percent, or null if we haven't queried yet. */

@@ -105,8 +105,22 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
   );
 
   const handleFindDevice = async () => {
-    if (!ring) return soon('Search Device');
-    try { await ring.device.findDevice(); Alert.alert('Ring should be blinking now'); } catch { soon('Search Device'); }
+    if (!ring) return soon('Find Ring');
+    try {
+      await ring.device.findDevice(1);
+      Alert.alert('Find Ring', 'Ring should buzz now (opcode 0xDF).');
+    } catch {
+      soon('Find Ring');
+    }
+  };
+
+  const handleBuzzTest = async (pulses: number) => {
+    if (!ring) return soon('Buzz Test');
+    try {
+      await ring.device.vibrate(pulses);
+    } catch (e) {
+      Alert.alert('Buzz Test', 'Ring rejected the opcode: ' + (e as Error).message);
+    }
   };
 
   const handleSetUnit = async (u: 'Metric' | 'Imperial') => {
@@ -121,11 +135,20 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
     { icon: '📸', iconBg: '#10b981', label: 'Daily likes', toggle: dailyLikes, onToggle: setDailyLikes },
     { icon: '📷', iconBg: '#06b6d4', label: 'Take Photo', onPress: () => soon('Take Photo') },
     { icon: '☀️', iconBg: '#22c55e', label: 'Screen brightness', value: screenBrightness, onPress: () => setScreenBrightness((v) => v === 'Soft light' ? 'Bright' : 'Soft light') },
-    { icon: '📳', iconBg: '#eab308', label: 'Vibration setting', onPress: () => Alert.alert('Vibration', 'Ring has no motor (owner-confirmed). No-op.') },
+    { icon: '📳', iconBg: '#eab308', label: 'Vibration test', value: 'Buzz 1× · 2× · 3×', onPress: () => Alert.alert(
+      'Buzz the ring',
+      'Send a vibration test to the ring (opcode 0xDF).',
+      [
+        { text: '1 pulse',  onPress: () => handleBuzzTest(1) },
+        { text: '2 pulses', onPress: () => handleBuzzTest(2) },
+        { text: '3 pulses', onPress: () => handleBuzzTest(3) },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    ) },
     { icon: '📏', iconBg: '#f97316', label: 'Unit Format', value: unit, onPress: () => handleSetUnit(unit === 'Metric' ? 'Imperial' : 'Metric') },
     { icon: '🖐', iconBg: '#a855f7', label: 'Wearing direction', value: wearingDir, onPress: () => setWearingDir((v) => v === 'Right' ? 'Left' : 'Right') },
     { icon: '🩺', iconBg: '#ef4444', label: 'Health Monitoring', onPress: () => ring?.device.setHealthMonitorMaster(true).then(() => Alert.alert('Monitor ON')).catch(() => soon('Health Monitoring')) },
-    { icon: '🔎', iconBg: '#0ea5e9', label: 'Search Device', onPress: handleFindDevice },
+    { icon: '🔎', iconBg: '#0ea5e9', label: 'Find Ring (Buzz)', onPress: handleFindDevice },
     { icon: '📱', iconBg: '#14b8a6', label: 'App Control', value: 'Off', onPress: () => soon('App Control') },
     { icon: '🚀', iconBg: '#22c55e', label: 'Firmware Upgrade', onPress: () => Alert.alert('Firmware', 'OTA needs the Jieli RCSP challenge/response — flagged as Task #14, not wired yet.') },
     { icon: '📝', iconBg: '#22c55e', label: 'Feedback', onPress: () => soon('Feedback') },

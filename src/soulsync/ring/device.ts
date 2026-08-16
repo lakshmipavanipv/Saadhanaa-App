@@ -20,6 +20,7 @@ import {
   OP_HEALTH_2_15_0,
   OP_HEALTH_2_17_0,
   OP_HEALTH_2_29_0,
+  OP_HEALTH_2_16_16,
   OP_HEALTH_2_99_16,
   OP_INFO_6_5_0,
   lookupOpcode,
@@ -252,12 +253,36 @@ export class DeviceApi {
   }
 
   /**
-   * Find Device — usually makes the ring flash its LED or buzz. On this
-   * screenless/motorless ring the ring accepts the command but does nothing
-   * visible; sending it is safe.
+   * Find Device — the ring's "find my ring" alert. On the SR16 this triggers
+   * the vibration motor (opcode 0xDF per firmware table). The bare 0x02/29/0
+   * variant (my earlier `findDevice`) turns out to be a legacy Jieli alias
+   * that the SR16 doesn't act on; the buzz-worthy one is 0xDF ({2, 16, 16}).
+   *
+   * We send 0xDF and, if the ring rejects it (some SR16 batches ship a
+   * different firmware variant), fall back to 0xF9 (INFO 6/1/0) which some
+   * captures show as the alternate "find" opcode.
    */
-  async findDevice(): Promise<void> {
-    await this.ring.queue.send(OP_HEALTH_2_29_0, new Uint8Array([1]), { expectReply: true });
+  async findDevice(times: number = 1): Promise<void> {
+    // Payload: [count, mode] — 1 pulse, mode 1 = short buzz
+    const payload = new Uint8Array([Math.max(1, Math.min(times, 5)), 1]);
+    try {
+      // Primary — SR16 vibrate/find opcode 0xDF
+      await this.ring.queue.send(OP_HEALTH_2_16_16, payload, { expectReply: false, maxRetries: 0 });
+    } catch {
+      // Fallback — 0xF9 alias
+      const fallback = lookupOpcode(0x06, 0x01, 0x00);
+      if (fallback) {
+        await this.ring.queue.send(fallback, payload, { expectReply: false, maxRetries: 0 });
+      }
+    }
+  }
+
+  /**
+   * Explicit alias for the common case: buzz the ring N times to help the
+   * user locate it. Same wire as `findDevice`, more discoverable in the IDE.
+   */
+  async vibrate(pulses: number = 1): Promise<void> {
+    return this.findDevice(pulses);
   }
 
   /**
