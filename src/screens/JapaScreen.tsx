@@ -38,7 +38,7 @@ import {
   ScannedDevice,
   CounterConnection,
 } from '../services/ble';
-import { JapaRingCounter, readSr16DeviceId } from '../soulsync/ring';
+import { JapaRingCounter, readSr16DeviceId, syncJapaHistory } from '../soulsync/ring';
 
 const BEADS = 108;
 
@@ -833,6 +833,42 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
       sr16CounterRef.current?.stop();
       sr16CounterRef.current = null;
     };
+  }, []);
+
+  // ── SR16 historical tasbih reconcile ───────────────────────────────
+  //
+  // On tab open, pull the ring's stored japa counter and attribute any
+  // taps since the last watermark to the currently-selected deity. This
+  // catches physical taps that happened while the phone wasn't paired or
+  // the Japa tab wasn't open (the live JapaRingCounter above only counts
+  // taps that arrive while it's actively connected).
+  //
+  // Runs OUTSIDE the live counter — it opens its own short-lived BLE
+  // session, reads once, disconnects. Watermark is persisted so we only
+  // ever attribute NEW ring counts to the app, never phantom back-fill.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const paired = await readSr16DeviceId();
+      if (!paired || cancelled) return;
+      // Small delay so the live-counter connect doesn't race with us on
+      // the same GATT link.
+      await new Promise(r => setTimeout(r, 1500));
+      if (cancelled) return;
+      const res = await syncJapaHistory();
+      if (cancelled) return;
+      if (!res.delta || res.delta <= 0) return;
+      // Cap the batch so a wildly stale watermark doesn't fire thousands
+      // of taps at once — 10 malas (1080 beads) is a very generous cap.
+      const applied = Math.min(res.delta, 1080);
+      for (let i = 0; i < applied; i++) tapRef.current?.();
+      showToast(
+        applied === res.delta
+          ? `📿 ${applied} ring tap${applied === 1 ? '' : 's'} synced`
+          : `📿 ${applied} synced (${res.delta - applied} skipped, cap)`
+      );
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // Register pair / disconnect handlers in context so SettingsScreen can invoke them.

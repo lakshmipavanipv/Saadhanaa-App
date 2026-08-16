@@ -80,24 +80,16 @@ export const HealthScreen = () => {
     try {
       const r = await syncAllRingVitals();
       setVitals(r);
-      const id = await readSr16DeviceId();
-      if (id) {
-        try {
-          const ring = await SadhanaRing.connect(id, { keepAlive: false });
-          const grab = async <T extends TsSample>(m: Parameters<typeof ring.sync.sync>[0], set: (s: T[]) => void) => {
-            try { const res = await ring.sync.sync<T>(m as never); set(res.samples); } catch { /* ignore */ }
-          };
-          await grab<StepSample>('steps', setSteps);
-          await grab<SleepSample>('sleep', setSleep);
-          await grab<HrSample>('hr', setHr);
-          await grab<HrvSample>('hrv', setHrv);
-          await grab<Spo2Sample>('spo2', setSpo2);
-          await grab<TempSample>('temp', setTemp);
-          await grab<StressSample>('stress', setStress);
-          await grab<TasbihSample>('japa', setJapa);
-          await ring.disconnect().catch(() => {});
-        } catch { /* couldn't reconnect for raw samples */ }
-      }
+      // Raw samples now come back from the SAME connection — no reconnect,
+      // no dropped charts if the second BLE session had failed.
+      setSteps(r.raw.steps);
+      setSleep(r.raw.sleep);
+      setHr(r.raw.hr);
+      setHrv(r.raw.hrv);
+      setSpo2(r.raw.spo2);
+      setTemp(r.raw.temp);
+      setStress(r.raw.stress);
+      setJapa(r.raw.japa);
       setSyncStatus('done');
     } catch {
       setSyncStatus('error');

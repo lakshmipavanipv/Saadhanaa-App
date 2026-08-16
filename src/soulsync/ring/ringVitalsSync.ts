@@ -18,7 +18,10 @@
 import { SadhanaRing } from './SadhanaRing';
 import { readSr16DeviceId } from './japaCounter';
 import { sleepModelToStage } from './sync';
-import type { SleepSample, HrSample, HrvSample, Spo2Sample, TempSample, StressSample, StepSample } from './sync';
+import type {
+  SleepSample, HrSample, HrvSample, Spo2Sample, TempSample, StressSample,
+  StepSample, TasbihSample,
+} from './sync';
 import { sleepRepo } from '../db/sleepRepo';
 import { getDB } from '../db/database';
 
@@ -31,6 +34,20 @@ export interface RingVitalsSyncResult {
   stress:{ samples: number; avg: number | null };
   steps: { total: number; sampleCount: number };
   errors: string[];
+  /**
+   * Raw samples in one place so callers (HealthScreen) can render mini-charts
+   * without a second BLE connection. Empty arrays if that metric errored.
+   */
+  raw: {
+    sleep:  SleepSample[];
+    hr:     HrSample[];
+    hrv:    HrvSample[];
+    spo2:   Spo2Sample[];
+    temp:   TempSample[];
+    stress: StressSample[];
+    steps:  StepSample[];
+    japa:   TasbihSample[];
+  };
 }
 
 const emptyResult = (): RingVitalsSyncResult => ({
@@ -42,6 +59,9 @@ const emptyResult = (): RingVitalsSyncResult => ({
   stress:{ samples: 0, avg: null },
   steps: { total: 0, sampleCount: 0 },
   errors: [],
+  raw: {
+    sleep: [], hr: [], hrv: [], spo2: [], temp: [], stress: [], steps: [], japa: [],
+  },
 });
 
 /** Bucket a sample's Date into its "sleep night" — the calendar date the
@@ -181,30 +201,49 @@ export async function syncAllRingVitals(): Promise<RingVitalsSyncResult> {
 
   const sleep = await safe('sleep', () => ring!.sync.sync<SleepSample>('sleep'));
   if (sleep) {
+    result.raw.sleep = sleep.samples;
     const agg = await aggregateSleep(sleep.samples);
     result.sleep = { nightsUpserted: agg.nights, sampleCount: agg.total };
   }
 
   const hr = await safe('hr', () => ring!.sync.sync<HrSample>('hr'));
-  if (hr) result.hr = scalarStats(hr.samples, 'hr');
+  if (hr) { result.raw.hr = hr.samples; result.hr = scalarStats(hr.samples, 'hr'); }
 
   const hrv = await safe('hrv', () => ring!.sync.sync<HrvSample>('hrv'));
-  if (hrv) result.hrv = { samples: hrv.samples.length, avg: scalarStats(hrv.samples, 'hrv').avg };
+  if (hrv) {
+    result.raw.hrv = hrv.samples;
+    result.hrv = { samples: hrv.samples.length, avg: scalarStats(hrv.samples, 'hrv').avg };
+  }
 
   const spo2 = await safe('spo2', () => ring!.sync.sync<Spo2Sample>('spo2'));
-  if (spo2) result.spo2 = { samples: spo2.samples.length, avg: scalarStats(spo2.samples, 'spo2').avg };
+  if (spo2) {
+    result.raw.spo2 = spo2.samples;
+    result.spo2 = { samples: spo2.samples.length, avg: scalarStats(spo2.samples, 'spo2').avg };
+  }
 
   const temp = await safe('temp', () => ring!.sync.sync<TempSample>('temp'));
   if (temp) {
+    result.raw.temp = temp.samples;
     const stats = scalarStats(temp.samples, 'tempCx10');
     result.temp = { samples: stats.samples, avgC: stats.avg !== null ? stats.avg / 10 : null };
   }
 
   const stress = await safe('stress', () => ring!.sync.sync<StressSample>('stress'));
-  if (stress) result.stress = { samples: stress.samples.length, avg: scalarStats(stress.samples, 'stress').avg };
+  if (stress) {
+    result.raw.stress = stress.samples;
+    result.stress = { samples: stress.samples.length, avg: scalarStats(stress.samples, 'stress').avg };
+  }
 
   const steps = await safe('steps', () => ring!.sync.sync<StepSample>('steps'));
-  if (steps) result.steps = await upsertRingSteps(steps.samples);
+  if (steps) {
+    result.raw.steps = steps.samples;
+    result.steps = await upsertRingSteps(steps.samples);
+  }
+
+  // Japa/tasbih — for HealthScreen's "Daily Prayer Count" tile AND for the
+  // JapaScreen background-tap reconcile flow (see japaHistorySync.ts).
+  const japa = await safe('japa', () => ring!.sync.sync<TasbihSample>('japa'));
+  if (japa) result.raw.japa = japa.samples;
 
   await ring.disconnect().catch(() => {});
   return result;
