@@ -35,6 +35,9 @@ import { RingCommandQueue } from './sendQueue';
 import type { JieliFrame } from './codec';
 import { DeviceApi } from './device';
 import { SyncApi } from './sync';
+import { RemindersApi } from './reminders';
+import { OtaApi } from './ota';
+import { OledApi } from './oled';
 import { OP_INFO_6_9_0 } from './opcodes.generated';
 
 /**
@@ -76,6 +79,9 @@ export type FrameObserver = (frame: JieliFrame) => void;
 export class SadhanaRing {
   readonly device: DeviceApi;
   readonly sync: SyncApi;
+  readonly reminders: RemindersApi;
+  readonly ota: OtaApi;
+  readonly oled: OledApi;
   private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
   private frameSubs = new Set<FrameObserver>();
 
@@ -85,6 +91,9 @@ export class SadhanaRing {
   ) {
     this.device = new DeviceApi(this);
     this.sync = new SyncApi(this);
+    this.reminders = new RemindersApi(this);
+    this.ota = new OtaApi(this);
+    this.oled = new OledApi(this);
   }
 
   /**

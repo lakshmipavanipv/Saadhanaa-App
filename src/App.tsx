@@ -37,6 +37,7 @@ import { SleepDetailScreen } from './screens/health/SleepDetailScreen';
 import { ExerciseDetailScreen } from './screens/health/ExerciseDetailScreen';
 import { DeviceSettingsScreen } from './screens/DeviceSettingsScreen';
 import { RingDebugScreen } from './screens/RingDebugScreen';
+import { RemindersScreen } from './screens/RemindersScreen';
 import { SideDrawer, type DrawerAction } from './components/SideDrawer';
 import { ThemePicker } from './components/ThemePicker';
 import { ThemeProvider, useTheme } from './ThemeContext';
@@ -205,6 +206,12 @@ const TabNavigator = () => {
       <Tab.Screen
         name="HealthLegacy"
         component={HealthScreen}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' }, tabBarStyle: { display: 'none' } }}
+      />
+      {/* Reminders — hidden tab reachable from drawer + Device Settings. */}
+      <Tab.Screen
+        name="Reminders"
+        component={RemindersScreen}
         options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' }, tabBarStyle: { display: 'none' } }}
       />
     </Tab.Navigator>

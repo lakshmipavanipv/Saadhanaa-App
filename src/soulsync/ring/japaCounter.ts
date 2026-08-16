@@ -123,6 +123,19 @@ export class JapaRingCounter {
   getTapCount(): number { return this.tapCount; }
   isConnected(): boolean { return this.ring !== null; }
 
+  /**
+   * Push a deity abbreviation to the ring's OLED. Called from JapaScreen when
+   * the user picks a different deity from the horizontal list. Best-effort —
+   * failures are swallowed (typically because the OLED bitmap opcodes are not
+   * accepted on some SR16 firmware variants).
+   */
+  async displayDeityLabel(name: string, chars: number = 2): Promise<void> {
+    if (!this.ring) return;
+    try {
+      await this.ring.oled.setDeityDisplay(name, chars);
+    } catch { /* silent — OLED support is optional */ }
+  }
+
   async stop(): Promise<void> {
     this.stopped = true;
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }

@@ -835,6 +835,17 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
     };
   }, []);
 
+  // ── Push selected deity name to ring OLED ──────────────────────────
+  //
+  // Whenever the user picks a different deity in the japa tab, send the
+  // first two letters of the name to the ring so the display mirrors the
+  // app's current context. Fire-and-forget; failures silently swallowed
+  // (OLED support depends on SR16 firmware variant).
+  useEffect(() => {
+    if (!selectedDeity?.name) return;
+    void sr16CounterRef.current?.displayDeityLabel(selectedDeity.name, 2);
+  }, [selectedDeity?.name, sr16Status]);
+
   // ── SR16 historical tasbih reconcile ───────────────────────────────
   //
   // On tab open, pull the ring's stored japa counter and attribute any

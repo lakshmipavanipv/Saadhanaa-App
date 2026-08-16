@@ -64,6 +64,7 @@ const SECTIONS: MenuSection[] = [
     title: 'Ring & Device',
     items: [
       { icon: '💍', label: 'Device Settings', action: { key: 'device', openModal: 'deviceSettings' }, hint: 'All ring settings — like RWfit' },
+      { icon: '⏰', label: 'Reminders & Notifications', action: { key: 'reminders', navigate: 'Reminders' }, hint: 'Alarms · sedentary · drink · DND · push' },
       { icon: '📶', label: 'Bluetooth / Pair Ring', action: { key: 'ble', openModal: 'ringDebug' }, hint: 'Scan, connect, live BLE frames' },
     ],
   },
