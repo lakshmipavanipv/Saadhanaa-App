@@ -18,6 +18,7 @@ import {
   type JieliFrame,
   type SyncMetric,
 } from '../soulsync/ring';
+import { VIB_CANDIDATES, resolveCandidate } from '../soulsync/ring/vibrationCandidates';
 
 interface LogLine {
   t: number;
@@ -168,6 +169,32 @@ export const RingDebugScreen = ({ onClose }: { onClose: () => void }) => {
     }
   }, [append, ring]);
 
+  /**
+   * Vibration sweep — fires each candidate opcode 2s apart while every
+   * incoming frame stays in the RX log. Whichever numbered candidate makes
+   * the ring buzz is the correct opcode for this firmware. User then tells
+   * us the number so we can promote it to the primary in device.ts.
+   */
+  const runVibrationSweep = useCallback(async () => {
+    if (!ring) return;
+    append({ kind: 'info', text: `▶ Vibration sweep starting — ${VIB_CANDIDATES.length} candidates, 2s apart. Watch the ring — note which numbered candidate buzzes.` });
+    for (const c of VIB_CANDIDATES) {
+      const op = resolveCandidate(c);
+      if (!op) {
+        append({ kind: 'error', text: `#${c.n}  ${c.label}  · SKIPPED (opcode not in registry)` });
+        continue;
+      }
+      append({ kind: 'tx', text: `#${c.n}  ${c.label}` });
+      try {
+        await ring.queue.send(op, new Uint8Array(c.payload), { expectReply: false, maxRetries: 0 });
+      } catch (e) {
+        append({ kind: 'error', text: `#${c.n}  ${c.label}  · nack: ${(e as Error).message}` });
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    append({ kind: 'info', text: `■ Sweep complete. Tell me which # buzzed.` });
+  }, [ring, append]);
+
   const disconnect = useCallback(async () => {
     if (!ring) return;
     await ring.disconnect();
@@ -267,6 +294,9 @@ export const RingDebugScreen = ({ onClose }: { onClose: () => void }) => {
               await ring.device.findDevice();
             })}>
               <Text style={styles.actTxt}>Find</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.actBtn, { backgroundColor: 'rgba(255,159,69,0.20)', borderColor: '#FF9F45' }]} onPress={runVibrationSweep}>
+              <Text style={[styles.actTxt, { color: '#FF9F45' }]}>🔍 Vib Sweep</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.actBtn} onPress={() => doAction('toggle keep-alive', async () => {
               const now = ring.isKeepAliveOn();
