@@ -39,6 +39,7 @@ import {
   CounterConnection,
 } from '../services/ble';
 import { JapaRingCounter, readSr16DeviceId, syncJapaHistory } from '../soulsync/ring';
+import { useIsFocused } from '@react-navigation/native';
 
 const BEADS = 108;
 
@@ -808,8 +809,18 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   // taps (the ring's supervision timeout kicks in after ~7 s of silence).
   const sr16CounterRef = useRef<JapaRingCounter | null>(null);
   const [sr16Status, setSr16Status] = useState<'off' | 'connecting' | 'connected'>('off');
+  const isFocused = useIsFocused();
 
+  // Try to bring up the JapaRingCounter every time the tab comes into focus
+  // AND we don't already have one running. This handles two edge cases the
+  // previous mount-only useEffect missed:
+  //   1) User paired the ring AFTER first opening Japa — we now retry on
+  //      the next focus so the fresh sr16_last_device is picked up.
+  //   2) Ring Debug (modal) held the sole GATT connection last time we tried;
+  //      when the user closes Debug and comes back to Japa, we retry.
   useEffect(() => {
+    if (!isFocused) return;
+    if (sr16CounterRef.current) return;   // already connected/connecting
     let cancelled = false;
     (async () => {
       const paired = await readSr16DeviceId();
@@ -828,8 +839,13 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
         if (!cancelled) setSr16Status('off');
       }
     })();
+    return () => { cancelled = true; };
+  }, [isFocused]);
+
+  // Full teardown only on screen unmount (not on tab blur) so background taps
+  // keep counting while the user is on other tabs.
+  useEffect(() => {
     return () => {
-      cancelled = true;
       sr16CounterRef.current?.stop();
       sr16CounterRef.current = null;
     };

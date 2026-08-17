@@ -38,7 +38,7 @@ export const VIB_CANDIDATES: VibCandidate[] = [
   { n: 11, label: '{6,5,0}           info-alt',         cmd: 0x06, key: 0x05, keyFlag: 0x00, payload: [1, 1] },
 ];
 
-/** Resolve a candidate to its registered Opcode entry, or null if missing. */
-export function resolveCandidate(c: VibCandidate): Opcode | null {
+/** Resolve a candidate to its registered Opcode entry, or undefined if missing. */
+export function resolveCandidate(c: VibCandidate): Opcode | undefined {
   return lookupOpcode(c.cmd, c.key, c.keyFlag);
 }
