@@ -893,16 +893,22 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
     };
   }, []);
 
-  // ── Push selected deity name to ring OLED ──────────────────────────
+  // ── Sync ring's onboard counter to the selected deity's japa count ──
   //
-  // Whenever the user picks a different deity in the japa tab, send the
-  // first two letters of the name to the ring so the display mirrors the
-  // app's current context. Fire-and-forget; failures silently swallowed
-  // (OLED support depends on SR16 firmware variant).
+  // When the user switches deity in the app, write the new deity's running
+  // count to the ring so the ring's OWN counter display shows the same
+  // number. Subsequent physical taps on the ring increment from there.
+  //
+  // Also fires when count itself changes (e.g., a mala reset) so the two
+  // stay in sync during a session. The old OLED bitmap push was removed
+  // here — unverified opcodes were stalling the queue and dropping the
+  // link on deity change.
   useEffect(() => {
-    if (!selectedDeity?.name) return;
-    void sr16CounterRef.current?.displayDeityLabel(selectedDeity.name, 2);
-  }, [selectedDeity?.name, sr16Status]);
+    if (sr16Status !== 'connected' || !selectedDeity?.id) return;
+    const saved = deityProgress[selectedDeity.id];
+    const japaTotal = (saved?.malas ?? 0) * BEADS + (saved?.count ?? 0);
+    void sr16CounterRef.current?.setCounterValue(japaTotal);
+  }, [selectedDeity?.id, sr16Status, deityProgress]);
 
   // ── SR16 historical tasbih reconcile ───────────────────────────────
   //

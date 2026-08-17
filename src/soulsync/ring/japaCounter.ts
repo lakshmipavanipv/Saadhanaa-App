@@ -131,12 +131,30 @@ export class JapaRingCounter {
    * the user picks a different deity from the horizontal list. Best-effort —
    * failures are swallowed (typically because the OLED bitmap opcodes are not
    * accepted on some SR16 firmware variants).
+   *
+   * Currently DISABLED at the call site — the OLED bitmap opcodes have not
+   * been verified against real SR16 firmware and observably drop the BLE
+   * link when the write times out. Re-enable once the OLED command sequence
+   * is confirmed via a live sweep.
    */
   async displayDeityLabel(name: string, chars: number = 2): Promise<void> {
     if (!this.ring) return;
     try {
       await this.ring.oled.setDeityDisplay(name, chars);
     } catch { /* silent — OLED support is optional */ }
+  }
+
+  /**
+   * Write the ring's onboard tasbih counter to a specific value. Used by
+   * JapaScreen on deity change so the ring's display shows the newly
+   * selected deity's running count and each subsequent tap increments
+   * from there. Best-effort; if the ring nacks {5,23,0} we swallow.
+   */
+  async setCounterValue(count: number): Promise<void> {
+    if (!this.ring) return;
+    try {
+      await this.ring.sync.setTasbihCount(count);
+    } catch { /* silent — unverified opcode on some firmwares */ }
   }
 
   async stop(): Promise<void> {

@@ -223,6 +223,38 @@ export class SyncApi {
   constructor(private readonly ring: SadhanaRing) {}
 
   /**
+   * Write the ring's onboard tasbih/japa counter to a specific value.
+   * Called when the user switches deity in the app so the ring's own
+   * counter display reflects the new deity's running japa count.
+   *
+   * Wire (best-guess from the Jieli sync-cluster pattern):
+   *   {5, 23, 0}  = set/write counterpart of the {5, 23, 16} read.
+   *   Payload    = 4-byte BE count.
+   *
+   * If the ring nacks (unsupported opcode), we swallow — falling back to
+   * the app-side count. Non-fatal.
+   */
+  async setTasbihCount(count: number): Promise<void> {
+    // Not in generated registry; construct the triple by hand.
+    const setOp = {
+      cmd: 0x05, key: 0x17, keyFlag: 0x00,
+      sendMsgId: 0x94, category: 'SYNC' as const,
+      name: 'OP_TASBIH_SET_5_23_0',
+    };
+    const n = Math.max(0, Math.min(0xffffffff, Math.floor(count)));
+    const payload = new Uint8Array(4);
+    payload[0] = (n >> 24) & 0xff;
+    payload[1] = (n >> 16) & 0xff;
+    payload[2] = (n >>  8) & 0xff;
+    payload[3] =  n        & 0xff;
+    await this.ring.queue.send(setOp, payload, {
+      expectReply: false,
+      timeoutMs: 2000,
+      maxRetries: 0,
+    });
+  }
+
+  /**
    * Fetch all stored samples for a given metric. Sends the request, awaits
    * the multi-packet reply (auto-reassembled), then sends the 0x30 ACK the
    * ring expects (fire-and-forget).
