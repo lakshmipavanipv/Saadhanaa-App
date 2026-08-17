@@ -51,7 +51,11 @@ import { OP_INFO_6_9_0 } from './opcodes.generated';
  * may drop after ~7 s of silence.
  */
 const KEEPALIVE_PAYLOAD = new Uint8Array([0x03, 0x05, 0x01]);
-const KEEPALIVE_INTERVAL_MS = 3000;
+// 500ms keep-alive — user asked for "live" connection so the ring never
+// approaches its ~7s supervision timeout. Keep-alive frames are the observed
+// {6,9,0} heartbeat and are filtered at notifyFrame so subscribers never
+// see them; they're pure link-warm traffic and don't inflate tap counts.
+const KEEPALIVE_INTERVAL_MS = 500;
 
 export interface ConnectOptions {
   onFrame?: FrameObserver;
