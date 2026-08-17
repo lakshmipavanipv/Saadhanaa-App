@@ -196,11 +196,31 @@ export class SadhanaRing {
     return SadhanaRing.connect(candidates[0].id);
   }
 
+  /**
+   * Per-device singleton registry. BLE peripherals (and specifically the
+   * SR16) accept only ONE central connection at a time, and the underlying
+   * notification stream is delivered to whichever subscriber attached first.
+   * If two screens each build their own SadhanaRing for the same deviceId,
+   * only one will actually receive frames — the other's callbacks silently
+   * go dark. This map ensures every caller shares the same live instance.
+   */
+  private static instances = new Map<string, SadhanaRing>();
+
   static async connect(deviceId: string, opts: ConnectOptions = {}): Promise<SadhanaRing> {
     const { onFrame, keepAlive = false } = opts;
+
+    // Reuse an existing live instance if there is one for this device.
+    // Both Ring Debug and Japa call connect() with the same id — the second
+    // call would otherwise create a shadow instance whose queue subscribes
+    // to the notify char but never gets fed by the BleManager stream.
+    const existing = SadhanaRing.instances.get(deviceId);
+    if (existing) {
+      if (onFrame) existing.frameSubs.add(onFrame);
+      if (keepAlive) existing.startKeepAlive();
+      return existing;
+    }
+
     const ring = await connectRing(deviceId);
-    // Forward frames to (a) the caller's onFrame (raw), and (b) our internal
-    // onFrame subscribers (keep-alive filtered).
     const sr: { instance?: SadhanaRing } = {};
     const queue = new RingCommandQueue(ring, {
       onIncomingFrame: (f) => {
@@ -211,7 +231,12 @@ export class SadhanaRing {
     queue.attach();
     sr.instance = new SadhanaRing(ring, queue);
     if (keepAlive) sr.instance.startKeepAlive();
-    const sub = ring.onDisconnect(() => sr.instance?.stopKeepAlive());
+    // Register + auto-evict on disconnect so the next connect() rebuilds fresh.
+    SadhanaRing.instances.set(deviceId, sr.instance);
+    const sub = ring.onDisconnect(() => {
+      sr.instance?.stopKeepAlive();
+      SadhanaRing.instances.delete(deviceId);
+    });
     (sr.instance as unknown as { _disconnectSub: typeof sub })._disconnectSub = sub;
     return sr.instance;
   }
@@ -244,6 +269,9 @@ export class SadhanaRing {
   async disconnect(): Promise<void> {
     this.stopKeepAlive();
     this.queue.detach();
+    // Remove from registry BEFORE the low-level disconnect so re-connect()
+    // during the tear-down window doesn't return this dying instance.
+    SadhanaRing.instances.delete(this.ring.device.id);
     await this.ring.disconnect();
   }
 }

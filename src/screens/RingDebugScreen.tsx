@@ -50,7 +50,11 @@ export const RingDebugScreen = ({ onClose }: { onClose: () => void }) => {
 
   useEffect(() => () => {
     stopScanRef.current?.();
-    ringRef.current?.disconnect();
+    // NOTE: intentionally NOT calling ringRef.current?.disconnect() on unmount.
+    // The Ring shared singleton (SadhanaRing.connect() registry) is also used
+    // by JapaScreen's JapaRingCounter, and tearing down here would kill Japa's
+    // live tap stream every time the user closes this modal. The user can
+    // still explicitly Disconnect via the button on the connection card.
   }, []);
 
   const doPermissions = useCallback(async () => {
