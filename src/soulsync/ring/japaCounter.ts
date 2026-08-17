@@ -68,7 +68,12 @@ export class JapaRingCounter {
   private async connect(): Promise<void> {
     if (this.stopped) return;
     try {
-      this.ring = await SadhanaRing.connect(this.deviceId, { keepAlive: false });
+      // keepAlive: true — the japa counter needs the BLE link kept warm; the
+      // SR16 supervision timer trips at ~7s of silence and disconnects. That
+      // was manifesting as an endless 'Ring connecting…' loop in the Japa
+      // pill. Keep-alive frames are {6,9,0} — filtered out at notifyFrame so
+      // they don't inflate the tap counter.
+      this.ring = await SadhanaRing.connect(this.deviceId, { keepAlive: true });
       // Buzz once on successful (re)connect so the user gets a tactile
       // confirm that japa counting is armed. Fire-and-forget.
       void this.ring.device.vibrate(1).catch(() => { /* silent */ });

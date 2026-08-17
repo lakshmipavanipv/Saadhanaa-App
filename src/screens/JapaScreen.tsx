@@ -895,20 +895,29 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
 
   // ── Sync ring's onboard counter to the selected deity's japa count ──
   //
-  // When the user switches deity in the app, write the new deity's running
-  // count to the ring so the ring's OWN counter display shows the same
-  // number. Subsequent physical taps on the ring increment from there.
+  // Fires ONLY on deity change (not on deityProgress ticks — that would
+  // spam a write per tap and, if the opcode nacks, the ring drops the
+  // GATT link). The ring's own counter increments hardware-side on each
+  // physical tap; the app tracks the same count via the tap frame.
   //
-  // Also fires when count itself changes (e.g., a mala reset) so the two
-  // stay in sync during a session. The old OLED bitmap push was removed
-  // here — unverified opcodes were stalling the queue and dropping the
-  // link on deity change.
+  // If the ring firmware nacks {5,23,0} we track that in a ref and stop
+  // trying for the rest of the session — no point beating a dead horse
+  // and no point risking further disconnects.
+  const tasbihWriteFailedRef = useRef(false);
   useEffect(() => {
     if (sr16Status !== 'connected' || !selectedDeity?.id) return;
+    if (tasbihWriteFailedRef.current) return;
     const saved = deityProgress[selectedDeity.id];
     const japaTotal = (saved?.malas ?? 0) * BEADS + (saved?.count ?? 0);
-    void sr16CounterRef.current?.setCounterValue(japaTotal);
-  }, [selectedDeity?.id, sr16Status, deityProgress]);
+    void (async () => {
+      try {
+        await sr16CounterRef.current?.setCounterValue(japaTotal);
+      } catch {
+        tasbihWriteFailedRef.current = true;
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDeity?.id, sr16Status]);
 
   // ── SR16 historical tasbih reconcile ───────────────────────────────
   //
