@@ -809,7 +809,40 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   // taps (the ring's supervision timeout kicks in after ~7 s of silence).
   const sr16CounterRef = useRef<JapaRingCounter | null>(null);
   const [sr16Status, setSr16Status] = useState<'off' | 'connecting' | 'connected'>('off');
+  // Independent debug counter: every physical tap increments this even when
+  // selectedDeity is null and tap() early-returns. Lets the user visually
+  // confirm the ring is actually pushing frames to the Japa flow.
+  const [sr16Events, setSr16Events] = useState(0);
+  const [sr16LastError, setSr16LastError] = useState<string | null>(null);
   const isFocused = useIsFocused();
+
+  // Factored so both the focus effect and the manual reconnect button can
+  // call it. Returns a cancel token to allow abort if the tab blurs mid-connect.
+  const startSr16Counter = useCallback(async (): Promise<'ok' | 'no-pair' | 'error'> => {
+    if (sr16CounterRef.current) return 'ok';
+    const paired = await readSr16DeviceId();
+    if (!paired) { setSr16Status('off'); setSr16LastError('No ring paired — pair from Bluetooth screen first.'); return 'no-pair'; }
+    setSr16Status('connecting');
+    setSr16LastError(null);
+    try {
+      const c = await JapaRingCounter.start({
+        onTap: () => {
+          // Debug: always count the frame, even if the main tap handler skips it.
+          setSr16Events((n) => n + 1);
+          tapRef.current?.();
+        },
+        onConnected: () => { setSr16Status('connected'); setSr16LastError(null); },
+        onDisconnected: () => setSr16Status('connecting'),
+        onError: (e) => { setSr16Status('off'); setSr16LastError(e.message); },
+      });
+      sr16CounterRef.current = c;
+      return 'ok';
+    } catch (e) {
+      setSr16Status('off');
+      setSr16LastError((e as Error).message);
+      return 'error';
+    }
+  }, []);
 
   // Try to bring up the JapaRingCounter every time the tab comes into focus
   // AND we don't already have one running. This handles two edge cases the
@@ -820,27 +853,23 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   //      when the user closes Debug and comes back to Japa, we retry.
   useEffect(() => {
     if (!isFocused) return;
-    if (sr16CounterRef.current) return;   // already connected/connecting
-    let cancelled = false;
-    (async () => {
-      const paired = await readSr16DeviceId();
-      if (!paired || cancelled) return;
-      setSr16Status('connecting');
-      try {
-        const c = await JapaRingCounter.start({
-          onTap: () => tapRef.current?.(),
-          onConnected: () => !cancelled && setSr16Status('connected'),
-          onDisconnected: () => !cancelled && setSr16Status('connecting'),
-          onError: () => !cancelled && setSr16Status('off'),
-        });
-        if (cancelled) { await c.stop(); return; }
-        sr16CounterRef.current = c;
-      } catch {
-        if (!cancelled) setSr16Status('off');
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isFocused]);
+    void startSr16Counter();
+  }, [isFocused, startSr16Counter]);
+
+  const reconnectSr16 = useCallback(async () => {
+    // Force teardown + reconnect. Used by the status pill tap.
+    if (sr16CounterRef.current) {
+      await sr16CounterRef.current.stop().catch(() => {});
+      sr16CounterRef.current = null;
+    }
+    setSr16Events(0);
+    const r = await startSr16Counter();
+    if (r === 'error') {
+      showToast('Ring connect failed — is Ring Debug still open? Close it and retry.');
+    } else if (r === 'no-pair') {
+      showToast('No ring paired yet.');
+    }
+  }, [startSr16Counter, showToast]);
 
   // Full teardown only on screen unmount (not on tab blur) so background taps
   // keep counting while the user is on other tabs.
@@ -1098,6 +1127,44 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
             </View>
           </View>
           <Text style={styles.chevron}>▾</Text>
+        </TouchableOpacity>
+
+        {/* ─── SR16 ring counter status pill ─── */}
+        <TouchableOpacity
+          onPress={reconnectSr16}
+          activeOpacity={0.75}
+          style={{
+            alignSelf: 'center',
+            flexDirection: 'row', alignItems: 'center', gap: 8,
+            paddingHorizontal: 12, paddingVertical: 6,
+            marginBottom: 8, borderRadius: 999,
+            backgroundColor:
+              sr16Status === 'connected' ? 'rgba(123,228,184,0.14)' :
+              sr16Status === 'connecting' ? 'rgba(245,197,107,0.14)' :
+                                             'rgba(255,255,255,0.05)',
+            borderWidth: 1,
+            borderColor:
+              sr16Status === 'connected' ? 'rgba(123,228,184,0.4)' :
+              sr16Status === 'connecting' ? 'rgba(245,197,107,0.4)' :
+                                             'rgba(255,255,255,0.15)',
+          }}
+        >
+          <View style={{
+            width: 8, height: 8, borderRadius: 4,
+            backgroundColor:
+              sr16Status === 'connected' ? '#7BE4B8' :
+              sr16Status === 'connecting' ? '#F5C56B' : '#7C8CA3',
+          }} />
+          <Text style={{ fontSize: 12, color: palette.cream, fontWeight: '600' }}>
+            {sr16Status === 'connected' ? `Ring · ${sr16Events} tap${sr16Events === 1 ? '' : 's'}` :
+             sr16Status === 'connecting' ? 'Ring connecting…' :
+                                            'Ring off · tap to connect'}
+          </Text>
+          {sr16LastError && sr16Status === 'off' ? (
+            <Text style={{ fontSize: 10, color: palette.muted, marginLeft: 4 }} numberOfLines={1}>
+              {sr16LastError.length > 32 ? sr16LastError.slice(0, 32) + '…' : sr16LastError}
+            </Text>
+          ) : null}
         </TouchableOpacity>
 
         {/* ─── #4 · THE JAPA MALA ─── */}
