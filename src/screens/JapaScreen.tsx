@@ -893,31 +893,13 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
     };
   }, []);
 
-  // ── Sync ring's onboard counter to the selected deity's japa count ──
-  //
-  // Fires ONLY on deity change (not on deityProgress ticks — that would
-  // spam a write per tap and, if the opcode nacks, the ring drops the
-  // GATT link). The ring's own counter increments hardware-side on each
-  // physical tap; the app tracks the same count via the tap frame.
-  //
-  // If the ring firmware nacks {5,23,0} we track that in a ref and stop
-  // trying for the rest of the session — no point beating a dead horse
-  // and no point risking further disconnects.
-  const tasbihWriteFailedRef = useRef(false);
-  useEffect(() => {
-    if (sr16Status !== 'connected' || !selectedDeity?.id) return;
-    if (tasbihWriteFailedRef.current) return;
-    const saved = deityProgress[selectedDeity.id];
-    const japaTotal = (saved?.malas ?? 0) * BEADS + (saved?.count ?? 0);
-    void (async () => {
-      try {
-        await sr16CounterRef.current?.setCounterValue(japaTotal);
-      } catch {
-        tasbihWriteFailedRef.current = true;
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDeity?.id, sr16Status]);
+  // NOTE: previously we wrote the deity's count to the ring's onboard
+  // tasbih counter via {5,23,0} on deity change. The opcode is unverified
+  // for the SR16 firmware and the write appears to correlate with GATT
+  // drops — every deity switch was tripping the connection. Disabled
+  // until the correct write-opcode is captured live (task #23 territory).
+  // The app is the source of truth for per-deity counts; the ring's
+  // display shows whatever the ring firmware wants to show.
 
   // ── SR16 historical tasbih reconcile ───────────────────────────────
   //

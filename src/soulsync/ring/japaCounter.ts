@@ -19,9 +19,12 @@ import type { JieliFrame } from './codec';
 import { Storage } from '../../storage';
 
 const STORAGE_KEY = 'sr16_last_device';
-const RECONNECT_MS = 800;
-const MAX_RECONNECTS = 6;      // ~5 s of retries before giving up
-const RECONNECT_BURST_WINDOW_MS = 15_000;
+// User asked for a "live" connection — retry fast + never actually give up.
+// The ring's supervision timer is ~7s, so if we can reconnect within a
+// couple of seconds after a drop, the user sees the pill stay green.
+const RECONNECT_MS = 400;
+const MAX_RECONNECTS = 40;              // effectively "keep trying"
+const RECONNECT_BURST_WINDOW_MS = 30_000;
 
 export const saveSr16DeviceId = (id: string): Promise<void> =>
   Storage.set(STORAGE_KEY, { id, savedAt: Date.now() });
