@@ -678,29 +678,43 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
     }
   }, [showSadhanaPicker]);
 
+  // Latest-state ref — every render mirrors current state into this ref
+  // BEFORE any BLE callback can fire. tap() reads from here instead of its
+  // useCallback closure, so ring-tap paths (which route through tapRef) can
+  // never see stale count/malas/selectedDeity even if the ref update lags.
+  const tapStateRef = useRef({
+    count, malas, selectedDeity, deities, soulsyncActive: soulsync.state.active,
+    activePath, activeStepIndex, activeStepMalas,
+  });
+  tapStateRef.current = {
+    count, malas, selectedDeity, deities, soulsyncActive: soulsync.state.active,
+    activePath, activeStepIndex, activeStepMalas,
+  };
+
   const tap = useCallback(() => {
+    const s = tapStateRef.current;
     // If the user hasn't explicitly picked a deity yet, fall back to the
     // first one in their list. This is how physical ring taps become
     // countable the instant the counter fires — no "Please select a deity
     // first!" toast per bead. Only bails if the list is truly empty.
-    const activeDeity = selectedDeity ?? deities[0] ?? null;
+    const activeDeity = s.selectedDeity ?? s.deities[0] ?? null;
     if (!activeDeity) {
       showToast('Add a deity to your list to start counting.');
       return;
     }
-    if (!selectedDeity && activeDeity) {
+    if (!s.selectedDeity) {
       setSelectedDeity(activeDeity);
     }
-    setPopBead(count);
+    setPopBead(s.count);
     setTimeout(() => setPopBead(-1), 280);
 
     // ── Hint: first bead of an unrecorded session ──
-    if (count === 0 && !soulsync.state.active) {
+    if (s.count === 0 && !s.soulsyncActive) {
       setHintMode('start');
       setTimeout(() => setHintMode(m => m === 'start' ? 'none' : m), 6000);
     }
 
-    const next = count + 1;
+    const next = s.count + 1;
     if (next >= BEADS) {
       // Auto-save on mala completion
       saveSession({
@@ -710,12 +724,12 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
         japas: 108,
         date: todayStr(),
       });
-      const newMalas = malas + 1;
+      const newMalas = s.malas + 1;
       setMalas(newMalas);
       setCount(0);
       updateProgress(activeDeity.id, 0, newMalas);
       // Soulsync: increment mala count on the active session row
-      if (soulsync.state.active) {
+      if (s.soulsyncActive) {
         soulsync.recordMala();
         // ── Hint: mala done, suggest stopping to see score ──
         setHintMode('stop');
@@ -724,36 +738,27 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
       showToast(`🪷 1 mala saved for ${activeDeity.name}`);
 
       // ── Sadhana Path auto-advance ──
-      // If a Sadhana Path is active, check whether the current step's
-      // mala goal has been reached. If yes, advance to the next step
-      // and switch selectedDeity automatically. The user keeps tapping
-      // beads while the deity (and the goal at the back) silently rolls
-      // over. When the final step finishes, we surface a completion
-      // toast and clear the active path.
-      if (activePath?.steps?.length) {
-        const step = activePath.steps[activeStepIndex];
+      if (s.activePath?.steps?.length) {
+        const step = s.activePath.steps[s.activeStepIndex];
         const goalMalas = step?.malas ?? 1;
-        const stepDoneMalas = activeStepMalas + 1;
+        const stepDoneMalas = s.activeStepMalas + 1;
         if (stepDoneMalas >= goalMalas) {
-          // Advance to next step
-          const nextIdx = activeStepIndex + 1;
-          if (nextIdx < activePath.steps.length) {
-            const nextStep = activePath.steps[nextIdx];
-            // Resolve the deity for the next step from the catalog
-            const nextDeity = deities.find(
+          const nextIdx = s.activeStepIndex + 1;
+          if (nextIdx < s.activePath.steps.length) {
+            const nextStep = s.activePath.steps[nextIdx];
+            const nextDeity = s.deities.find(
               d => d.name.toLowerCase() === String(nextStep.deity).toLowerCase()
             );
             if (nextDeity) {
               setSelectedDeity(nextDeity);
               showToast(
-                `🪷 Step ${activeStepIndex + 1} done — moving to ${nextDeity.name}`
+                `🪷 Step ${s.activeStepIndex + 1} done — moving to ${nextDeity.name}`
               );
             }
             setActiveStepIndex(nextIdx);
             setActiveStepMalas(0);
           } else {
-            // Final step complete — clear path
-            showToast(`✨ Sadhana Path "${activePath.name}" complete!`);
+            showToast(`✨ Sadhana Path "${s.activePath.name}" complete!`);
             setActivePath(null);
             setActiveStepIndex(0);
             setActiveStepMalas(0);
@@ -764,10 +769,10 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
       }
     } else {
       setCount(next);
-      updateProgress(activeDeity.id, next, malas);
+      updateProgress(activeDeity.id, next, s.malas);
     }
-  }, [selectedDeity, saveSession, showToast, count, malas, updateProgress, soulsync,
-       activePath, activeStepIndex, activeStepMalas, deities, setSelectedDeity]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);  // Stable — reads all state from tapStateRef.current
 
   // ── Intercept Soulsync toggle: when stopping, compute score + popup ──
   const handleSoulsyncToggle = useCallback(async () => {
