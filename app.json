@@ -2,12 +2,19 @@
   "expo": {
     "name": "Body & Soul Ring",
     "slug": "sadhana-app",
-    "version": "1.0.75",
+    "version": "1.0.84",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "sadhana",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
+    "updates": {
+      "url": "https://u.expo.dev/ddbfda35-d73f-4196-b00a-ed623f1bd1a3",
+      "enabled": true,
+      "fallbackToCacheTimeout": 3000,
+      "checkAutomatically": "ON_LOAD"
+    },
+    "runtimeVersion": "84",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.bodyandsoulring.app"
