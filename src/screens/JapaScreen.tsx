@@ -679,9 +679,17 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   }, [showSadhanaPicker]);
 
   const tap = useCallback(() => {
-    if (!selectedDeity) {
-      showToast('Please select a deity first!');
+    // If the user hasn't explicitly picked a deity yet, fall back to the
+    // first one in their list. This is how physical ring taps become
+    // countable the instant the counter fires — no "Please select a deity
+    // first!" toast per bead. Only bails if the list is truly empty.
+    const activeDeity = selectedDeity ?? deities[0] ?? null;
+    if (!activeDeity) {
+      showToast('Add a deity to your list to start counting.');
       return;
+    }
+    if (!selectedDeity && activeDeity) {
+      setSelectedDeity(activeDeity);
     }
     setPopBead(count);
     setTimeout(() => setPopBead(-1), 280);
@@ -696,8 +704,8 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
     if (next >= BEADS) {
       // Auto-save on mala completion
       saveSession({
-        deity: selectedDeity.name,
-        deityId: selectedDeity.id,
+        deity: activeDeity.name,
+        deityId: activeDeity.id,
         malas: 1,
         japas: 108,
         date: todayStr(),
@@ -705,7 +713,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
       const newMalas = malas + 1;
       setMalas(newMalas);
       setCount(0);
-      updateProgress(selectedDeity.id, 0, newMalas);
+      updateProgress(activeDeity.id, 0, newMalas);
       // Soulsync: increment mala count on the active session row
       if (soulsync.state.active) {
         soulsync.recordMala();
@@ -713,7 +721,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
         setHintMode('stop');
         setTimeout(() => setHintMode(m => m === 'stop' ? 'none' : m), 8000);
       }
-      showToast(`🪷 1 mala saved for ${selectedDeity.name}`);
+      showToast(`🪷 1 mala saved for ${activeDeity.name}`);
 
       // ── Sadhana Path auto-advance ──
       // If a Sadhana Path is active, check whether the current step's
@@ -756,7 +764,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
       }
     } else {
       setCount(next);
-      updateProgress(selectedDeity.id, next, malas);
+      updateProgress(activeDeity.id, next, malas);
     }
   }, [selectedDeity, saveSession, showToast, count, malas, updateProgress, soulsync,
        activePath, activeStepIndex, activeStepMalas, deities, setSelectedDeity]);
