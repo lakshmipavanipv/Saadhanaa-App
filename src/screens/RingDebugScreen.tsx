@@ -102,6 +102,9 @@ export const RingDebugScreen = ({ onClose }: { onClose: () => void }) => {
       setConnectedId(id);
       // Remember this device so the Japa tab can auto-connect without a rescan.
       void saveSr16DeviceId(id);
+      // Tactile confirm: buzz once so the user knows the ring is paired.
+      // Fire-and-forget — some SR16 firmware revs may nack, doesn't matter.
+      void r.device.vibrate(1).catch(() => { /* silent */ });
       append({ kind: 'ok', text: `connected — platform=${r.info.platform} mtu=${r.info.mtu}` });
       append({ kind: 'info', text: `bound service: ${r.info.dataServiceUuid}` });
       append({ kind: 'info', text: `write: ${r.info.writeCharUuid.slice(0, 8)}…  notify: ${r.info.notifyCharUuid.slice(0, 8)}…` });

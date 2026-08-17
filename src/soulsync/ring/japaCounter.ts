@@ -69,6 +69,9 @@ export class JapaRingCounter {
     if (this.stopped) return;
     try {
       this.ring = await SadhanaRing.connect(this.deviceId, { keepAlive: false });
+      // Buzz once on successful (re)connect so the user gets a tactile
+      // confirm that japa counting is armed. Fire-and-forget.
+      void this.ring.device.vibrate(1).catch(() => { /* silent */ });
       this.events.onConnected?.();
       this.reconnectAttempts = 0;
 
