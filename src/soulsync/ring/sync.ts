@@ -35,7 +35,7 @@ const OP = (cmd: number, key: number, keyFlag: number): Opcode => {
 };
 
 // ── Ring epoch: 2000-01-01 UTC ───────────────────────────────────────────
-const RING_EPOCH_UNIX = 946_684_800;
+export const RING_EPOCH_UNIX = 946_684_800;
 
 export const ringTsToDate = (ringTs32Le: number): Date => new Date((RING_EPOCH_UNIX + ringTs32Le) * 1000);
 

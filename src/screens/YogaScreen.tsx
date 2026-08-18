@@ -30,7 +30,6 @@ import { PracticeStatsBox, SessionList, BeforeAfterVitals } from '../components/
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import { PracticeAssistant, PracticeCatalogItem } from '../components/PracticeAssistant';
 import { computeJapaEffect } from '../soulsync/analytics/JapaEffect';
-import { DUMMY, withFallback } from '../services/dummyData';
 
 // Single shared ring instance for yoga stage-mark buzzes
 const ring = createDefaultRing();
@@ -290,7 +289,7 @@ export const YogaScreen = ({ navigation }: any) => {
 
   // Compute today's yoga minutes + sadhana depth score for the stats box
   const [minutesToday, setMinutesToday] = useState(0);
-  const [depthScore, setDepthScore]   = useState<number>(DUMMY.soulDepthScore);
+  const [depthScore, setDepthScore]   = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -298,7 +297,7 @@ export const YogaScreen = ({ navigation }: any) => {
       const today = todayStr();
       const real = all.filter(e => e.activity === 'yoga' && e.date === today)
                       .reduce((s, e) => s + e.durationMin, 0);
-      if (!cancelled) setMinutesToday(withFallback(real, 12));
+      if (!cancelled) setMinutesToday(real);
       try {
         const snap = await computeJapaEffect();
         if (!cancelled && snap?.score != null) setDepthScore(snap.score);

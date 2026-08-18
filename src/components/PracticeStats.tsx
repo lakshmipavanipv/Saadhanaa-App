@@ -31,7 +31,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { COLORS, SPACING } from '../theme';
 import { useTheme } from '../ThemeContext';
-import { DUMMY, withFallback } from '../services/dummyData';
+import { showNum, barPct, NO_DATA_COLOR } from '../services/vitalsDisplay';
 import { getDB } from '../soulsync/db/database';
 import { ambientBaselineRepo } from '../soulsync/db/ambientBaselineRepo';
 import { exerciseRepo } from '../services/exerciseRepo';
@@ -60,9 +60,9 @@ const colorForScore = (s: number): string => {
 
 interface StatsBoxProps {
   practice: Practice;
-  minutesToday: number;
+  minutesToday: number | null;
   goalMinutes: number;
-  depthScore: number;
+  depthScore: number | null;
   /** Optional second metric shown inside the time tile — used on the
    *  Japa screen to surface "japa count today" alongside the minutes. */
   subMetric?: { label: string; value: string | number };
@@ -88,8 +88,8 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
     : practice === 'meditation'
       ? 'MEDITATION'
       : 'JAPA';
-  const goalPct = Math.min(100, Math.round((minutesToday / Math.max(1, goalMinutes)) * 100));
-  const scoreColor = colorForScore(depthScore);
+  const goalPct = Math.min(100, Math.round(((minutesToday ?? 0) / Math.max(1, goalMinutes)) * 100));
+  const scoreColor = depthScore == null ? NO_DATA_COLOR : colorForScore(depthScore);
 
   // ── Compact single-box mode (Japa screen) ──
   //
@@ -109,10 +109,10 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
             )}
           </Text>
           <Text style={[statBoxStyles.compactBarValue, { color: scoreColor }]}>
-            {depthScore} / 100
+            {showNum(depthScore)} / 100
           </Text>
         </View>
-        <DashedBar value={depthScore} color={scoreColor} compact />
+        <DashedBar value={barPct(depthScore)} color={scoreColor} compact />
         {onOpenTrend && (
           <Text style={statBoxStyles.compactTrendHint}>tap for daily trend ›</Text>
         )}
@@ -133,7 +133,7 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
             <View style={{ flex: 1 }}>
               <Text style={statBoxStyles.compactHeroLabel}>{label} TIME TODAY</Text>
               <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                <Text style={statBoxStyles.compactHeroValue}>{minutesToday}</Text>
+                <Text style={statBoxStyles.compactHeroValue}>{showNum(minutesToday)}</Text>
                 <Text style={statBoxStyles.compactHeroGoal}> / {goalMinutes} min</Text>
               </View>
             </View>
@@ -169,7 +169,7 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
       <View style={statBoxStyles.box}>
         <Text style={statBoxStyles.heroLabel}>{label} TIME TODAY</Text>
         <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-          <Text style={statBoxStyles.heroValue}>{minutesToday}</Text>
+          <Text style={statBoxStyles.heroValue}>{showNum(minutesToday)}</Text>
           <Text style={statBoxStyles.heroGoal}> / {goalMinutes} min</Text>
         </View>
         <View style={statBoxStyles.progressTrack}>
@@ -191,10 +191,10 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
         <View style={statBoxStyles.depthHeaderRow}>
           <Text style={statBoxStyles.heroLabel}>SADHANA DEPTH SCORE</Text>
           <Text style={[statBoxStyles.depthValue, { color: scoreColor }]}>
-            {depthScore}<Text style={statBoxStyles.depthOf}> / 100</Text>
+            {showNum(depthScore)}<Text style={statBoxStyles.depthOf}> / 100</Text>
           </Text>
         </View>
-        <DashedBar value={depthScore} color={scoreColor} />
+        <DashedBar value={barPct(depthScore)} color={scoreColor} />
         <Text style={statBoxStyles.depthHint}>
           Today's overall practice quality — weighted HRV · BPM · duration · SpO₂.
         </Text>
@@ -325,12 +325,10 @@ export const SessionList: React.FC<SessionListProps> = ({ practice }) => {
     return () => { cancelled = true; };
   }, [practice]);
 
-  // ── Dummy fallback so the section feels alive before the ring syncs ──
-  const fallbackSessions: SessionCard[] = sessions.length > 0 ? sessions : [
-    { id: 'demo-1', name: `Session 1 · ${practice}`, minutes: 12, depthScore: 72 },
-  ];
-  const fallbackSeries = withFallback(weekScoreSeries, [62, 68, 70, 65, 75, 78, 72]);
-  const fallbackTotal  = withFallback(weekMinutesTotal, 85);
+  // Real sessions only — an empty week renders as an empty week.
+  const fallbackSessions: SessionCard[] = sessions;
+  const fallbackSeries = weekScoreSeries;
+  const fallbackTotal  = weekMinutesTotal;
 
   // Pull Sadhana Path names from the user's routine so each session card
   // can show "Morning Sadhana Path" instead of generic "Session N · yoga"
@@ -432,29 +430,26 @@ export const BeforeAfterVitals: React.FC<BeforeAfterProps> = ({ practice, isActi
           [ds, de]
         ).catch(() => null);
 
-        const b = {
-          bpm:  base?.bpm  ?? DUMMY.ambientToday.bpm,
-          hrv:  base?.hrv  ?? DUMMY.ambientToday.rmssd,
-          spo2: base?.spo2 ?? DUMMY.ambientToday.spo2,
-        };
-        const d = {
-          bpm:  dur?.bpm   ?? DUMMY.sessionAverages.bpm,
-          hrv:  dur?.hrv   ?? DUMMY.sessionAverages.rmssd,
-          spo2: dur?.spo2  ?? DUMMY.sessionAverages.spo2,
-        };
+        // A comparison needs a real reading on BOTH sides. Anything the ring
+        // did not measure is omitted rather than filled in.
+        const pair = (x?: number | null, y?: number | null): [number, number] | null =>
+          x != null && x > 0 && y != null && y > 0 ? [x, y] : null;
+        const round1 = (n: number) => Math.round(n * 10) / 10;
+        const bpmPair  = pair(base?.bpm,  dur?.bpm);
+        const hrvPair  = pair(base?.hrv,  dur?.hrv);
+        const spo2Pair = pair(base?.spo2, dur?.spo2);
 
-        const out: VitalRow[] = [
-          { icon: '❤️', label: 'Resting BPM',  before: Math.round(b.bpm),  after: Math.round(d.bpm),  unit: 'bpm', betterLower: true  },
-          { icon: '〰️', label: 'HRV (RMSSD)',  before: Math.round(b.hrv),  after: Math.round(d.hrv),  unit: 'ms',  betterLower: false },
-          { icon: '🫁', label: 'SpO₂',          before: Math.round(b.spo2 * 10) / 10, after: Math.round(d.spo2 * 10) / 10, unit: '%',   betterLower: false },
-        ];
+        const out: VitalRow[] = [];
+        if (bpmPair)  out.push({ icon: '❤️', label: 'Resting BPM', before: Math.round(bpmPair[0]), after: Math.round(bpmPair[1]), unit: 'bpm', betterLower: true  });
+        if (hrvPair)  out.push({ icon: '〰️', label: 'HRV (RMSSD)', before: Math.round(hrvPair[0]), after: Math.round(hrvPair[1]), unit: 'ms',  betterLower: false });
+        if (spo2Pair) out.push({ icon: '🫁', label: 'SpO₂',        before: round1(spo2Pair[0]),    after: round1(spo2Pair[1]),    unit: '%',   betterLower: false });
         if (!cancelled) setRows(out);
       } catch { /* leave null */ }
     })();
     return () => { cancelled = true; };
   }, [isActive, practice]);
 
-  if (isActive || !rows) return null;
+  if (isActive || !rows || rows.length === 0) return null;
 
   const title = practice === 'yoga'
     ? 'VITALS · BEFORE vs DURING YOGA'

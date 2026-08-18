@@ -210,6 +210,18 @@ export class SadhanaRing {
    */
   private static instances = new Map<string, SadhanaRing>();
 
+  /**
+   * How many callers currently hold this connection. Because the instance is
+   * shared, the GATT link must survive until the LAST holder releases it:
+   * the japa counter keeps the link open for a whole session while the vitals
+   * scheduler connects and disconnects on its own cadence, and an unbalanced
+   * teardown there would silently stop bead counting mid-session.
+   *
+   * Every `connect()` adds a reference; every `disconnect()` removes one and
+   * only the final release actually tears the link down.
+   */
+  private refs = 0;
+
   static async connect(deviceId: string, opts: ConnectOptions = {}): Promise<SadhanaRing> {
     const { onFrame, keepAlive = false } = opts;
 
@@ -219,6 +231,7 @@ export class SadhanaRing {
     // to the notify char but never gets fed by the BleManager stream.
     const existing = SadhanaRing.instances.get(deviceId);
     if (existing) {
+      existing.refs += 1;
       if (onFrame) existing.frameSubs.add(onFrame);
       if (keepAlive) existing.startKeepAlive();
       return existing;
@@ -234,11 +247,13 @@ export class SadhanaRing {
     });
     queue.attach();
     sr.instance = new SadhanaRing(ring, queue);
+    sr.instance.refs = 1;
     if (keepAlive) sr.instance.startKeepAlive();
     // Register + auto-evict on disconnect so the next connect() rebuilds fresh.
     SadhanaRing.instances.set(deviceId, sr.instance);
     const sub = ring.onDisconnect(() => {
       sr.instance?.stopKeepAlive();
+      if (sr.instance) sr.instance.refs = 0;
       SadhanaRing.instances.delete(deviceId);
     });
     (sr.instance as unknown as { _disconnectSub: typeof sub })._disconnectSub = sub;
@@ -270,11 +285,27 @@ export class SadhanaRing {
     return () => sub.remove();
   }
 
+  /**
+   * Release this caller's reference. The physical link is only torn down once
+   * every holder has released it — see `refs`.
+   */
   async disconnect(): Promise<void> {
+    this.refs -= 1;
+    if (this.refs > 0) return;
+    this.refs = 0;
     this.stopKeepAlive();
     this.queue.detach();
     // Remove from registry BEFORE the low-level disconnect so re-connect()
     // during the tear-down window doesn't return this dying instance.
+    SadhanaRing.instances.delete(this.ring.device.id);
+    await this.ring.disconnect();
+  }
+
+  /** Force a full teardown regardless of outstanding references. */
+  async forceDisconnect(): Promise<void> {
+    this.refs = 0;
+    this.stopKeepAlive();
+    this.queue.detach();
     SadhanaRing.instances.delete(this.ring.device.id);
     await this.ring.disconnect();
   }

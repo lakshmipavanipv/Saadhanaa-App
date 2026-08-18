@@ -34,7 +34,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createDefaultRing } from '../soulsync/services/RingTelemetryService';
 import { TimePickerField } from '../components/TimePickerField';
 import { WeekSparkline } from '../components/WeekSparkline';
-import { DUMMY, withFallback } from '../services/dummyData';
 import { workoutGoalsRepo, WorkoutGoals, GoalUnit, GOAL_UNIT_META } from '../services/workoutGoalsRepo';
 import { getTodaySteps } from '../services/stepTracker';
 import { getRingStepsToday } from '../soulsync/ring';
@@ -303,7 +302,7 @@ export const ExerciseScreen = ({ navigation }: any) => {
 
         {/* v72: since-morning summary — steps + calories at a glance */}
         {(() => {
-          const steps = withFallback(stepsToday, DUMMY.stepsToday ?? 3200);
+          const steps = stepsToday;
           const kcal = Math.round(steps * 0.04 + todayMin * 5);
           const km = (steps * 0.000762).toFixed(2);   // ~0.762 m per step
           return (
@@ -346,10 +345,10 @@ export const ExerciseScreen = ({ navigation }: any) => {
           const todaySeries = weeklyByActivity[item.id] ?? [0,0,0,0,0,0,0];
           const thisWeekMin = todaySeries.reduce((s, x) => s + x, 0);
           const todayActivityMin = todaySeries[todaySeries.length - 1] || 0;
-          // ── Apply dummy fallback per-activity for elegant first-use UX ──
-          const fbSteps = withFallback(stepsToday, DUMMY.stepsToday);
-          const fbStepsWeekly = withFallback(stepsWeekly, DUMMY.weeklySteps);
-          const fbActivityMin = withFallback(todayActivityMin, isWalk ? 0 : Math.round(15 + Math.random() * 10));
+          // Measured values only — the ring's step channel and logged minutes.
+          const fbSteps = stepsToday;
+          const fbStepsWeekly = stepsWeekly;
+          const fbActivityMin = todayActivityMin;
           // Walk uses ring step count, others use logged minutes
           const todayValue = isWalk ? fbSteps : fbActivityMin;
           // v67: prefer the user's chosen value+unit; fall back to legacy.
@@ -359,7 +358,7 @@ export const ExerciseScreen = ({ navigation }: any) => {
           const legacyKey = isWalk ? 'walkSteps' : (`${item.id}Min` as keyof WorkoutGoals);
           const goalVal = savedVal ?? (goals[legacyKey] as number) ?? (isWalk ? 6000 : 30);
           const pct = Math.min(100, Math.round((todayValue / Math.max(1, goalVal)) * 100));
-          const sparkSeries = isWalk ? fbStepsWeekly : (todaySeries.every(x => x === 0) ? DUMMY.workoutWeek : todaySeries);
+          const sparkSeries = isWalk ? fbStepsWeekly : todaySeries;
           // Calories — uses fallback step count when no real data
           const calories = isWalk
             ? Math.round(fbSteps * 0.04)
@@ -436,7 +435,7 @@ export const ExerciseScreen = ({ navigation }: any) => {
               <View style={styles.amKpiGrid}>
                 <View style={styles.amKpiCell}>
                   <Text style={styles.amKpiValue}>
-                    {isWalk ? DUMMY.hrActiveMinutesToday : Math.round(fbActivityMin * 0.7)}
+                    {Math.round(fbActivityMin * 0.7)}
                   </Text>
                   <Text style={styles.amKpiLabel}>❤️ HR active{'\n'}min</Text>
                 </View>

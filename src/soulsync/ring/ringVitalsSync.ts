@@ -17,13 +17,14 @@
 
 import { SadhanaRing } from './SadhanaRing';
 import { readSr16DeviceId } from './japaCounter';
-import { sleepModelToStage } from './sync';
+import { sleepModelToStage, RING_EPOCH_UNIX } from './sync';
 import type {
   SleepSample, HrSample, HrvSample, Spo2Sample, TempSample, StressSample,
-  StepSample, TasbihSample,
+  StepSample, TasbihSample, TsSample,
 } from './sync';
 import { sleepRepo } from '../db/sleepRepo';
 import { getDB } from '../db/database';
+import { vitalsRepo, type VitalSample } from '../db/vitalsRepo';
 
 export interface RingVitalsSyncResult {
   sleep: { nightsUpserted: number; sampleCount: number };
@@ -178,12 +179,112 @@ async function upsertRingSteps(samples: StepSample[]): Promise<{ total: number; 
  * Full one-shot sync. Non-blocking — call from a screen effect; caller
  * can await for a result summary or fire-and-forget.
  */
+/**
+ * Persist a decoded scalar channel into the historic store.
+ *
+ * The ring re-reports its full retained window on every sync, so this is
+ * deliberately an upsert keyed on (metric, ts) — calling it repeatedly is
+ * idempotent and never inflates the history.
+ */
+async function persistScalar<T extends TsSample>(
+  metric: VitalSample['metric'],
+  samples: T[],
+  read: (s: T) => number,
+): Promise<void> {
+  if (samples.length === 0) return;
+  const rows: VitalSample[] = samples.map((s) => ({
+    metric,
+    ts: s.timestamp.getTime(),
+    value: read(s),
+    source: 'sync' as const,
+  }));
+  await vitalsRepo.insertMany(rows);
+}
+
+/** How much stored history the detail screens chart when the ring is away. */
+const HISTORY_WINDOW_DAYS = 7;
+
+/**
+ * Fill any empty scalar channel from `vitals_sample`.
+ *
+ * The ring only retains a short rolling window, and it is not always in
+ * range — but every reading it ever handed over is on the phone. Screens ask
+ * for a sync and render whatever comes back, so backfilling here means all of
+ * them show real history without each one needing its own fallback path.
+ *
+ * Channels the ring DID return are left untouched: a live pull is always at
+ * least as complete as what was stored from it.
+ */
+async function hydrateFromHistory(result: RingVitalsSyncResult): Promise<RingVitalsSyncResult> {
+  const since = Date.now() - HISTORY_WINDOW_DAYS * 86_400_000;
+  const now = Date.now();
+
+  const load = async <T extends TsSample>(
+    metric: VitalSample['metric'],
+    build: (row: { ts: number; value: number }) => T,
+  ): Promise<T[]> => {
+    try {
+      const rows = await vitalsRepo.range(metric, since, now);
+      return rows.map((r) => build({ ts: r.ts, value: r.value }));
+    } catch {
+      return [];
+    }
+  };
+
+  const base = (ts: number) => ({
+    ringTs: Math.round(ts / 1000) - RING_EPOCH_UNIX,
+    timestamp: new Date(ts),
+  });
+
+  if (result.raw.hr.length === 0) {
+    const hr = await load<HrSample>('hr', (r) => ({ ...base(r.ts), hr: r.value }));
+    if (hr.length) {
+      result.raw.hr = hr;
+      result.hr = scalarStats(hr, 'hr');
+    }
+  }
+  if (result.raw.hrv.length === 0) {
+    const hrv = await load<HrvSample>('hrv', (r) => ({ ...base(r.ts), hrv: r.value }));
+    if (hrv.length) {
+      result.raw.hrv = hrv;
+      result.hrv = { samples: hrv.length, avg: scalarStats(hrv, 'hrv').avg };
+    }
+  }
+  if (result.raw.spo2.length === 0) {
+    const spo2 = await load<Spo2Sample>('spo2', (r) => ({ ...base(r.ts), spo2: r.value }));
+    if (spo2.length) {
+      result.raw.spo2 = spo2;
+      result.spo2 = { samples: spo2.length, avg: scalarStats(spo2, 'spo2').avg };
+    }
+  }
+  if (result.raw.temp.length === 0) {
+    // Stored in °C; the sample shape carries tenths, so scale back on the way in.
+    const temp = await load<TempSample>('temp', (r) => ({ ...base(r.ts), tempCx10: r.value * 10 }));
+    if (temp.length) {
+      result.raw.temp = temp;
+      const stats = scalarStats(temp, 'tempCx10');
+      result.temp = { samples: stats.samples, avgC: stats.avg !== null ? stats.avg / 10 : null };
+    }
+  }
+  if (result.raw.stress.length === 0) {
+    const stress = await load<StressSample>('stress', (r) => ({ ...base(r.ts), stress: r.value }));
+    if (stress.length) {
+      result.raw.stress = stress;
+      result.stress = { samples: stress.length, avg: scalarStats(stress, 'stress').avg };
+    }
+  }
+
+  return result;
+}
+
 export async function syncAllRingVitals(): Promise<RingVitalsSyncResult> {
   const result = emptyResult();
   const deviceId = await readSr16DeviceId();
   if (!deviceId) {
     result.errors.push('no SR16 paired');
-    return result;
+    // No ring in reach is not the same as no data: everything previously
+    // synced is still on the phone, so serve it rather than an empty screen.
+    return hydrateFromHistory(result);
   }
 
   let ring: SadhanaRing | null = null;
@@ -191,7 +292,7 @@ export async function syncAllRingVitals(): Promise<RingVitalsSyncResult> {
     ring = await SadhanaRing.connect(deviceId, { keepAlive: false });
   } catch (e) {
     result.errors.push(`connect: ${(e as Error).message}`);
-    return result;
+    return hydrateFromHistory(result);
   }
 
   const safe = async <T>(label: string, fn: () => Promise<T>): Promise<T | null> => {
@@ -207,18 +308,24 @@ export async function syncAllRingVitals(): Promise<RingVitalsSyncResult> {
   }
 
   const hr = await safe('hr', () => ring!.sync.sync<HrSample>('hr'));
-  if (hr) { result.raw.hr = hr.samples; result.hr = scalarStats(hr.samples, 'hr'); }
+  if (hr) {
+    result.raw.hr = hr.samples;
+    result.hr = scalarStats(hr.samples, 'hr');
+    await safe('hr:persist', () => persistScalar('hr', hr.samples, (s: HrSample) => s.hr));
+  }
 
   const hrv = await safe('hrv', () => ring!.sync.sync<HrvSample>('hrv'));
   if (hrv) {
     result.raw.hrv = hrv.samples;
     result.hrv = { samples: hrv.samples.length, avg: scalarStats(hrv.samples, 'hrv').avg };
+    await safe('hrv:persist', () => persistScalar('hrv', hrv.samples, (s: HrvSample) => s.hrv));
   }
 
   const spo2 = await safe('spo2', () => ring!.sync.sync<Spo2Sample>('spo2'));
   if (spo2) {
     result.raw.spo2 = spo2.samples;
     result.spo2 = { samples: spo2.samples.length, avg: scalarStats(spo2.samples, 'spo2').avg };
+    await safe('spo2:persist', () => persistScalar('spo2', spo2.samples, (s: Spo2Sample) => s.spo2));
   }
 
   const temp = await safe('temp', () => ring!.sync.sync<TempSample>('temp'));
@@ -226,12 +333,15 @@ export async function syncAllRingVitals(): Promise<RingVitalsSyncResult> {
     result.raw.temp = temp.samples;
     const stats = scalarStats(temp.samples, 'tempCx10');
     result.temp = { samples: stats.samples, avgC: stats.avg !== null ? stats.avg / 10 : null };
+    // Stored in °C, not the ring's tenths — consumers never re-scale.
+    await safe('temp:persist', () => persistScalar('temp', temp.samples, (s: TempSample) => s.tempCx10 / 10));
   }
 
   const stress = await safe('stress', () => ring!.sync.sync<StressSample>('stress'));
   if (stress) {
     result.raw.stress = stress.samples;
     result.stress = { samples: stress.samples.length, avg: scalarStats(stress.samples, 'stress').avg };
+    await safe('stress:persist', () => persistScalar('stress', stress.samples, (s: StressSample) => s.stress));
   }
 
   const steps = await safe('steps', () => ring!.sync.sync<StepSample>('steps'));
@@ -246,5 +356,5 @@ export async function syncAllRingVitals(): Promise<RingVitalsSyncResult> {
   if (japa) result.raw.japa = japa.samples;
 
   await ring.disconnect().catch(() => {});
-  return result;
+  return hydrateFromHistory(result);
 }

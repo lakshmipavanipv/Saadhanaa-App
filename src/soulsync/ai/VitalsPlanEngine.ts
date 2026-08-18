@@ -6,9 +6,9 @@
  * Inputs (gathered automatically — no caller args needed):
  *   • Age          — derived from UserProfile.dob
  *   • Vitals       — today's ambient BPM / HRV / SpO2 from the ring
- *                    (falls back to DUMMY.ambientToday until the ring syncs)
+ *                    (absent until the ring has reported them)
  *   • Health boxes — Stress, Sleep, Heart, Lung (0-100) — from the
- *                    Soulsync analytics layer (currently DUMMY mirrors them)
+ *                    Soulsync analytics layer (HealthScores)
  *   • Composite    — Body Health, Soul Depth, Commitment (0-100)
  *   • 7-day actuals — Σ body minutes + Σ soul minutes from the repos
  *
@@ -48,8 +48,9 @@
 import { exerciseRepo } from '../../services/exerciseRepo';
 import { soulActivityRepo } from '../../services/soulActivityRepo';
 import { ambientBaselineRepo } from '../db/ambientBaselineRepo';
-import { DUMMY } from '../../services/dummyData';
 import { computeJapaEffect } from '../analytics/JapaEffect';
+import { computeHealthBoxes } from '../analytics/HealthScores';
+import { computeScores } from '../components/SoulsyncScoreCard';
 
 export interface VitalsPlan {
   walkingMin:    number;
@@ -69,16 +70,21 @@ export interface VitalsPlan {
   fromRealHistory: boolean;
 }
 
+/**
+ * Every measured field is nullable: null means "the ring has not reported
+ * this", and each rule below is skipped rather than fed a stand-in number.
+ * The age baseline always applies, so a plan is always produced.
+ */
 interface PlanInputs {
   ageYears:        number;
-  bpm:             number;
-  rmssd:           number;     // HRV
-  spo2:            number;
-  stressScore:     number;     // 0-100, lower = better
-  sleepScore:      number;     // 0-100
-  bodyHealthScore: number;     // 0-100
-  soulDepthScore:  number;     // 0-100
-  commitmentScore: number;     // 0-100
+  bpm:             number | null;
+  rmssd:           number | null;     // HRV
+  spo2:            number | null;
+  stressScore:     number | null;     // 0-100, lower = better
+  sleepScore:      number | null;     // 0-100
+  bodyHealthScore: number | null;     // 0-100
+  soulDepthScore:  number | null;     // 0-100
+  commitmentScore: number | null;     // 0-100
   body7dMin:       number;     // last 7 days body minutes
   soul7dMin:       number;     // last 7 days soul minutes
   hasRealVitals:   boolean;
@@ -105,35 +111,47 @@ const gatherInputs = async (dob?: string): Promise<PlanInputs> => {
   // ── Age ──
   const ageYears = calcAge(dob);
 
-  // ── Vitals: today's ambient averages from ring (fallback to dummy) ──
-  let bpm   = DUMMY.ambientToday.bpm;
-  let rmssd = DUMMY.ambientToday.rmssd;
-  let spo2  = DUMMY.ambientToday.spo2;
+  // ── Vitals: today's averages, blended across live + stored ring history ──
+  let bpm:   number | null = null;
+  let rmssd: number | null = null;
+  let spo2:  number | null = null;
   let hasRealVitals = false;
   try {
     const t = await ambientBaselineRepo.todaysAvg();
     if (t && t.n > 5) {
-      bpm   = t.bpm   || bpm;
-      rmssd = t.rmssd || rmssd;
-      spo2  = t.spo2  || spo2;
-      hasRealVitals = true;
+      bpm   = t.bpm   > 0 ? t.bpm   : null;
+      rmssd = t.rmssd > 0 ? t.rmssd : null;
+      spo2  = t.spo2  > 0 ? t.spo2  : null;
+      hasRealVitals = bpm != null || rmssd != null || spo2 != null;
     }
-  } catch { /* leave dummy */ }
+  } catch { /* no vitals — every nudge below is skipped */ }
 
-  // ── Composite + health-box scores via JapaEffect snapshot ──
-  // JapaEffect provides "Saadhana Score" which is the soul side. Body
-  // health + the 4 boxes come from DUMMY today (until the dedicated
-  // analytics layer is wired in this build).
-  let soulDepthScore  = DUMMY.soulDepthScore;
+  // ── Composite + health-box scores ──
+  // JapaEffect provides the soul side; HealthScores and ScoreTrends supply
+  // the body side. All three read measured vitals only.
+  let soulDepthScore: number | null = null;
   try {
     const snap = await computeJapaEffect();
-    if (snap?.hasJapaToday) soulDepthScore = snap.score || soulDepthScore;
-  } catch { /* fallback */ }
+    if (snap?.hasJapaToday && snap.score) soulDepthScore = snap.score;
+  } catch { /* no japa scored yet */ }
 
-  const stressScore     = DUMMY.healthBoxes.stress;
-  const sleepScore      = DUMMY.healthBoxes.sleep;
-  const bodyHealthScore = DUMMY.bodyHealthScore;
-  const commitmentScore = DUMMY.commitmentScore;
+  // The same composite scores the Home grid shows — computed from measured
+  // vitals only, so a null here means "not enough readings", not "zero".
+  let stressScore: number | null = null;
+  let sleepScore:  number | null = null;
+  try {
+    const boxes = await computeHealthBoxes();
+    stressScore = boxes.stress;
+    sleepScore  = boxes.sleep;
+  } catch { /* DB not ready */ }
+
+  let bodyHealthScore: number | null = null;
+  let commitmentScore: number | null = null;
+  try {
+    const c = await computeScores();
+    bodyHealthScore = c.dayBaseline;
+    commitmentScore = c.overall;
+  } catch { /* DB not ready */ }
 
   // ── 7-day actuals from repos ──
   let body7dMin = 0;
@@ -164,40 +182,46 @@ const buildPlan = (i: PlanInputs): VitalsPlan => {
   );
 
   // ── Vitals nudges ──
-  if (i.stressScore > 60 || i.rmssd < 25) {
+  const stressed = (i.stressScore != null && i.stressScore > 60) || (i.rmssd != null && i.rmssd < 25);
+  if (stressed) {
     plan.meditationMin += 5;
     plan.breathworkMin += 5;
-    rationale.push(
-      `Stress ${i.stressScore}/100 · HRV ${i.rmssd.toFixed(0)} ms → +5 meditate, ` +
-      `+5 breath (calm the nervous system).`
-    );
+    const parts: string[] = [];
+    if (i.stressScore != null) parts.push(`Stress ${i.stressScore}/100`);
+    if (i.rmssd != null) parts.push(`HRV ${i.rmssd.toFixed(0)} ms`);
+    rationale.push(`${parts.join(' · ')} → +5 meditate, +5 breath (calm the nervous system).`);
   }
-  if (i.spo2 < 95) {
+  if (i.spo2 != null && i.spo2 < 95) {
     plan.breathworkMin += 5;
     rationale.push(`SpO₂ ${i.spo2.toFixed(1)}% is low → +5 pranayama focus.`);
   }
-  if (i.sleepScore < 60) {
+  if (i.sleepScore != null && i.sleepScore < 60) {
     plan.meditationMin += 5;
     rationale.push(
       `Sleep ${i.sleepScore}/100 → +5 meditate, prefer 4-7-8 breath before bed.`
     );
   }
-  if (i.bodyHealthScore < 60) {
+  if (i.bodyHealthScore != null && i.bodyHealthScore < 60) {
     plan.walkingMin += 10;
     rationale.push(
       `Body Health ${i.bodyHealthScore}/100 → +10 walking (most efficient lift).`
     );
   }
-  if (i.soulDepthScore < 60) {
+  if (i.soulDepthScore != null && i.soulDepthScore < 60) {
     plan.japaMin += 5;
     plan.meditationMin += 5;
     rationale.push(
       `Soul Depth ${i.soulDepthScore}/100 → +5 japa, +5 meditate (deepen the well).`
     );
   }
-  if (i.bpm > 80) {
+  if (i.bpm != null && i.bpm > 80) {
     plan.walkingMin += 5;
     rationale.push(`Resting BPM ${i.bpm.toFixed(0)} is high → +5 walking (cardio).`);
+  }
+  if (!i.hasRealVitals) {
+    rationale.push(
+      `No ring readings yet today — plan is age-based until vitals sync.`
+    );
   }
 
   // ── 7-day history correction ──
@@ -247,26 +271,28 @@ const buildPlan = (i: PlanInputs): VitalsPlan => {
   // ── Build user-facing notes (top-of-card summary) ──
   const notes: string[] = [];
 
-  if (i.stressScore > 60 || i.rmssd < 25) {
+  if (stressed) {
     notes.push("Your body is asking for calm today — meditation + breath get top billing.");
-  } else if (i.spo2 < 95) {
+  } else if (i.spo2 != null && i.spo2 < 95) {
     notes.push("Oxygen looks soft — a focused pranayama block will lift it gently.");
-  } else if (i.bodyHealthScore < 60) {
+  } else if (i.bodyHealthScore != null && i.bodyHealthScore < 60) {
     notes.push("Body Health is below your soul side — a longer walk will rebalance the day.");
-  } else if (i.soulDepthScore < 60) {
+  } else if (i.soulDepthScore != null && i.soulDepthScore < 60) {
     notes.push("Soul side wants attention — extra japa + meditation today.");
-  } else if (i.commitmentScore > 80) {
+  } else if (i.commitmentScore != null && i.commitmentScore > 80) {
     notes.push("You're on a beautiful streak — maintain, don't push. Recovery is part of the practice.");
+  } else if (!i.hasRealVitals) {
+    notes.push("Wear your ring today — once it syncs, this plan adapts to your actual vitals.");
   } else {
     notes.push("Vitals look steady — a balanced plan to keep both worlds moving.");
   }
 
   // Specific micro-tip
-  if (i.bpm > 75 && plan.walkingMin < 25) {
+  if (i.bpm != null && i.bpm > 75 && plan.walkingMin < 25) {
     notes.push(`Try a brisk 5-min walk before japa — drops the resting BPM by ~3-5.`);
-  } else if (i.rmssd < 30) {
+  } else if (i.rmssd != null && i.rmssd < 30) {
     notes.push("4-7-8 breathing for 3 minutes can lift HRV by 15-25% almost immediately.");
-  } else if (i.soulDepthScore >= 70) {
+  } else if (i.soulDepthScore != null && i.soulDepthScore >= 70) {
     notes.push("Your sadhana is landing — even a short session today will compound the depth.");
   }
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -8,11 +8,18 @@ import {
   TextInput,
   Modal,
   Alert,
+  Switch,
 } from 'react-native';
 import { useSadhana } from '../context';
 import { UserProfile } from '../types';
 import { COLORS, SPACING } from '../theme';
 import { RingDebugScreen } from './RingDebugScreen';
+import {
+  vitalsPrefs, INTERVAL_CHOICES, SLEEP_INTERVAL_MIN, describeInterval,
+  type VitalsPrefs,
+} from '../soulsync/settings/vitalsPrefs';
+import { vitalsScheduler, type SchedulerStatus } from '../soulsync/ring/vitalsScheduler';
+import { vitalsRepo } from '../soulsync/db/vitalsRepo';
 
 const APP_VERSION = '1.0.9';
 
@@ -123,6 +130,9 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
           <Text style={[styles.rowValue, { color: COLORS.gold }]}>Open ›</Text>
         </TouchableOpacity>
 
+        {/* Vitals measurement cadence */}
+        <VitalsMeasurementSection />
+
         {/* About */}
         <Text style={styles.sectionTitle}>About</Text>
         <View style={styles.row}>
@@ -166,6 +176,140 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
         </Modal>
       )}
     </View>
+  );
+};
+
+/**
+ * How often the ring is asked for a measurement.
+ *
+ * Three cadences, applied automatically by `vitalsScheduler`: the interval
+ * chosen here during the day, every 30 minutes inside the sleep window, and a
+ * continuously-held link during japa.
+ */
+const VitalsMeasurementSection = () => {
+  const [prefs, setPrefs] = useState<VitalsPrefs>(() => vitalsPrefs.peek());
+  const [status, setStatus] = useState<SchedulerStatus | null>(null);
+  const [stored, setStored] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void vitalsPrefs.get().then((p) => { if (!cancelled) setPrefs(p); });
+    const unsubPrefs = vitalsPrefs.subscribe((p) => { if (!cancelled) setPrefs(p); });
+    const unsubStatus = vitalsScheduler.subscribe((st) => { if (!cancelled) setStatus(st); });
+    return () => { cancelled = true; unsubPrefs(); unsubStatus(); };
+  }, []);
+
+  // Refresh the stored-sample receipt whenever a sync completes.
+  useEffect(() => {
+    let cancelled = false;
+    void vitalsRepo.counts()
+      .then((c) => {
+        if (cancelled) return;
+        setStored(Object.values(c).reduce((a, b) => a + b, 0));
+      })
+      .catch(() => { /* DB not ready */ });
+    return () => { cancelled = true; };
+  }, [status?.lastRunAt]);
+
+  const cycleInterval = useCallback(() => {
+    const idx = INTERVAL_CHOICES.indexOf(prefs.intervalMin);
+    const next = INTERVAL_CHOICES[(idx + 1) % INTERVAL_CHOICES.length];
+    void vitalsPrefs.set({ intervalMin: next });
+  }, [prefs.intervalMin]);
+
+  const cycleSleepStart = useCallback(() => {
+    void vitalsPrefs.set({ sleepStartHour: (prefs.sleepStartHour + 1) % 24 });
+  }, [prefs.sleepStartHour]);
+
+  const cycleSleepEnd = useCallback(() => {
+    void vitalsPrefs.set({ sleepEndHour: (prefs.sleepEndHour + 1) % 24 });
+  }, [prefs.sleepEndHour]);
+
+  const hh = (h: number) => `${`${h}`.padStart(2, '0')}:00`;
+
+  const modeLabel =
+    status?.mode === 'japa' ? '📿 Japa — live link, streaming'
+    : status?.mode === 'sleep' ? `😴 Sleep — every ${SLEEP_INTERVAL_MIN} min`
+    : `☀️ Daytime — ${describeInterval(prefs.intervalMin).toLowerCase()}`;
+
+  const lastSync = status?.lastRunAt
+    ? new Date(status.lastRunAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+    : 'not yet';
+
+  return (
+    <>
+      <Text style={styles.sectionTitle}>Vitals measurement</Text>
+
+      {/* Daytime cadence */}
+      <TouchableOpacity style={styles.row} onPress={cycleInterval}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.rowLabel}>Measure every</Text>
+          <Text style={styles.rowHint}>How often the ring is read during the day</Text>
+        </View>
+        <Text style={[styles.rowValue, { color: COLORS.gold }]}>{prefs.intervalMin} min ›</Text>
+      </TouchableOpacity>
+
+      {/* Sleep cadence */}
+      <View style={styles.row}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.rowLabel}>Sleep tracking</Text>
+          <Text style={styles.rowHint}>
+            Measures every {SLEEP_INTERVAL_MIN} min while you sleep
+          </Text>
+        </View>
+        <Switch
+          value={prefs.sleepModeEnabled}
+          onValueChange={(v) => { void vitalsPrefs.set({ sleepModeEnabled: v }); }}
+          trackColor={{ false: '#3a3a3a', true: COLORS.gold }}
+        />
+      </View>
+
+      {prefs.sleepModeEnabled && (
+        <View style={styles.row}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowLabel}>Sleep window</Text>
+            <Text style={styles.rowHint}>Tap a time to adjust</Text>
+          </View>
+          <TouchableOpacity onPress={cycleSleepStart}>
+            <Text style={[styles.rowValue, { color: COLORS.gold }]}>{hh(prefs.sleepStartHour)}</Text>
+          </TouchableOpacity>
+          <Text style={styles.rowValue}>  →  </Text>
+          <TouchableOpacity onPress={cycleSleepEnd}>
+            <Text style={[styles.rowValue, { color: COLORS.gold }]}>{hh(prefs.sleepEndHour)}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Japa live link */}
+      <View style={styles.row}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.rowLabel}>Live vitals during japa</Text>
+          <Text style={styles.rowHint}>
+            Holds the Bluetooth link open for the whole session
+          </Text>
+        </View>
+        <Switch
+          value={prefs.japaLiveEnabled}
+          onValueChange={(v) => { void vitalsPrefs.set({ japaLiveEnabled: v }); }}
+          trackColor={{ false: '#3a3a3a', true: COLORS.gold }}
+        />
+      </View>
+
+      {/* Live status + a receipt that data really landed */}
+      <View style={styles.row}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.rowLabel}>Right now</Text>
+          <Text style={styles.rowHint}>
+            {modeLabel}{'\n'}Last sync {lastSync}
+            {stored != null ? ` \u00b7 ${stored.toLocaleString()} readings stored` : ''}
+            {status?.lastError ? `\n\u26a0 ${status.lastError}` : ''}
+          </Text>
+        </View>
+        <TouchableOpacity onPress={() => { void vitalsScheduler.syncNow(); }}>
+          <Text style={[styles.rowValue, { color: COLORS.gold }]}>Sync now</Text>
+        </TouchableOpacity>
+      </View>
+    </>
   );
 };
 

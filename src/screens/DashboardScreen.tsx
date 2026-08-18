@@ -35,7 +35,8 @@ import { SoulsyncScoreCard, computeScores } from '../soulsync/components/Soulsyn
 import { computeHealthDashboard } from '../soulsync/analytics/HealthDashboard';
 import { computeSleepScore } from '../soulsync/analytics/SleepScore';
 import { routineRepo } from '../services/routineRepo';
-import { DUMMY, withFallback, isUsingDummyData } from '../services/dummyData';
+import { showNum, barPct, NO_DATA_COLOR } from '../services/vitalsDisplay';
+import { computeHealthBoxes } from '../soulsync/analytics/HealthScores';
 import { SaadhanaScoreCard } from '../soulsync/components/SaadhanaScoreCard';
 import { useEmotionalState } from '../soulsync/hooks/useEmotionalState';
 import { DeityIcon } from '../components/DeityIcon';
@@ -149,7 +150,6 @@ export const DashboardScreen = ({ navigation }: any) => {
   // next-occurrence-per-item entries for the new Upcoming Reminders feed.
   const [allRoutine, setAllRoutine] = useState<any[]>([]);
   // Demo-mode flag — true while no real ring data has landed yet.
-  const [demoMode, setDemoMode] = useState(true);
   // v49: vitals start COLLAPSED behind a "Know more about your body vitals?"
   // toggle so the Home tab opens with a clean, calm Today's Plan view.
   const [showVitals, setShowVitals] = useState(false);
@@ -157,45 +157,13 @@ export const DashboardScreen = ({ navigation }: any) => {
     exerciseRepo.todayMinutes().then(setTodayBodyMin);
     (async () => {
       try {
-        const dash = await computeHealthDashboard();
-        const [bpm, hrv, spo2] = dash.metrics;
-        // Stress: lower HRV + higher BPM = more stress (inverted to a 0-100 score)
-        const stressScore = (hrv.today > 0 && bpm.today > 0)
-          ? Math.max(0, Math.min(100, Math.round(
-              100 - (hrv.today < 30 ? (30 - hrv.today) * 2 : 0)
-                  - Math.max(0, bpm.today - 65) * 1.5
-            )))
-          : null;
-        // Heart: composite of HRV (60ms = 100) + RHR (60 = 100, +1bpm = -1.5 pts)
-        const heartScore = (hrv.today > 0 && bpm.today > 0)
-          ? Math.max(0, Math.min(100, Math.round(
-              ((hrv.today / 60) * 100) * 0.55 +
-              (100 - Math.max(0, bpm.today - 60) * 1.5) * 0.45
-            )))
-          : null;
-        // Lung: SpO2 mapped (95% → 50, 100% → 100, <90% → 0)
-        const lungScore = spo2.today > 0
-          ? Math.max(0, Math.min(100, Math.round((spo2.today - 90) * 10)))
-          : null;
-        // Sleep — from the existing sleep-score module
-        let sleepScore: number | null = null;
-        try {
-          const s = await computeSleepScore();
-          sleepScore = s.hasData ? s.score : null;
-        } catch { /* ignore */ }
-        setHealthBoxes({ stress: stressScore, sleep: sleepScore, heart: heartScore, lung: lungScore });
+        setHealthBoxes(await computeHealthBoxes());
         const c = await computeScores();
         setCommitmentScore(c.overall);
         setScorePack({
           bodyHealth: c.dayBaseline,
           soulDepth: c.hasJapaToday ? c.japaEffect : null,
         });
-        // Demo-mode detection — any of these means real data flowing
-        setDemoMode(isUsingDummyData({
-          hasAmbient: bpm.today > 0 || hrv.today > 0,
-          hasSession: c.hasJapaToday,
-          hasSleep:  sleepScore != null,
-        }));
       } catch { /* DB not ready */ }
       // Today's planned activities (read from Plan tab's routine store)
       try {
@@ -581,7 +549,7 @@ export const DashboardScreen = ({ navigation }: any) => {
           <Text style={styles.sadhanaHeroLabel}>Body & Soul Health Score</Text>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center' }}>
             <Text style={styles.sadhanaHeroValue}>
-              {withFallback(commitmentScore, DUMMY.bodySoulHealth)}
+              {showNum(commitmentScore)}
             </Text>
             <Text style={styles.heroOutOf}> / 100</Text>
           </View>
@@ -590,9 +558,12 @@ export const DashboardScreen = ({ navigation }: any) => {
               same exact layout as the Commitment Score box's
               Workout Time / Sadhana Time pair. */}
           {(() => {
-            const bodyHealth = withFallback(scorePack.bodyHealth, DUMMY.bodyHealthScore);
-            const soulDepth  = withFallback(scorePack.soulDepth,  DUMMY.soulDepthScore);
-            const colorFor = (s: number) =>
+            const bodyHealth = scorePack.bodyHealth;
+            const soulDepth  = scorePack.soulDepth;
+            // A score the ring hasn't earned yet renders muted at zero width
+            // rather than borrowing a plausible-looking number.
+            const colorFor = (s: number | null) =>
+              s == null ? NO_DATA_COLOR :
               s >= 80 ? '#3ddc84' : s >= 60 ? '#FFB800' : s >= 40 ? '#FFD54F' : '#FF8C42';
             return (
               <View style={[styles.cscBarRow, { alignSelf: 'stretch' }]}>
@@ -601,10 +572,10 @@ export const DashboardScreen = ({ navigation }: any) => {
                   <View style={styles.cscBarHeader}>
                     <Text style={styles.cscBarIconNew}>❤️</Text>
                     <Text style={styles.cscBarLabelNew} numberOfLines={1}>Body Health</Text>
-                    <Text style={[styles.cscBarScore, { color: colorFor(bodyHealth) }]}>{bodyHealth}</Text>
+                    <Text style={[styles.cscBarScore, { color: colorFor(bodyHealth) }]}>{showNum(bodyHealth)}</Text>
                   </View>
                   <View style={styles.cscBarTrackNew}>
-                    <View style={[styles.cscBarFillNew, { width: `${bodyHealth}%`, backgroundColor: colorFor(bodyHealth) }]} />
+                    <View style={[styles.cscBarFillNew, { width: `${barPct(bodyHealth)}%`, backgroundColor: colorFor(bodyHealth) }]} />
                   </View>
                 </View>
 
@@ -613,10 +584,10 @@ export const DashboardScreen = ({ navigation }: any) => {
                   <View style={styles.cscBarHeader}>
                     <Text style={styles.cscBarIconNew}>🪷</Text>
                     <Text style={styles.cscBarLabelNew} numberOfLines={1}>Soul Depth</Text>
-                    <Text style={[styles.cscBarScore, { color: colorFor(soulDepth) }]}>{soulDepth}</Text>
+                    <Text style={[styles.cscBarScore, { color: colorFor(soulDepth) }]}>{showNum(soulDepth)}</Text>
                   </View>
                   <View style={styles.cscBarTrackNew}>
-                    <View style={[styles.cscBarFillNew, { width: `${soulDepth}%`, backgroundColor: colorFor(soulDepth) }]} />
+                    <View style={[styles.cscBarFillNew, { width: `${barPct(soulDepth)}%`, backgroundColor: colorFor(soulDepth) }]} />
                   </View>
                 </View>
               </View>
@@ -641,7 +612,7 @@ export const DashboardScreen = ({ navigation }: any) => {
               into encouragement. Drives the "achievable + measurable"
               part of the SMART model that the UX assessment flagged. */}
           {(() => {
-            const score = withFallback(commitmentScore, DUMMY.bodySoulHealth);
+            const score = commitmentScore ?? 0;
             const story = (todayCount === 0 && todayBodyMin === 0)
               ? (todayRoutine.length === 0
                   ? '💛 Plan your well-being to begin your journey.'
@@ -658,15 +629,15 @@ export const DashboardScreen = ({ navigation }: any) => {
         {/* ── 2. 4 BEAUTIFUL HEALTH BOXES (with realistic fallback) ── */}
         <View style={styles.h4Grid}>
           {[
-            { label: 'Stress', icon: '🧠', value: withFallback(healthBoxes.stress, DUMMY.healthBoxes.stress), color: '#c084fc' },
-            { label: 'Sleep',  icon: '😴', value: withFallback(healthBoxes.sleep,  DUMMY.healthBoxes.sleep),  color: '#4ea8de' },
-            { label: 'Heart',  icon: '❤️', value: withFallback(healthBoxes.heart,  DUMMY.healthBoxes.heart),  color: '#FF8C42' },
-            { label: 'Lung',   icon: '🫁', value: withFallback(healthBoxes.lung,   DUMMY.healthBoxes.lung),   color: '#3ddc84' },
+            { label: 'Stress', icon: '🧠', value: healthBoxes.stress, color: '#c084fc' },
+            { label: 'Sleep',  icon: '😴', value: healthBoxes.sleep,  color: '#4ea8de' },
+            { label: 'Heart',  icon: '❤️', value: healthBoxes.heart,  color: '#FF8C42' },
+            { label: 'Lung',   icon: '🫁', value: healthBoxes.lung,   color: '#3ddc84' },
           ].map(b => (
             <View key={b.label} style={[styles.h4Box, { borderColor: b.color + '55' }]}>
               <Text style={styles.h4Icon}>{b.icon}</Text>
-              <Text style={[styles.h4Value, { color: b.color }]}>
-                {b.value}<Text style={styles.h4Out}>/100</Text>
+              <Text style={[styles.h4Value, { color: b.value == null ? NO_DATA_COLOR : b.color }]}>
+                {showNum(b.value)}<Text style={styles.h4Out}>/100</Text>
               </Text>
               <Text style={styles.h4Label}>{b.label}</Text>
             </View>
@@ -715,15 +686,15 @@ export const DashboardScreen = ({ navigation }: any) => {
           const bodyGoal = userProfile?.goals?.bodyMinutesPerDay ?? 30;
           const soulGoal = userProfile?.goals?.soulMinutesPerDay ?? 20;
           const realSoulMin = Math.round(sadhanaSeconds / 60);
-          const workoutMin = withFallback(todayBodyMin,  DUMMY.workoutMinutesToday);
-          const soulMin    = withFallback(realSoulMin,   DUMMY.sadhanaMinutesToday);
+          const workoutMin = todayBodyMin;
+          const soulMin    = realSoulMin;
           const workoutPct = Math.min(100, Math.round((workoutMin / Math.max(1, bodyGoal)) * 100));
           const soulPct    = Math.min(100, Math.round((soulMin    / Math.max(1, soulGoal)) * 100));
           // Same gradient as colorFor() in SoulsyncScoreCard
           const colorFor = (s: number) =>
             s >= 80 ? '#3ddc84' : s >= 60 ? '#FFB800' : s >= 40 ? '#FFD54F' : '#FF8C42';
-          const finalCommitment = withFallback(commitmentScore, DUMMY.commitmentScore);
-          const overallColor = colorFor(finalCommitment);
+          const finalCommitment = commitmentScore;
+          const overallColor = finalCommitment == null ? NO_DATA_COLOR : colorFor(finalCommitment);
           return (
             <View style={styles.cscBox}>
               <Text style={styles.cscTitle}>Commitment Score</Text>
@@ -731,7 +702,7 @@ export const DashboardScreen = ({ navigation }: any) => {
               {/* Big number — matches SoulsyncScoreCard's bigRow */}
               <View style={styles.cscBigRow}>
                 <Text style={[styles.cscBigNumber, { color: overallColor }]}>
-                  {finalCommitment}
+                  {showNum(finalCommitment)}
                 </Text>
                 <Text style={styles.cscBigOutOf}>/ 100</Text>
               </View>

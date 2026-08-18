@@ -13,7 +13,7 @@ import Constants from 'expo-constants';
 const STORAGE_KEY = 'soulsync.otpBackendUrl';
 
 const fromConstants = (): string | undefined => {
-  const extra = (Constants?.expoConfig?.extra ?? Constants?.manifest?.extra) as any;
+  const extra = (Constants?.expoConfig?.extra ?? (Constants as any)?.manifest?.extra) as any;
   return extra?.OTP_BACKEND_URL;
 };
 

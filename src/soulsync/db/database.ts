@@ -122,6 +122,34 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       ALTER TABLE sleep_record ADD COLUMN bedtime_minute INTEGER;
     `,
   },
+  {
+    version: 5,
+    sql: `
+      -- v5: historic vitals store.
+      --
+      -- Every scalar sample the ring reports — whether pulled from its
+      -- on-board history ({5,k,16} sync channels) or observed live over a
+      -- held BLE link — lands here exactly once. The ring re-reports its
+      -- whole retained window on every sync, so (metric, ts) is UNIQUE and
+      -- re-syncing is idempotent: repeated pulls update in place instead of
+      -- multiplying rows.
+      --
+      -- ts is epoch-ms so range scans are integer comparisons. day is the
+      -- local YYYY-MM-DD the sample belongs to, denormalised so daily
+      -- rollups never have to do per-row timezone maths in SQL.
+      CREATE TABLE IF NOT EXISTS vitals_sample (
+        metric   TEXT    NOT NULL,   -- 'hr'|'hrv'|'spo2'|'temp'|'stress'|'bp'|'sugar'
+        ts       INTEGER NOT NULL,   -- epoch ms (sample time as reported by the ring)
+        day      TEXT    NOT NULL,   -- local YYYY-MM-DD
+        value    REAL    NOT NULL,   -- primary reading (bpm, ms, %, °C, 0-100)
+        value2   REAL,               -- secondary: diastolic for 'bp', else NULL
+        source   TEXT    NOT NULL,   -- 'sync' (ring history) | 'live' (held link)
+        PRIMARY KEY (metric, ts)
+      );
+      CREATE INDEX IF NOT EXISTS idx_vs_metric_day ON vitals_sample(metric, day);
+      CREATE INDEX IF NOT EXISTS idx_vs_ts         ON vitals_sample(ts);
+    `,
+  },
 ];
 
 const runMigrations = async (db: SQLite.SQLiteDatabase) => {

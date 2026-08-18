@@ -1,32 +1,47 @@
-import { MockRingService, RingSample } from './RingTelemetryService';
+import { createDefaultRing, type RingService, type RingSample } from './RingTelemetryService';
 import { RMSSDCalculator } from '../hrv/RMSSDCalculator';
 import { ambientBaselineRepo, ActivityState } from '../db/ambientBaselineRepo';
 import { EmotionalEngine, setEmotionalEngine, getEmotionalEngine } from '../emotional/EmotionalEngine';
-import { getDB } from '../db/database';
+import { vitalsRepo } from '../db/vitalsRepo';
+
+/** A stored reading older than this is too stale to describe "now". */
+const FRESHNESS_MS = 6 * 60 * 60 * 1000;   // 6 h
 
 /**
  * AmbientIngestionService — captures passive ring telemetry during
  * non-session hours and writes one snapshot per minute into `ambient_baseline`.
  *
- * Currently driven by MockRingService for software-only development.
- * Swap to BleRingService once hardware is available.
+ * Driven by the real SR16 over BLE. If no ring is paired, `start()` throws and
+ * ambient capture simply stays off — the app shows an unpaired state rather
+ * than writing invented baselines into the table.
+ *
+ * Every column written here is measured, never inferred:
+ *   • ambient_bpm   — live heart-rate frames off the held link.
+ *   • ambient_rmssd — the ring's own HRV channel ({5,10,16}) via vitalsRepo,
+ *     because the SR16 does not expose per-beat R-R intervals. It is NOT
+ *     derived from BPM; a mean RR reconstructed from heart rate has zero
+ *     beat-to-beat variance and would report a meaningless HRV.
+ *   • spo2 / skin_temp_c — the ring's SpO2 and temperature channels, used
+ *     only while still fresh.
+ *
+ * A row is written only once a real heart-rate frame has arrived. Steps are
+ * owned exclusively by `ringVitalsSync` (the ring's {5,2,16} step channel) —
+ * this service must never touch daily_activity, or it would overwrite the
+ * ring's real counts with a number it has no sensor to produce.
  */
 export class AmbientIngestionService {
-  private ring = new MockRingService();
+  private ring: RingService = createDefaultRing();
   private rmssd = new RMSSDCalculator({ baselineDurationSec: 0 });
   private running = false;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
-  private lastBpm = 72;
-  private lastSpo2 = 97.5;
-  private lastSkinTempC = 36.5;
+  /** null until the ring actually reports one — never seeded with a guess. */
+  private lastBpm: number | null = null;
+  private lastSpo2: number | null = null;
+  private lastSkinTempC: number | null = null;
+  private liveRmssd: number | null = null;
   private currentActivity: ActivityState = 'idle';
   // Single-flight guard: don't run both ambient + session at the same time
   private paused = false;
-  // Step counter — accumulates and flushes to daily_activity hourly
-  private stepsToday = 0;
-  private lastStepDate = '';
-  private lastStepFlush = 0;
-  private accelLastValue = 0;
 
   async start(): Promise<void> {
     if (this.running) return;
@@ -41,62 +56,58 @@ export class AmbientIngestionService {
 
     await this.ring.start((s: RingSample) => {
       if (this.paused) return;
-      this.lastBpm = s.bpm;
-      this.lastSpo2 = s.spo2;
-      this.lastSkinTempC = s.skinTempC;
-      // Feed RMSSD calc
+      if (s.bpm > 0) this.lastBpm = s.bpm;
+      if (s.spo2 > 0) this.lastSpo2 = s.spo2;
+      if (s.skinTempC > 0) this.lastSkinTempC = s.skinTempC;
+
+      // Only real R-R intervals feed the HRV calculator. On the SR16 this
+      // stream is empty, so `liveRmssd` stays null and the flush falls back
+      // to the ring's own HRV channel below.
       for (const rr of s.rrMs) {
         const snap = this.rmssd.addRR(rr, s.receivedAt);
+        this.liveRmssd = snap.rmssd;
         engine?.updateRmssd(snap.rmssd);
       }
-      // Step counting — accelMag peaks above a stride threshold count as steps.
-      // Standard wearable algorithm: count "above-then-below" crossings of 1.2 m/s².
-      if (this.accelLastValue < 1.2 && s.accelMag >= 1.2) {
-        this.stepsToday += 1;
-      }
-      this.accelLastValue = s.accelMag;
+
       // Feed real-time emotional detectors
       void engine?.ingest(s);
     }, 'ambient');
 
     // Flush one row per minute
-    this.flushTimer = setInterval(async () => {
-      if (this.paused) return;
-      const snap = this.rmssd.addRR(60_000 / this.lastBpm); // gentle nudge
-      await ambientBaselineRepo.insert({
-        timestamp: new Date().toISOString(),
-        ambient_bpm: this.lastBpm,
-        ambient_rmssd: snap.rmssd ?? 0,
-        activity_state: this.currentActivity,
-        spo2: this.lastSpo2,
-        skin_temp_c: this.lastSkinTempC,
-      });
-      await this.flushSteps();
-    }, 60_000);
+    this.flushTimer = setInterval(() => { void this.flush(); }, 60_000);
   }
 
-  /** Upsert today's accumulated step count into daily_activity. */
-  private async flushSteps(): Promise<void> {
-    const today = new Date().toISOString().slice(0, 10);
-    // New day → reset counter
-    if (today !== this.lastStepDate) {
-      this.stepsToday = 0;
-      this.lastStepDate = today;
-    }
-    if (Date.now() - this.lastStepFlush < 60_000) return;
-    this.lastStepFlush = Date.now();
+  /**
+   * Write one ambient snapshot. No-ops until a real heart rate has arrived —
+   * an empty row would poison every baseline that reads this table.
+   */
+  private async flush(): Promise<void> {
+    if (this.paused || this.lastBpm === null) return;
+
+    const rmssd = this.liveRmssd ?? (await this.freshStored('hrv'));
+    const spo2 = this.lastSpo2 ?? (await this.freshStored('spo2'));
+    const skinTemp = this.lastSkinTempC ?? (await this.freshStored('temp'));
+
+    await ambientBaselineRepo.insert({
+      timestamp: new Date().toISOString(),
+      ambient_bpm: Math.round(this.lastBpm),
+      // 0 is this table's "not measured" sentinel — consumers guard with `> 0`.
+      ambient_rmssd: rmssd ?? 0,
+      activity_state: this.currentActivity,
+      spo2: spo2 ?? undefined,
+      skin_temp_c: skinTemp ?? undefined,
+    });
+  }
+
+  /** Latest stored reading for a metric, or null if absent or too old. */
+  private async freshStored(metric: 'hrv' | 'spo2' | 'temp'): Promise<number | null> {
     try {
-      const db = await getDB();
-      // active_minutes = approx minutes since last flush where step rate > 30/min
-      await db.runAsync(
-        `INSERT INTO daily_activity (activity_date, step_count, active_minutes)
-         VALUES (?, ?, ?)
-         ON CONFLICT(activity_date) DO UPDATE SET
-           step_count = excluded.step_count,
-           active_minutes = excluded.active_minutes`,
-        [today, this.stepsToday, Math.round(this.stepsToday / 110)]  // ~110 steps/active-min
-      );
-    } catch { /* soft-fail */ }
+      const row = await vitalsRepo.latest(metric);
+      if (!row) return null;
+      return Date.now() - row.ts <= FRESHNESS_MS ? row.value : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Pause writes while a Japa session owns the ring stream. */

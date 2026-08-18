@@ -29,7 +29,6 @@ import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { COLORS, SPACING } from '../../theme';
 import { ambientBaselineRepo } from '../db/ambientBaselineRepo';
-import { DUMMY } from '../../services/dummyData';
 
 interface Props {
   /** Live BPM series from useSoulsyncSession.state.bpmSeries. */
@@ -58,11 +57,12 @@ export const LiveVitalsTrends: React.FC<Props> = ({ bpmSeries, liveSpo2, isActiv
       try {
         const t = await ambientBaselineRepo.todaysAvg();
         if (cancelled) return;
-        setBaselineBpm(t?.bpm  > 0 ? Math.round(t.bpm)  : DUMMY.ambientToday.bpm);
-        setBaselineSpo2(t?.spo2 > 0 ? Math.round(t.spo2 * 10) / 10 : DUMMY.ambientToday.spo2);
+        // Null until the ring has actually reported a baseline today.
+        setBaselineBpm(t && t.bpm > 0 ? Math.round(t.bpm) : null);
+        setBaselineSpo2(t && t.spo2 > 0 ? Math.round(t.spo2 * 10) / 10 : null);
       } catch {
-        setBaselineBpm(DUMMY.ambientToday.bpm);
-        setBaselineSpo2(DUMMY.ambientToday.spo2);
+        setBaselineBpm(null);
+        setBaselineSpo2(null);
       }
     })();
     return () => { cancelled = true; };
@@ -72,7 +72,8 @@ export const LiveVitalsTrends: React.FC<Props> = ({ bpmSeries, liveSpo2, isActiv
   useEffect(() => {
     if (!isActive) return;
     const id = setInterval(() => {
-      const v = liveSpo2 ?? baselineSpo2 ?? DUMMY.ambientToday.spo2;
+      // Only chart a real reading — never hold the line flat with a stand-in.
+      const v = liveSpo2 ?? baselineSpo2;
       if (v == null) return;
       spo2BufferRef.current.push(Number(v));
       if (spo2BufferRef.current.length > 60) spo2BufferRef.current.shift();

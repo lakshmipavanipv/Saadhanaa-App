@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getDB } from './soulsync/db/database';
 import { ambientIngestion } from './soulsync/services/AmbientIngestion';
+import { vitalsScheduler } from './soulsync/ring/vitalsScheduler';
 import { useEmotionalState } from './soulsync/hooks/useEmotionalState';
 import { GroundingOverlay } from './soulsync/components/GroundingOverlay';
 import { CoolingOverlay } from './soulsync/components/CoolingOverlay';
@@ -530,6 +531,9 @@ export default function App() {
       try {
         await getDB();               // runs migrations on first launch
         if (!cancelled) await ambientIngestion.start();
+        // Cadence engine — measures on the user's chosen interval, every 30
+        // min inside the sleep window, and continuously during japa.
+        if (!cancelled) await vitalsScheduler.start();
         await initNotifications();   // register Android channel for prayer reminders
         // v73: start the foreground pedometer — accumulates today's steps and
         // fires a "goal achieved" notification when a planned walk goal is met.
@@ -539,7 +543,7 @@ export default function App() {
         console.warn('[Soulsync] bootstrap failed:', e);
       }
     })();
-    return () => { cancelled = true; ambientIngestion.stop(); stopSteps?.(); };
+    return () => { cancelled = true; ambientIngestion.stop(); vitalsScheduler.stop(); stopSteps?.(); };
   }, []);
 
   return (

@@ -28,7 +28,8 @@ import { ALL_CATALOG_DEITIES } from '../deityCatalog';
 import { specialSadhanaRepo, SpecialTrigger, isPathEntry } from '../services/specialSadhanaRepo';
 import { WeekSparkline } from '../components/WeekSparkline';
 import { getDB } from '../soulsync/db/database';
-import { DUMMY, withFallback } from '../services/dummyData';
+import { showNum } from '../services/vitalsDisplay';
+import { vitalsScheduler } from '../soulsync/ring/vitalsScheduler';
 import { PracticeStatsBox, BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import {
@@ -327,7 +328,7 @@ const SadhanaDepthScore: React.FC<{ onOpenTrend: () => void }> = ({ onOpenTrend 
   }, []);
 
   // Fallback for first-use UX
-  const displayDepth = withFallback(todayDepth, DUMMY.depthToday);
+  const displayDepth = todayDepth;
   const displayDelta = delta7 ?? 0.4; // small positive delta as default
 
   return (
@@ -335,7 +336,7 @@ const SadhanaDepthScore: React.FC<{ onOpenTrend: () => void }> = ({ onOpenTrend 
       <View style={{ flex: 1 }}>
         <Text style={depthStyles.label}>SADHANA DEPTH SCORE · TODAY</Text>
         <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-          <Text style={depthStyles.value}>{displayDepth}</Text>
+          <Text style={depthStyles.value}>{showNum(displayDepth)}</Text>
           <Text style={depthStyles.outOf}> / 10</Text>
           {(delta7 != null || true) && (
             <Text style={[
@@ -422,11 +423,12 @@ const SadhanaVitalsCompare: React.FC<{ liveBpm: number | null; liveRmssd: number
     );
   };
 
-  // Fallback baseline + during values when no real data
-  const fbBaseline = baseline ?? { bpm: DUMMY.ambientToday.bpm, hrv: DUMMY.ambientToday.rmssd, spo2: DUMMY.ambientToday.spo2 };
-  const fbLiveBpm   = withFallback(liveBpm,   DUMMY.sessionAverages.bpm);
-  const fbLiveRmssd = withFallback(liveRmssd, DUMMY.sessionAverages.rmssd);
-  const fbLiveSpo2  = DUMMY.sessionAverages.spo2;
+  // Measured values only — VRow renders an em dash for anything absent.
+  const fbBaseline: { bpm: number | null; hrv: number | null; spo2: number | null } =
+    baseline ?? { bpm: null, hrv: null, spo2: null };
+  const fbLiveBpm   = liveBpm;
+  const fbLiveRmssd = liveRmssd;
+  const fbLiveSpo2: number | null = null;
 
   return (
     <View style={vitalStyles.card}>
@@ -581,9 +583,9 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   const [activeStepMalas, setActiveStepMalas] = useState<number>(0);       // malas done at current step
 
   // Sadhana Depth Score for the top stats box (live from JapaEffect).
-  // Falls back to the dummy DUMMY.soulDepthScore until the user has
-  // logged a session today (≈ same pattern as Yoga / Meditation).
-  const [japaDepthScore, setJapaDepthScore] = useState<number>(DUMMY.soulDepthScore);
+  // Stays null until the user has logged a session today
+  // (same pattern as Yoga / Meditation).
+  const [japaDepthScore, setJapaDepthScore] = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -844,7 +846,12 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
           setSr16Events((n) => n + 1);
           tapRef.current?.();
         },
-        onConnected: () => { setSr16Status('connected'); setSr16LastError(null); },
+        onConnected: () => {
+          setSr16Status('connected');
+          setSr16LastError(null);
+          // Live link held open — tighten the vitals cadence for the session.
+          vitalsScheduler.setJapaActive(true);
+        },
         onDisconnected: () => setSr16Status('connecting'),
         onError: (e) => { setSr16Status('off'); setSr16LastError(e.message); },
       });
@@ -853,6 +860,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
     } catch (e) {
       setSr16Status('off');
       setSr16LastError((e as Error).message);
+      vitalsScheduler.setJapaActive(false);
       return 'error';
     }
   }, []);
@@ -890,6 +898,8 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
     return () => {
       sr16CounterRef.current?.stop();
       sr16CounterRef.current = null;
+      // Session over — fall back to the sleep/normal cadence.
+      vitalsScheduler.setJapaActive(false);
     };
   }, []);
 
@@ -1034,7 +1044,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
           return (
             <PracticeStatsBox
               practice="japa"
-              minutesToday={withFallback(todayMin, 12)}
+              minutesToday={todayMin}
               goalMinutes={20}
               depthScore={japaDepthScore}
               subMetric={{ label: 'JAPA COUNT TODAY', value: todayJapas.toLocaleString() }}

@@ -1,7 +1,8 @@
 /**
  * SadhanaRingService — real-hardware RingService backed by the Sadhana Ring
- * SDK (Jieli-family transport). Lives beside the existing MockRingService
- * so the app can pick which one to use at runtime.
+ * SDK (Jieli-family transport). This is now the only RingService — the
+ * MockRingService simulator it used to sit beside has been removed, so every
+ * number the app shows comes from the hardware.
  *
  * What this DOES today:
  *   • Connects (either to a given deviceId or by auto-scan).
@@ -27,6 +28,11 @@ import {
   type JieliFrame,
 } from '../ring';
 import type { BuzzPattern, RingSample, RingService, SampleHandler } from './RingTelemetryService';
+import { readSr16DeviceId } from '../ring/japaCounter';
+import { vitalsRepo } from '../db/vitalsRepo';
+
+/** SpO2/temperature older than this no longer describes the current moment. */
+const COMPANION_FRESHNESS_MS = 6 * 60 * 60 * 1000;   // 6 h
 
 export interface SadhanaRingServiceOpts {
   /** If given, connect to this deviceId; otherwise pick strongest ring in a scan. */
@@ -45,6 +51,8 @@ export class SadhanaRingService implements RingService {
   private onSample: SampleHandler | null = null;
   private batteryTimer: ReturnType<typeof setInterval> | null = null;
   private lastBattery: number | null = null;
+  private freshSpo2: number | null = null;
+  private freshTempC: number | null = null;
 
   constructor(private readonly opts: SadhanaRingServiceOpts = {}) {}
 
@@ -57,8 +65,12 @@ export class SadhanaRingService implements RingService {
       if (sample && this.onSample) this.onSample(sample);
     };
 
-    if (this.opts.deviceId) {
-      this.ring = await SadhanaRing.connect(this.opts.deviceId, { onFrame: observer });
+    // Prefer an explicit id, then the ring the user already paired. Only fall
+    // back to a scan when neither is available.
+    const savedId = this.opts.deviceId ?? (await readSr16DeviceId().catch(() => null));
+
+    if (savedId) {
+      this.ring = await SadhanaRing.connect(savedId, { onFrame: observer });
     } else if (this.opts.onPickDevice) {
       const candidates: ScannedRing[] = [];
       await new Promise<void>((resolve, reject) => {
@@ -83,6 +95,9 @@ export class SadhanaRingService implements RingService {
     // Turn on continuous health monitoring.
     try { await this.ring.device.setHealthMonitorMaster(true); } catch { /* not fatal */ }
 
+    // Prime the SpO2/temperature companions from stored history.
+    await this.refreshCompanions();
+
     // Prime battery once so the app has an immediate signal even if no HR
     // samples arrive right away.
     try {
@@ -102,6 +117,8 @@ export class SadhanaRingService implements RingService {
     if (this.batteryTimer) { clearInterval(this.batteryTimer); this.batteryTimer = null; }
     if (this.ring) { await this.ring.disconnect(); this.ring = null; }
     this.onSample = null;
+    this.freshSpo2 = null;
+    this.freshTempC = null;
   }
 
   /**
@@ -136,6 +153,8 @@ export class SadhanaRingService implements RingService {
       const bat = await this.ring.device.getBattery();
       this.lastBattery = bat.percent;
     } catch { /* transient */ }
+    // Cheap piggyback: keep the companion readings current on the same tick.
+    await this.refreshCompanions();
   }
 
   /**
@@ -144,27 +163,57 @@ export class SadhanaRingService implements RingService {
    * is passed through to the user's onFrame observer for downstream decoding.
    */
   private tryDecodeSample(frame: JieliFrame): RingSample | null {
-    // {2, 3, 16} continuous-HR notify (best-guess from spot-check capture:
-    // payload [minInterval, maxInterval, hr]). Live-test will confirm.
+    // {2, 3, 16} continuous-HR notify — payload [minInterval, maxInterval, hr].
     if (frame.cmd === 0x02 && frame.key === 0x03 && frame.keyFlag === 0x10) {
       const hr = frame.payload[2];
       if (hr && hr > 20 && hr < 220) {
-        return sampleFromHr(hr);
+        // Every live beat is history too: record it so the KPIs still have
+        // this reading after the screen unmounts.
+        void vitalsRepo
+          .insertMany([{ metric: 'hr', ts: Date.now(), value: hr, source: 'live' }])
+          .catch(() => { /* storage is best-effort; never break the stream */ });
+        return this.sampleFromHr(hr);
       }
     }
     return null;
   }
-}
 
-function sampleFromHr(bpm: number, spo2 = 98, skinTempC = 36.5): RingSample {
-  return {
-    bpm,
-    rrMs: [Math.round(60_000 / bpm)],  // synthetic RR from BPM until per-beat stream is decoded
-    spo2,
-    skinTempC,
-    accelMag: 0,
-    gyroMag: 0,
-    bvpVelocity: 0,
-    receivedAt: Date.now(),
-  };
+  /**
+   * Build a RingSample from a live heart-rate frame.
+   *
+   * `rrMs` is deliberately empty: the SR16 reports HR only, and a mean R-R
+   * reconstructed from BPM has no beat-to-beat variance, so feeding it to the
+   * RMSSD calculator would yield a fabricated HRV. Real HRV comes from the
+   * ring's HRV channel via vitalsRepo.
+   *
+   * SpO2 and skin temperature are carried from the most recent *measured*
+   * readings when they are still fresh; otherwise 0 ("not measured").
+   */
+  private sampleFromHr(bpm: number): RingSample {
+    return {
+      bpm,
+      rrMs: [],
+      spo2: this.freshSpo2 ?? 0,
+      skinTempC: this.freshTempC ?? 0,
+      accelMag: 0,
+      gyroMag: 0,
+      bvpVelocity: 0,
+      receivedAt: Date.now(),
+    };
+  }
+
+  /** Refresh the cached SpO2/temperature companions to the live HR stream. */
+  private async refreshCompanions(): Promise<void> {
+    const fresh = async (metric: 'spo2' | 'temp'): Promise<number | null> => {
+      try {
+        const row = await vitalsRepo.latest(metric);
+        if (!row) return null;
+        return Date.now() - row.ts <= COMPANION_FRESHNESS_MS ? row.value : null;
+      } catch {
+        return null;
+      }
+    };
+    this.freshSpo2 = await fresh('spo2');
+    this.freshTempC = await fresh('temp');
+  }
 }

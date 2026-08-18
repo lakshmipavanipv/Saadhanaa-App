@@ -24,7 +24,6 @@ import { soulActivityRepo } from '../services/soulActivityRepo';
 import { useSadhana } from '../context';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
 import { todayStr } from '../utils';
-import { DUMMY, withFallback } from '../services/dummyData';
 import { PracticeStatsBox, SessionList, BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import { PracticeAssistant, PracticeCatalogItem } from '../components/PracticeAssistant';
@@ -344,7 +343,7 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
 
   // Today's meditation minutes + sadhana depth score (with dummy fallback)
   const [minutesToday, setMinutesToday] = useState(0);
-  const [depthScore, setDepthScore]   = useState<number>(DUMMY.soulDepthScore);
+  const [depthScore, setDepthScore]   = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -352,7 +351,7 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
       const today = todayStr();
       const real = all.filter(e => e.activity === 'meditation' && e.date === today)
                       .reduce((s, e) => s + e.durationMin, 0);
-      if (!cancelled) setMinutesToday(withFallback(real, 12));
+      if (!cancelled) setMinutesToday(real);
       try {
         const snap = await computeJapaEffect();
         if (!cancelled && snap?.score != null) setDepthScore(snap.score);
