@@ -20,16 +20,17 @@ import { sessionSpiritualRepo } from '../db/sessionSpiritualRepo';
 import { computeHealthDashboard } from '../analytics/HealthDashboard';
 
 interface ScorePack {
-  overall: number;          // 0-100
-  dayBaseline: number;      // 0-100 — passive ambient state (not meditating)
-  japaEffect: number;       // 0-100 — active state during/after sessions
-  delta: number;            // japaEffect − dayBaseline; positive = sadhana is helping
-  label: string;            // simple description ("Great today!" / "Take it easy")
-  hasJapaToday: boolean;    // whether the user actually meditated today
+  overall: number | null;      // 0-100, null until the ring has measured something
+  dayBaseline: number | null;  // 0-100 — passive ambient state (not meditating)
+  japaEffect: number;          // 0-100 — active state during/after sessions
+  delta: number | null;        // japaEffect − dayBaseline; needs both to mean anything
+  label: string;               // simple description ("Great today!" / "Take it easy")
+  hasJapaToday: boolean;       // whether the user actually meditated today
 }
 
 /** Map a 0-100 score to an emoji + a one-line plain-English message. */
-const labelFor = (score: number): string => {
+const labelFor = (score: number | null): string => {
+  if (score == null) return '🪷 Wear your ring to see today’s score';
   if (score >= 80) return '🌟 You are doing great today';
   if (score >= 60) return '🙂 A good day overall';
   if (score >= 40) return '🌱 Room to grow today';
@@ -38,7 +39,8 @@ const labelFor = (score: number): string => {
 };
 
 /** Map a score to a warm color (red→amber→citrine→green). */
-const colorFor = (score: number): string => {
+const colorFor = (score: number | null): string => {
+  if (score == null) return COLORS.muted;
   if (score >= 80) return '#3ddc84';
   if (score >= 60) return '#FFB800';
   if (score >= 40) return '#FFD54F';
@@ -51,21 +53,27 @@ export const computeScores = async (): Promise<ScorePack> => {
 
   // ── DAY BASELINE: how the body is at rest TODAY (ambient/passive state)
   //    Source: ambient_baseline table — readings from non-session times only.
-  const hrvScore = hrv.today > 0
-    ? Math.max(0, Math.min(100, (hrv.today / 60) * 100))   // 60ms = perfect
-    : 50;
-  const bpmScore = bpm.today > 0
-    ? Math.max(0, Math.min(100, 100 - Math.max(0, (bpm.today - 60)) * 1.8))
-    : 50;
-  const spo2Score = spo2.today > 0
-    ? Math.max(0, Math.min(100, (spo2.today - 90) * 10))    // 100% = perfect
-    : 50;
-  const tempScore = tempC.today > 0
-    ? Math.max(0, Math.min(100, 100 - Math.abs(tempC.today - 36.6) * 30))
-    : 50;
-  const dayBaseline = Math.round(
-    hrvScore * 0.4 + bpmScore * 0.3 + spo2Score * 0.2 + tempScore * 0.1
-  );
+  //    A metric the ring never measured contributes nothing: it used to
+  //    default to 50, which quietly manufactured a mid-range score out of
+  //    an empty database (no ring data at all still rendered a confident
+  //    "50/100"). Now each missing metric drops out and the surviving
+  //    weights are renormalised, so the number always describes something
+  //    that was actually measured — and stays null when nothing was.
+  const clamp = (n: number) => Math.max(0, Math.min(100, n));
+  const parts: Array<{ score: number; weight: number }> = [];
+  const add = (raw: number, score: () => number, weight: number) => {
+    if (raw > 0) parts.push({ score: clamp(score()), weight });
+  };
+
+  add(hrv.today,   () => (hrv.today / 60) * 100, 0.4);              // 60ms = perfect
+  add(bpm.today,   () => 100 - Math.max(0, bpm.today - 60) * 1.8, 0.3);
+  add(spo2.today,  () => (spo2.today - 90) * 10, 0.2);              // 100% = perfect
+  add(tempC.today, () => 100 - Math.abs(tempC.today - 36.6) * 30, 0.1);
+
+  const weightSum = parts.reduce((s, p) => s + p.weight, 0);
+  const dayBaseline = weightSum > 0
+    ? Math.round(parts.reduce((s, p) => s + p.score * p.weight, 0) / weightSum)
+    : null;
 
   // ── JAPA EFFECT: how the body responds DURING / AFTER sadhana sessions.
   //    Source: session_spiritual table (depthScore) — completely separate
@@ -77,14 +85,21 @@ export const computeScores = async (): Promise<ScorePack> => {
     : 0;   // 0 = "no japa yet today" — visually flat, prompts the user
 
   // ── DELTA: positive = japa is lifting you above your baseline.
-  //    This is the real proof of practice impact.
-  const delta = hasJapaToday ? japaEffect - dayBaseline : 0;
+  //    This is the real proof of practice impact, so it needs a real
+  //    baseline to measure against — no baseline, no claim.
+  const delta = hasJapaToday && dayBaseline != null
+    ? japaEffect - dayBaseline
+    : null;
 
   // ── OVERALL: balanced average. Tilts toward Japa Effect (the app's
-  //    primary purpose) — 45% baseline + 55% japa.
-  const overall = hasJapaToday
-    ? Math.round(dayBaseline * 0.45 + japaEffect * 0.55)
-    : dayBaseline;   // before today's japa, overall = body's resting state
+  //    primary purpose) — 45% baseline + 55% japa. Whichever half the
+  //    ring hasn't earned yet is left out rather than filled in.
+  const overall =
+    hasJapaToday && dayBaseline != null
+      ? Math.round(dayBaseline * 0.45 + japaEffect * 0.55)
+      : hasJapaToday
+        ? japaEffect       // measured sadhana, no ambient reading yet
+        : dayBaseline;     // before today's japa, overall = resting state (may be null)
 
   return { overall, dayBaseline, japaEffect, delta, hasJapaToday, label: labelFor(overall) };
 };
@@ -123,7 +138,7 @@ export const SoulsyncScoreCard: React.FC = () => {
 
       <View style={styles.bigRow}>
         <Text style={[styles.bigNumber, { color: overallColor }]}>
-          {scores.overall}
+          {scores.overall ?? '—'}
         </Text>
         <Text style={styles.bigOutOf}>/ 100</Text>
       </View>
@@ -135,8 +150,8 @@ export const SoulsyncScoreCard: React.FC = () => {
                   empty={!scores.hasJapaToday} />
       </View>
 
-      {/* DELTA — only when there's been some japa today */}
-      {scores.hasJapaToday && (
+      {/* DELTA — only when there's been japa AND a baseline to compare it to */}
+      {scores.hasJapaToday && scores.delta != null && (
         <View style={styles.deltaRow}>
           <Text style={styles.deltaLabel}>What japa did for you today:</Text>
           <Text style={[
@@ -158,10 +173,14 @@ export const SoulsyncScoreCard: React.FC = () => {
 
 const ScoreBar: React.FC<{
   label: string;
-  score: number;
+  score: number | null;
   icon: string;
   empty?: boolean;
-}> = ({ label, score, icon, empty }) => (
+}> = ({ label, score, icon, empty: emptyProp }) => {
+  // An unmeasured score is empty for the same reason an explicitly empty
+  // one is: there is nothing to draw a bar from.
+  const empty = emptyProp || score == null;
+  return (
   <View style={styles.barCol}>
     <View style={styles.barHeader}>
       <Text style={styles.barIcon}>{icon}</Text>
@@ -184,7 +203,8 @@ const ScoreBar: React.FC<{
       )}
     </View>
   </View>
-);
+  );
+};
 
 const styles = StyleSheet.create({
   card: {
