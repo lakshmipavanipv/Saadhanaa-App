@@ -60,7 +60,7 @@ export async function syncJapaHistory(): Promise<JapaHistorySyncResult> {
 
   let ring: SadhanaRing | null = null;
   try {
-    ring = await SadhanaRing.connect(deviceId, { keepAlive: false });
+    ring = await SadhanaRing.connect(deviceId);
   } catch (e) {
     return { ...empty(), error: `connect: ${(e as Error).message}` };
   }

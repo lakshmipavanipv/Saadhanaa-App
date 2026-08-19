@@ -10,6 +10,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { vitalsRepo } from '../../soulsync/db/vitalsRepo';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { COLORS, SPACING } from '../../theme';
 import { useTheme } from '../../ThemeContext';
@@ -23,6 +24,8 @@ import { syncAllRingVitals, type RingVitalsSyncResult } from '../../soulsync/rin
 type ScalarMetric = Exclude<HealthMetric, 'sleep' | 'stress' | 'exercise'>;
 
 const DAY_MS = 86_400_000;
+/** How far back the detail screen charts and lists stored samples. */
+const HISTORY_DAYS = 30;
 const isScalar = (m: string): m is ScalarMetric =>
   m === 'hr' || m === 'hrv' || m === 'spo2' || m === 'temp' || m === 'resp';
 
@@ -43,6 +46,11 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
   const [view, setView] = useState<HealthView>('day');
   const [selected, setSelected] = useState<string>(isoDay(new Date()));
   const [vitals, setVitals] = useState<RingVitalsSyncResult | null>(null);
+  // Stored history, read straight from vitals_sample. The screen used to
+  // render only whatever the last live sync happened to return, so anything
+  // the ring had already handed over and been asked to forget disappeared
+  // from the charts the moment you navigated away.
+  const [history, setHistory] = useState<Array<{ timestamp: Date; value: number }>>([]);
 
   useEffect(() => {
     void (async () => {
@@ -50,10 +58,36 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
     })();
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (metric === 'resp') return;   // not a stored metric
+      try {
+        const now = Date.now();
+        const rows = await vitalsRepo.range(metric, now - HISTORY_DAYS * DAY_MS, now);
+        if (!cancelled) {
+          setHistory(rows.map((r) => ({ timestamp: new Date(r.ts), value: r.value })));
+        }
+      } catch { /* DB not ready */ }
+    })();
+    return () => { cancelled = true; };
+  }, [metric, vitals]);
+
+  /**
+   * Stored history plus anything the current sync just returned, de-duplicated
+   * by timestamp. The live result can contain samples not yet committed, and
+   * the store holds everything from before — neither is complete alone.
+   */
+  const samples = useMemo(() => {
+    const byTs = new Map<number, { timestamp: Date; value: number }>();
+    for (const s of history) byTs.set(s.timestamp.getTime(), s);
+    if (vitals) for (const s of pickSamples(vitals, metric)) byTs.set(s.timestamp.getTime(), s);
+    return [...byTs.values()].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  }, [history, vitals, metric]);
+
   // Pull raw samples for THIS metric and reduce to the selected day.
   const dayData = useMemo(() => {
-    if (!vitals) return { values: [] as number[], baseline: null as number | null, min: null as number | null, avg: null as number | null, max: null as number | null };
-    const arr = pickSamples(vitals, metric);
+    const arr = samples;
     if (!arr.length) return { values: [], baseline: null, min: null, avg: null, max: null };
     const dayStart = new Date(selected + 'T00:00:00').getTime();
     const dayEnd = dayStart + DAY_MS;
@@ -90,9 +124,17 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
     return delta > 0 ? 'good' : 'bad';
   })();
 
+  /** Every stored reading on the selected day, newest first. */
+  const dayReadings = useMemo(() => {
+    const start = new Date(selected + 'T00:00:00').getTime();
+    const end = start + DAY_MS;
+    return samples
+      .filter((s) => s.timestamp.getTime() >= start && s.timestamp.getTime() < end)
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+  }, [samples, selected]);
+
   const quality = useMemo(() => {
-    if (!vitals) return {} as Record<string, DayQuality>;
-    const arr = pickSamples(vitals, metric);
+    const arr = samples;
     const buckets: Record<string, number[]> = {};
     for (const s of arr) {
       if (!Number.isFinite(s.value) || s.value <= 0) continue;
@@ -165,6 +207,39 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
         ]}
       />
 
+      {/* Every reading the ring recorded on this day. The chart shows the
+          shape; this shows the actual numbers and when they were taken, which
+          is what makes a sparse day legible — three readings and a flat line
+          look identical otherwise. */}
+      <View style={styles.chartCard}>
+        <View style={styles.chartHead}>
+          <Text style={styles.chartLabel}>Readings</Text>
+          <Text style={styles.chartAside}>
+            {dayReadings.length === 0
+              ? 'none recorded'
+              : `${dayReadings.length} on ${formatLongDate(selected)}`}
+          </Text>
+        </View>
+        {dayReadings.length === 0 ? (
+          <Text style={styles.emptyNote}>
+            Nothing stored for this day yet. The ring samples on its own schedule —
+            check the monitoring interval in Settings.
+          </Text>
+        ) : (
+          dayReadings.map((r) => (
+            <View key={r.timestamp.getTime()} style={styles.readingRow}>
+              <Text style={styles.readingTime}>
+                {r.timestamp.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+              <Text style={[styles.readingValue, { color: cfg.color }]}>
+                {cfg.unit === '°C' ? r.value.toFixed(1) : Math.round(r.value)}
+                <Text style={styles.readingUnit}> {cfg.unit}</Text>
+              </Text>
+            </View>
+          ))
+        )}
+      </View>
+
       <AboutCard
         icon={cfg.aboutIcon}
         title={cfg.aboutTitle}
@@ -219,4 +294,12 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   chartHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 },
   chartLabel: { fontSize: 10, fontWeight: '700', color: C.muted, letterSpacing: 1.2, textTransform: 'uppercase' },
   chartAside: { fontSize: 10, color: C.muted },
+  readingRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 9, borderTopWidth: 1, borderTopColor: C.border,
+  },
+  readingTime: { fontSize: 13, color: C.muted, fontVariant: ['tabular-nums'] },
+  readingValue: { fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  readingUnit: { fontSize: 11, fontWeight: '400', color: C.muted },
+  emptyNote: { fontSize: 12, color: C.muted, lineHeight: 18, paddingTop: 4 },
 });

@@ -15,7 +15,7 @@ import { UserProfile } from '../types';
 import { COLORS, SPACING } from '../theme';
 import { RingDebugScreen } from './RingDebugScreen';
 import {
-  vitalsPrefs, INTERVAL_CHOICES, SLEEP_INTERVAL_MIN, describeInterval,
+  vitalsPrefs, INTERVAL_CHOICES, SLEEP_INTERVAL_MIN, describeInterval, RING_MONITOR_INTERVALS,
   type VitalsPrefs,
 } from '../soulsync/settings/vitalsPrefs';
 import { vitalsScheduler, type SchedulerStatus } from '../soulsync/ring/vitalsScheduler';
@@ -217,6 +217,29 @@ const VitalsMeasurementSection = () => {
     void vitalsPrefs.set({ intervalMin: next });
   }, [prefs.intervalMin]);
 
+  // ── The ring's own sampling schedule ──────────────────────────────────
+  // Distinct from "Measure every" above, which only sets how often the phone
+  // reads the ring. This tells the RING how often to take a reading; without
+  // it the ring stores almost nothing and every history channel comes back
+  // empty no matter how often we ask.
+  const cycleRingInterval = useCallback(() => {
+    const idx = RING_MONITOR_INTERVALS.indexOf(prefs.ringMonitorIntervalMin);
+    const next = RING_MONITOR_INTERVALS[(idx + 1) % RING_MONITOR_INTERVALS.length];
+    void vitalsPrefs.set({ ringMonitorIntervalMin: next });
+  }, [prefs.ringMonitorIntervalMin]);
+
+  const toggleRingMonitor = useCallback(() => {
+    void vitalsPrefs.set({ ringMonitorEnabled: !prefs.ringMonitorEnabled });
+  }, [prefs.ringMonitorEnabled]);
+
+  const cycleRingStart = useCallback(() => {
+    void vitalsPrefs.set({ ringMonitorStartHour: (prefs.ringMonitorStartHour + 1) % 24 });
+  }, [prefs.ringMonitorStartHour]);
+
+  const cycleRingEnd = useCallback(() => {
+    void vitalsPrefs.set({ ringMonitorEndHour: (prefs.ringMonitorEndHour + 1) % 24 });
+  }, [prefs.ringMonitorEndHour]);
+
   const cycleSleepStart = useCallback(() => {
     void vitalsPrefs.set({ sleepStartHour: (prefs.sleepStartHour + 1) % 24 });
   }, [prefs.sleepStartHour]);
@@ -239,6 +262,49 @@ const VitalsMeasurementSection = () => {
   return (
     <>
       <Text style={styles.sectionTitle}>Vitals measurement</Text>
+
+      {/* On-ring recording — the setting that decides whether history exists */}
+      <TouchableOpacity style={styles.row} onPress={toggleRingMonitor}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.rowLabel}>Ring records vitals</Text>
+          <Text style={styles.rowHint}>
+            Lets the ring sample HR, HRV, SpO₂, temperature and stress on its own
+          </Text>
+        </View>
+        <Text style={[styles.rowValue, { color: prefs.ringMonitorEnabled ? COLORS.gold : COLORS.muted }]}>
+          {prefs.ringMonitorEnabled ? 'On' : 'Off'}
+        </Text>
+      </TouchableOpacity>
+
+      {prefs.ringMonitorEnabled && (
+        <>
+          <TouchableOpacity style={styles.row} onPress={cycleRingInterval}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowLabel}>Ring samples every</Text>
+              <Text style={styles.rowHint}>Shorter means denser history and more ring battery</Text>
+            </View>
+            <Text style={[styles.rowValue, { color: COLORS.gold }]}>
+              {prefs.ringMonitorIntervalMin} min ›
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.row} onPress={cycleRingStart}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowLabel}>Recording from</Text>
+              <Text style={styles.rowHint}>Start of the daily window the ring samples in</Text>
+            </View>
+            <Text style={[styles.rowValue, { color: COLORS.gold }]}>{hh(prefs.ringMonitorStartHour)} ›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.row} onPress={cycleRingEnd}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowLabel}>Recording until</Text>
+              <Text style={styles.rowHint}>Keep this at 23:00 to capture overnight HRV and sleep</Text>
+            </View>
+            <Text style={[styles.rowValue, { color: COLORS.gold }]}>{hh(prefs.ringMonitorEndHour)} ›</Text>
+          </TouchableOpacity>
+        </>
+      )}
 
       {/* Daytime cadence */}
       <TouchableOpacity style={styles.row} onPress={cycleInterval}>

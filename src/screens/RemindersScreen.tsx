@@ -70,7 +70,7 @@ export const RemindersScreen: React.FC<any> = ({ navigation }) => {
     try {
       const deviceId = await readSr16DeviceId();
       if (!deviceId) throw new Error('No SR16 paired — pair from Device Settings first.');
-      const ring = await SadhanaRing.connect(deviceId, { keepAlive: false });
+      const ring = await SadhanaRing.connect(deviceId);
       try {
         await ring.reminders.setAlarms(cfg.alarms);
         await ring.reminders.setSedentaryReminder(cfg.sedentary);
@@ -92,7 +92,7 @@ export const RemindersScreen: React.FC<any> = ({ navigation }) => {
     try {
       const deviceId = await readSr16DeviceId();
       if (!deviceId) throw new Error('No SR16 paired.');
-      const ring = await SadhanaRing.connect(deviceId, { keepAlive: false });
+      const ring = await SadhanaRing.connect(deviceId);
       try {
         await ring.reminders.pushNotification('Sadhana', 'Test notification from your app 🙏', 'generic');
         Alert.alert('Sent', 'Your ring should show the message.');

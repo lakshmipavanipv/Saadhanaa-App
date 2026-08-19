@@ -10,14 +10,25 @@
  *
  * Metric → opcode → record layout (parser handlers in x5/b.java):
  *
- *   HR         {5, 3, 16}  V()   — 6 bytes: [ts32_LE, hr, pad]
- *   BloodPress {5, 4, 16}  T()   — 8 bytes: [ts32_LE, sp, dp, pad, pad]  *(layout inferred)*
- *   SpO2       {5, 5, 16}  S()   — 6 bytes: [ts32_LE, spo2, pad]         *(layout inferred)*
- *   BodyTemp   {5, 8, 16}  U()   — 8 bytes: [ts32_LE, temp16_LE, pad, pad] *(layout inferred)*
- *   HRV        {5, 10, 16} W()   — 6 bytes: [ts32_LE, hrv, pad]           *(layout inferred)*
- *   BloodSugar {5, 16, 16} R()   — 6 bytes: [ts32_LE, sugar, pad]         *(layout inferred)*
- *   Sleep      {5, 26, 16} — pre-classified segments  *(layout to be decoded)*
- *   Steps      {5, 23, 16} — hourly aggregate       *(layout to be decoded)*
+ * Channel identities below are NOT inferred — each is the label the SDK's own
+ * sync service logs for that opcode (com/example/blesdk/service/*.java):
+ *
+ *   {5, 2, 16}  步数            Steps            v.java
+ *   {5, 3, 16}  心率            HR               p.java
+ *   {5, 4, 16}  血压            Blood pressure   o.java
+ *   {5, 5, 16}  睡眠            Sleep            t.java
+ *   {5, 8, 16}  体温            Body temp        x.java
+ *   {5, 9, 16}  血氧            SpO2             n.java
+ *   {5, 10, 16} HRV             HRV              q.java
+ *   {5, 13, 16} 压力            Stress           s.java
+ *   {5, 16, 16} 血糖            Blood sugar      m.java
+ *   {5, 23, 16} Muslim计数      Prayer count     r.java
+ *   {5, 26, 16} 步数杰里2       Steps "Jieli-2"  w.java
+ *
+ * An earlier version of this comment had Sleep at {5,26,16} and Steps at
+ * {5,23,16}. That was wrong on both counts — {5,23,16} is the prayer counter
+ * and {5,26,16} is the platform's second steps channel. The DECODER map below
+ * was always right; only this table was stale.
  *
  * Timestamps: 4-byte LE offset from the ring's epoch, which is 2000-01-01
  * UTC = Unix 946684800 (+ small tz adjustment done by the RWfit app; here we
@@ -25,7 +36,7 @@
  */
 
 import type { SadhanaRing } from './SadhanaRing';
-import { OP_SYNC_5_2_16 as _op, lookupOpcode, type Opcode } from './opcodes.generated';
+import { OP_SYNC_5_2_16 as _op, OP_HEALTH_2_111_0, lookupOpcode, type Opcode } from './opcodes.generated';
 import type { JieliFrame } from './codec';
 
 const OP = (cmd: number, key: number, keyFlag: number): Opcode => {
@@ -101,7 +112,16 @@ const decode6ByteScalar = <T extends TsSample>(field: keyof Omit<T, 'ringTs' | '
   payload
 ) => {
   const out: T[] = [];
-  for (let off = 0; off + 6 <= payload.length; off += 6) {
+  // Stride is 6 ([ts32_BE, value, pad]) but only 5 bytes are load-bearing, and
+  // the ring's last record routinely arrives without its trailing pad. A real
+  // HRV payload from the RWfit capture:
+  //
+  //   31fe69eb 21 00 | 31fe77fb 21        11 bytes, not 12
+  //
+  // Requiring a full 6 dropped that second pair — and since records run
+  // oldest-to-newest, the one being thrown away was always the freshest
+  // reading. Advance by 6, but only require the 5 bytes we actually read.
+  for (let off = 0; off + 5 <= payload.length; off += 6) {
     const ts = readTs(payload, off);
     const value = payload[off + 4] & 0xff;
     if (value === 0) continue; // skip empty slots — RWfit does the same
@@ -138,7 +158,9 @@ const decodeTemp: Decoder<TempSample> = (payload) => {
 const decodeSleep: Decoder<SleepSample> = (payload) => {
   // Z() handler — 7-byte records, byte 4 is sleepModel raw code.
   const out: SleepSample[] = [];
-  for (let off = 0; off + 7 <= payload.length; off += 7) {
+  // Same trailing-record situation as decode6ByteScalar: stride 7, but the
+  // stage code sits at [4] so 5 bytes is enough to decode one.
+  for (let off = 0; off + 5 <= payload.length; off += 7) {
     const ts = readTs(payload, off);
     const sleepModel = payload[off + 4] & 0xff;
     out.push({ ringTs: ts, timestamp: ringTsToDate(ts), sleepModel });
@@ -205,6 +227,11 @@ const DECODER: Record<string, { op: Opcode; ack: Opcode; label: string; decode: 
   sugar:   { op: OP(5, 16, 0x10), ack: OP(5, 16, 0x30), label: 'Blood sugar', decode: decode6ByteScalar<SugarSample>('sugar') },
   sleep:   { op: OP(5, 5, 0x10),  ack: OP(5, 5, 0x30),  label: 'Sleep',      decode: decodeSleep },
   steps:   { op: OP(5, 2, 0x10),  ack: OP(5, 2, 0x30),  label: 'Steps',      decode: decodeSteps },
+  // Jieli-platform second steps channel. In the RWfit capture this is the
+  // busiest channel on the device — 24 of 36 replies carried data (up to 163
+  // bytes) while plain {5,2,16} produced data only 3 times. Same 16-byte
+  // record layout, so it shares decodeSteps.
+  steps2:  { op: OP(5, 26, 0x10), ack: OP(5, 26, 0x30), label: 'Steps (Jieli-2)', decode: decodeSteps },
   japa:    { op: OP(5, 23, 0x10), ack: OP(5, 23, 0x30), label: 'Japa/Tasbih', decode: decodeTasbih },
 };
 
@@ -223,34 +250,26 @@ export class SyncApi {
   constructor(private readonly ring: SadhanaRing) {}
 
   /**
-   * Write the ring's onboard tasbih/japa counter to a specific value.
-   * Called when the user switches deity in the app so the ring's own
-   * counter display reflects the new deity's running japa count.
+   * Clear the ring's onboard prayer counter.
    *
-   * Wire (best-guess from the Jieli sync-cluster pattern):
-   *   {5, 23, 0}  = set/write counterpart of the {5, 23, 16} read.
-   *   Payload    = 4-byte BE count.
+   * This is the only write RWfit has for the counter — there is no "set it
+   * to N" command anywhere in the SDK (I checked: {5,23,0} is not in the
+   * opcode map at all). TRingMuslimProvider's `getMuslimCleanCmdJL`
+   * (ui/testui/c0.java:141) sends:
    *
-   * If the ring nacks (unsupported opcode), we swallow — falling back to
-   * the app-side count. Non-fatal.
+   *     b3.g((byte) 44, new byte[]{2, 111, 0, 0})
+   *
+   * i.e. {2,0x6f,0} with a single 0 byte, which is OP_HEALTH_2_111_0 in our
+   * registry (sendMsgId 0x2c = 44, matching exactly).
+   *
+   * So app and ring can be brought into agreement by zeroing both together;
+   * they cannot be forced to an arbitrary shared number.
    */
-  async setTasbihCount(count: number): Promise<void> {
-    // Not in generated registry; construct the triple by hand.
-    const setOp = {
-      cmd: 0x05, key: 0x17, keyFlag: 0x00,
-      sendMsgId: 0x94, category: 'SYNC' as const,
-      name: 'OP_TASBIH_SET_5_23_0',
-    };
-    const n = Math.max(0, Math.min(0xffffffff, Math.floor(count)));
-    const payload = new Uint8Array(4);
-    payload[0] = (n >> 24) & 0xff;
-    payload[1] = (n >> 16) & 0xff;
-    payload[2] = (n >>  8) & 0xff;
-    payload[3] =  n        & 0xff;
-    await this.ring.queue.send(setOp, payload, {
-      expectReply: false,
+  async clearTasbihCount(): Promise<void> {
+    await this.ring.queue.send(OP_HEALTH_2_111_0, new Uint8Array([0]), {
+      expectReply: true,
       timeoutMs: 2000,
-      maxRetries: 0,
+      maxRetries: 1,
     });
   }
 
@@ -263,25 +282,71 @@ export class SyncApi {
     const spec = DECODER[metric];
     if (!spec) throw new Error(`unknown metric: ${metric}`);
 
-    const frame = await this.ring.queue.send(spec.op, new Uint8Array(0), {
-      expectReply: true,
-      timeoutMs: 6000,   // sync replies can be large
-      maxRetries: 1,
-    });
+    // The ring pages its history: one request returns one page, and the
+    // reader must ACK and ask again until a page comes back empty. Doing a
+    // single request — which is what this used to do — silently truncates
+    // every metric to its most recent page. It showed up worst on the japa
+    // counter, where older prayer counts simply never arrived.
+    //
+    // Sequence, straight off the RWfit capture (rwfit_capture, {5,23,*}):
+    //
+    //   TX {5,23,16} len=3     request
+    //   RX {5,23,16} len=147   a page of records
+    //   TX {5,23,48} len=3     ACK this page
+    //   RX {5,23,48} len=3
+    //   TX {5,23,16} len=3     request again
+    //   RX {5,23,16} len=3     header only, no records → drained
+    //
+    // SyncJLDataService in the SDK (blesdk/service/r.java:63-72) does the
+    // same thing: ACK, hand the page to listeners, re-request; the empty
+    // reply ends the loop.
+    const MAX_PAGES = 40;   // ~40 pages of history is far past any real ring
+    const samples: T[] = [];
+    let lastFrame: JieliFrame | null = null;
+    let firstPayload: Uint8Array = new Uint8Array(0);
+    let pages = 0;
 
-    // Fire the 0x30 ACK — RWfit doesn't wait for its reply, and neither do we.
-    this.ring.queue
-      .send(spec.ack, new Uint8Array(0), { expectReply: false, maxRetries: 0 })
-      .catch(() => {
-        /* ACK is best-effort */
+    while (pages < MAX_PAGES) {
+      const frame = await this.ring.queue.send(spec.op, new Uint8Array(0), {
+        expectReply: true,
+        timeoutMs: 6000,   // sync replies can be large
+        maxRetries: 1,
       });
+      pages += 1;
+      lastFrame = frame;
+      if (pages === 1) firstPayload = frame.payload;
+
+      // Header-only reply = nothing left. Don't ACK an empty page; RWfit
+      // doesn't either, it just stops.
+      if (frame.payload.length === 0) break;
+
+      const page = spec.decode(frame.payload) as T[];
+      samples.push(...page);
+
+      // ACK before re-requesting — the ring won't advance otherwise.
+      // Fire-and-forget, exactly as RWfit does.
+      this.ring.queue
+        .send(spec.ack, new Uint8Array(0), { expectReply: false, maxRetries: 0 })
+        .catch(() => {
+          /* ACK is best-effort */
+        });
+
+      // A page that decodes to nothing would loop forever if the ring keeps
+      // returning it, so treat it as the end too.
+      if (page.length === 0) break;
+    }
+
+    if (pages >= MAX_PAGES) {
+      // eslint-disable-next-line no-console
+      console.warn(`[sync] ${metric}: hit ${MAX_PAGES}-page cap — history may be truncated`);
+    }
 
     return {
       metric,
       label: spec.label,
-      samples: spec.decode(frame.payload) as T[],
-      rawPayload: frame.payload,
-      rawFrame: frame,
+      samples,
+      rawPayload: firstPayload,
+      rawFrame: lastFrame as JieliFrame,
     };
   }
 }

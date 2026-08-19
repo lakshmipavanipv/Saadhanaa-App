@@ -1,8 +1,7 @@
 /**
  * One-shot helper: pull today's step total from the paired SR16.
  *
- * Connects (keepAlive off so the ring's touch-cycle isn't blocked),
- * runs {5,2,16} historical sync, filters samples to today, sums them,
+ * Connects, runs {5,2,16} historical sync, filters samples to today, sums them,
  * disconnects. Non-blocking — safe to call from a UI effect.
  *
  * If no ring is paired or the connect fails, returns null so the caller
@@ -31,7 +30,7 @@ export async function getRingStepsToday(): Promise<RingStepsToday | null> {
 
   let ring: SadhanaRing | null = null;
   try {
-    ring = await SadhanaRing.connect(deviceId, { keepAlive: false });
+    ring = await SadhanaRing.connect(deviceId);
   } catch {
     return null;
   }

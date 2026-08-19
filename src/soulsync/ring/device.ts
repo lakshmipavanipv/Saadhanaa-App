@@ -20,7 +20,8 @@ import {
   OP_HEALTH_2_15_0,
   OP_HEALTH_2_17_0,
   OP_HEALTH_2_29_0,
-  OP_HEALTH_2_16_16,
+  OP_HEALTH_2_11_0,
+  OP_HEALTH_2_11_16,
   OP_HEALTH_2_99_16,
   OP_INFO_6_5_0,
   lookupOpcode,
@@ -253,36 +254,66 @@ export class DeviceApi {
   }
 
   /**
-   * Find Device — the ring's "find my ring" alert. On the SR16 this triggers
-   * the vibration motor (opcode 0xDF per firmware table). The bare 0x02/29/0
-   * variant (my earlier `findDevice`) turns out to be a legacy Jieli alias
-   * that the SR16 doesn't act on; the buzz-worthy one is 0xDF ({2, 16, 16}).
+   * Vibration level + pulse count — the ring's real motor control.
    *
-   * We send 0xDF and, if the ring rejects it (some SR16 batches ship a
-   * different firmware variant), fall back to 0xF9 (INFO 6/1/0) which some
-   * captures show as the alternate "find" opcode.
+   * Taken from the RWfit SDK rather than guessed. TRingVibrationPresenter
+   * (com/example/test/presenter/main/w1.java:150) sends:
+   *
+   *     b3.g((byte) -27, new byte[]{2, 11, 0, level, count})   // 0xE5 set
+   *     b3.g((byte) -28, new byte[]{2, 11, 16})                // 0xE4 get
+   *
+   * which is {2,0x0b,0x00} with payload [level, count], and the matching
+   * read at {2,0x0b,0x10}. Both are already in our generated registry as
+   * OP_HEALTH_2_11_0 / OP_HEALTH_2_11_16 with the same sendMsgIds (0xe5 /
+   * 0xe4) — they were simply never wired to vibration.
+   *
+   * The previous implementation sent [count, mode] to {2,16,16} (0xDF).
+   * That opcode is registered in the SDK's table but nothing in the real
+   * app ever sends it, and keyFlag 0x10 is the *read* flavour throughout
+   * this protocol (compare {2,11,16} get vs {2,11,0} set) — so we were
+   * writing a payload to a getter, which is why the ring never buzzed.
+   *
+   * @param level  motor strength, 1-3 (SDK's BrightVibrationBean default 1)
+   * @param count  number of pulses
    */
-  async findDevice(times: number = 1): Promise<void> {
-    // Payload: [count, mode] — 1 pulse, mode 1 = short buzz
-    const payload = new Uint8Array([Math.max(1, Math.min(times, 5)), 1]);
-    try {
-      // Primary — SR16 vibrate/find opcode 0xDF
-      await this.ring.queue.send(OP_HEALTH_2_16_16, payload, { expectReply: false, maxRetries: 0 });
-    } catch {
-      // Fallback — 0xF9 alias
-      const fallback = lookupOpcode(0x06, 0x01, 0x00);
-      if (fallback) {
-        await this.ring.queue.send(fallback, payload, { expectReply: false, maxRetries: 0 });
-      }
-    }
+  async setVibration(level: number = 2, count: number = 1): Promise<void> {
+    const payload = new Uint8Array([
+      Math.max(1, Math.min(level, 3)) & 0xff,
+      Math.max(1, Math.min(count, 255)) & 0xff,
+    ]);
+    await this.ring.queue.send(OP_HEALTH_2_11_0, payload, {
+      expectReply: true,
+      timeoutMs: 2000,
+      maxRetries: 1,
+    });
+  }
+
+  /** Read the ring's current [level, count] vibration setting. */
+  async getVibration(): Promise<{ level: number; count: number }> {
+    const frame = await this.ring.queue.send(OP_HEALTH_2_11_16, new Uint8Array(0), {
+      expectReply: true,
+      timeoutMs: 2000,
+    });
+    // Reply payload mirrors analysisRingVibrationLevel (x5/b.java:4377):
+    // bArr[3] = level, bArr[4] = count — i.e. payload[0], payload[1] once
+    // the 3-byte {cmd,key,keyFlag} header is stripped by the codec.
+    return {
+      level: frame.payload[0] ?? 1,
+      count: frame.payload[1] ?? 1,
+    };
   }
 
   /**
-   * Explicit alias for the common case: buzz the ring N times to help the
-   * user locate it. Same wire as `findDevice`, more discoverable in the IDE.
+   * Buzz the ring N times — used for pairing feedback and "find my ring".
+   * Thin wrapper over setVibration at the default strength.
    */
   async vibrate(pulses: number = 1): Promise<void> {
-    return this.findDevice(pulses);
+    return this.setVibration(2, pulses);
+  }
+
+  /** @deprecated Kept as an alias so existing callers keep working. */
+  async findDevice(times: number = 1): Promise<void> {
+    return this.vibrate(times);
   }
 
   /**

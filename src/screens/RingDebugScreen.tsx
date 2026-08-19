@@ -302,12 +302,15 @@ export const RingDebugScreen = ({ onClose }: { onClose: () => void }) => {
             <TouchableOpacity style={[styles.actBtn, { backgroundColor: 'rgba(255,159,69,0.20)', borderColor: '#FF9F45' }]} onPress={runVibrationSweep}>
               <Text style={[styles.actTxt, { color: '#FF9F45' }]}>🔍 Vib Sweep</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actBtn} onPress={() => doAction('toggle keep-alive', async () => {
-              const now = ring.isKeepAliveOn();
-              ring.setKeepAlive(!now);
-              append({ kind: 'info', text: `keep-alive now ${!now ? 'ON' : 'OFF'} (touch-cycle should work when OFF)` });
+            <TouchableOpacity style={styles.actBtn} onPress={() => doAction('live HR 10s', async () => {
+              // Exercises {6,9,0} the way RWfit does: start, wait, stop.
+              // The old "KeepAlive" button fired the start half on a 500ms
+              // loop and never stopped it, which is what froze the ring.
+              append({ kind: 'info', text: 'live HR ON — watch the ring, stopping in 10s' });
+              await ring.withLiveMetric('hr', () => new Promise(r => setTimeout(r, 10_000)));
+              append({ kind: 'info', text: 'live HR OFF — ring should be responsive' });
             })}>
-              <Text style={styles.actTxt}>KeepAlive</Text>
+              <Text style={styles.actTxt}>Live HR</Text>
             </TouchableOpacity>
           </View>
         </View>

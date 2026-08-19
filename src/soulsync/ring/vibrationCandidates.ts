@@ -1,6 +1,11 @@
 /**
  * Candidate vibration/buzz opcodes to probe on unknown SR16 firmware.
  *
+ * NOTE: the real command is no longer a guess. RWfit's TRingVibrationPresenter
+ * (w1.java:150) sends {2,0x0b,0x00} with payload [level, count] — wired up as
+ * DeviceApi.setVibration(). It leads the list below as candidate 1; the rest
+ * are kept only for firmware variants that ignore it.
+ *
  * Each row is one thing to try. We fire them one at a time with a delay
  * between so the user can hear/feel which pulse buzzed. The diagnostic
  * screen prints a numbered log line before each attempt; user reports
@@ -23,8 +28,11 @@ export interface VibCandidate {
 }
 
 export const VIB_CANDIDATES: VibCandidate[] = [
-  // Currently-primary + fallback
-  { n: 1,  label: '0xDF · {2,16,16}  buzz+mode',       cmd: 0x02, key: 0x10, keyFlag: 0x10, payload: [1, 1] },
+  // Verified against the RWfit SDK — this is the real one.
+  { n: 1,  label: '0xE5 · {2,11,0}   SDK setVibration', cmd: 0x02, key: 0x0b, keyFlag: 0x00, payload: [2, 1] },
+  // Previously-primary; registered in the SDK map but never sent by RWfit,
+  // and keyFlag 0x10 is the read flavour — kept only as a fallback probe.
+  { n: 12, label: '0xDF · {2,16,16}  buzz+mode',       cmd: 0x02, key: 0x10, keyFlag: 0x10, payload: [1, 1] },
   { n: 2,  label: '0xF9 · {6,1,0}    info-find',        cmd: 0x06, key: 0x01, keyFlag: 0x00, payload: [1, 1] },
   { n: 3,  label: '{2,29,0}          legacy find',      cmd: 0x02, key: 0x1d, keyFlag: 0x00, payload: [1] },
   // Alarm-family — many Jieli firmwares vibrate on any alarm-cluster write

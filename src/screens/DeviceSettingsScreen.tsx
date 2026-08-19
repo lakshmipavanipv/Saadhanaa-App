@@ -63,7 +63,7 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
       if (!id) return;
       setMac(id);
       try {
-        const r = await SadhanaRing.connect(id, { keepAlive: false });
+        const r = await SadhanaRing.connect(id);
         if (disposed) { await r.disconnect(); return; }
         setRing(r);
         setConnected(true);

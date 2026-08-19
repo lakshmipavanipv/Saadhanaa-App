@@ -20,11 +20,13 @@ import { readSr16DeviceId } from './japaCounter';
 import { sleepModelToStage, RING_EPOCH_UNIX } from './sync';
 import type {
   SleepSample, HrSample, HrvSample, Spo2Sample, TempSample, StressSample,
+  BpSample, SugarSample,
   StepSample, TasbihSample, TsSample,
 } from './sync';
 import { sleepRepo } from '../db/sleepRepo';
 import { getDB } from '../db/database';
-import { vitalsRepo, type VitalSample } from '../db/vitalsRepo';
+import { vitalsRepo, dayOf, type VitalSample } from '../db/vitalsRepo';
+import { vitalsPrefs } from '../settings/vitalsPrefs';
 
 export interface RingVitalsSyncResult {
   sleep: { nightsUpserted: number; sampleCount: number };
@@ -33,6 +35,8 @@ export interface RingVitalsSyncResult {
   spo2:  { samples: number; avg: number | null };
   temp:  { samples: number; avgC: number | null };
   stress:{ samples: number; avg: number | null };
+  bp:    { samples: number; avgSystolic: number | null; avgDiastolic: number | null };
+  sugar: { samples: number; avg: number | null };
   steps: { total: number; sampleCount: number };
   errors: string[];
   /**
@@ -46,6 +50,8 @@ export interface RingVitalsSyncResult {
     spo2:   Spo2Sample[];
     temp:   TempSample[];
     stress: StressSample[];
+    bp:     BpSample[];
+    sugar:  SugarSample[];
     steps:  StepSample[];
     japa:   TasbihSample[];
   };
@@ -58,10 +64,13 @@ const emptyResult = (): RingVitalsSyncResult => ({
   spo2:  { samples: 0, avg: null },
   temp:  { samples: 0, avgC: null },
   stress:{ samples: 0, avg: null },
+  bp:    { samples: 0, avgSystolic: null, avgDiastolic: null },
+  sugar: { samples: 0, avg: null },
   steps: { total: 0, sampleCount: 0 },
   errors: [],
   raw: {
-    sleep: [], hr: [], hrv: [], spo2: [], temp: [], stress: [], steps: [], japa: [],
+    sleep: [], hr: [], hrv: [], spo2: [], temp: [], stress: [],
+    bp: [], sugar: [], steps: [], japa: [],
   },
 });
 
@@ -159,9 +168,12 @@ async function upsertRingSteps(samples: StepSample[]): Promise<{ total: number; 
   if (!samples.length) return { total: 0, sampleCount: 0 };
   const db = await getDB();
   // Group by day
+  // Local date, not UTC. toISOString() buckets by UTC, which put steps on a
+  // different day than the vitals recorded at the same moment (vitalsRepo
+  // keys on local `dayOf`). Near midnight the two stores disagreed.
   const byDay = new Map<string, number>();
   for (const s of samples) {
-    const d = s.timestamp.toISOString().slice(0, 10);
+    const d = dayOf(s.timestamp.getTime());
     byDay.set(d, (byDay.get(d) ?? 0) + s.steps);
   }
   for (const [date, steps] of byDay) {
@@ -171,7 +183,7 @@ async function upsertRingSteps(samples: StepSample[]): Promise<{ total: number; 
       [date, steps]
     );
   }
-  const today = new Date().toISOString().slice(0, 10);
+  const today = dayOf(Date.now());
   return { total: byDay.get(today) ?? 0, sampleCount: byDay.size };
 }
 
@@ -191,14 +203,71 @@ async function persistScalar<T extends TsSample>(
   samples: T[],
   read: (s: T) => number,
 ): Promise<void> {
-  if (samples.length === 0) return;
+  if (samples.length === 0) { logPersist(metric, 0, 0); return; }
   const rows: VitalSample[] = samples.map((s) => ({
     metric,
     ts: s.timestamp.getTime(),
     value: read(s),
     source: 'sync' as const,
   }));
-  await vitalsRepo.insertMany(rows);
+  const written = await vitalsRepo.insertMany(rows);
+  logPersist(metric, rows.length, written);
+  logSamples(metric, rows);
+}
+
+/**
+ * Print the actual decoded values, not just how many there were.
+ *
+ * A row count proves a record was parsed; it does not prove the record was
+ * parsed *correctly*. Three things have to be right and each fails silently:
+ *
+ *   value      — record stride wrong => we read the wrong byte and store a
+ *                plausible-looking number that is not the reading
+ *   timestamp  — byte order wrong => samples land decades away and never
+ *                appear on a chart, while the row count still looks healthy
+ *   units      — e.g. tenths-of-degree stored as degrees
+ *
+ * So log value + resolved date together: the value is checkable against the
+ * ring's own display, and the date should be today.
+ */
+function logSamples(metric: string, rows: VitalSample[]): void {
+  for (const r of rows.slice(0, 5)) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[ringVitalsSync] ${metric} sample: value=${r.value}` +
+      `${r.value2 != null ? `/${r.value2}` : ''} at ${new Date(r.ts).toISOString()}`
+    );
+  }
+}
+
+/**
+ * Blood pressure needs both numbers, so it can't go through persistScalar:
+ * systolic lands in `value` and diastolic in `value2` (the column the schema
+ * reserves for exactly this).
+ */
+async function persistBp(samples: BpSample[]): Promise<void> {
+  if (samples.length === 0) return;
+  const rows: VitalSample[] = samples.map((s) => ({
+    metric: 'bp' as const,
+    ts: s.timestamp.getTime(),
+    value: s.systolic,
+    value2: s.diastolic,
+    source: 'sync' as const,
+  }));
+  const written = await vitalsRepo.insertMany(rows);
+  logPersist('bp', rows.length, written);
+  logSamples('bp', rows);
+}
+
+/**
+ * One line per channel per sync, in release builds too. `decoded` is what the
+ * ring sent; `written` is what survived insertMany's plausibility filter — a
+ * gap between them means frames are being decoded wrong, which is otherwise
+ * invisible because the screens just show fewer points.
+ */
+function logPersist(metric: string, decoded: number, written: number): void {
+  // eslint-disable-next-line no-console
+  console.log(`[ringVitalsSync] ${metric}: decoded=${decoded} persisted=${written}`);
 }
 
 /** How much stored history the detail screens chart when the ring is away. */
@@ -277,7 +346,26 @@ async function hydrateFromHistory(result: RingVitalsSyncResult): Promise<RingVit
   return result;
 }
 
-export async function syncAllRingVitals(): Promise<RingVitalsSyncResult> {
+export interface SyncOptions {
+  /**
+   * Ask the ring to take fresh readings for any channel it has nothing
+   * stored for. OFF by default, and deliberately so.
+   *
+   * Measuring is a real physical action: the ring wakes its sensors and runs
+   * for 8-12 s per channel. Doing that automatically on screen mount made the
+   * ring light up and act on its own while the user was just browsing, and
+   * seven screens call this function — so it could fire repeatedly.
+   *
+   * On this hardware it also returned nothing: hr/hrv/spo2/stress each
+   * measured for their full dwell and still reported samples=0, so the
+   * ~41 s cost bought no data at all. Until that is understood, this belongs
+   * behind an explicit user action ("measure now"), not a screen mount.
+   */
+  measure?: boolean;
+}
+
+export async function syncAllRingVitals(opts: SyncOptions = {}): Promise<RingVitalsSyncResult> {
+  const { measure = false } = opts;
   const result = emptyResult();
   const deviceId = await readSr16DeviceId();
   if (!deviceId) {
@@ -289,15 +377,85 @@ export async function syncAllRingVitals(): Promise<RingVitalsSyncResult> {
 
   let ring: SadhanaRing | null = null;
   try {
-    ring = await SadhanaRing.connect(deviceId, { keepAlive: false });
+    ring = await SadhanaRing.connect(deviceId);
   } catch (e) {
     result.errors.push(`connect: ${(e as Error).message}`);
     return hydrateFromHistory(result);
   }
 
+  // Make sure the ring is actually recording before we ask it for history.
+  // This is idempotent and cheap, and it is the difference between the
+  // history channels having something in them and being permanently empty —
+  // the ring only samples on a timer once it has been told to.
+  try {
+    const prefs = await vitalsPrefs.get();
+    await ring.monitoring.setAll({
+      enabled: prefs.ringMonitorEnabled,
+      startHour: prefs.ringMonitorStartHour,
+      startMin: 0,
+      endHour: prefs.ringMonitorEndHour,
+      endMin: 59,
+      intervalMin: prefs.ringMonitorIntervalMin,
+    });
+  } catch (e) {
+    result.errors.push(`monitoring: ${(e as Error).message}`);
+  }
+
+  // Log every channel's outcome, including the empty and failed ones. A
+  // channel that returns nothing is indistinguishable from one that never ran
+  // unless we say so explicitly — which is exactly what made a missing HRV
+  // impossible to diagnose from logs alone.
   const safe = async <T>(label: string, fn: () => Promise<T>): Promise<T | null> => {
-    try { return await fn(); }
-    catch (e) { result.errors.push(`${label}: ${(e as Error).message}`); return null; }
+    const startedAt = Date.now();
+    try {
+      const out = await fn();
+      const n = (out as unknown as { samples?: unknown[] })?.samples?.length;
+      // eslint-disable-next-line no-console
+      console.log(`[ringVitalsSync] ${label}: ok samples=${n ?? 'n/a'} in ${Date.now() - startedAt}ms`);
+      return out;
+    } catch (e) {
+      const msg = (e as Error).message;
+      result.errors.push(`${label}: ${msg}`);
+      // eslint-disable-next-line no-console
+      console.log(`[ringVitalsSync] ${label}: FAILED after ${Date.now() - startedAt}ms — ${msg}`);
+      return null;
+    }
+  };
+
+  /**
+   * Pull a channel, and if the ring has nothing stored, tell it to take a
+   * reading first and pull again.
+   *
+   * The ring does not continuously log HR/HRV/SpO2/stress. It measures when
+   * asked, writes the result into its own history buffer, and the app reads
+   * it back from there — which is the exact sequence RWfit uses (capture at
+   * t=2533s):
+   *
+   *     TX {6,9,0} 09 05 01     start live SpO2
+   *     TX {6,9,0} 09 05 00     stop, 2.8 s later
+   *     TX {5,9,16}             now pull the history channel
+   *
+   * Reading without ever measuring is why HRV came back blank while the ring
+   * itself displayed a value: that reading was taken for the ring's own
+   * screen, and nothing was ever written on our behalf.
+   *
+   * Dwell times are the observed ones, rounded up: HR 7.1 s, HRV 9.4 s,
+   * SpO2 2.8 s in the capture. We only pay them when the channel is empty,
+   * so a ring with stored history syncs at the old speed.
+   */
+  const syncMeasured = async <T extends TsSample>(
+    metric: 'hr' | 'hrv' | 'spo2' | 'stress',
+    dwellMs: number,
+  ): Promise<{ samples: T[] } | null> => {
+    const first = await safe(metric, () => ring!.sync.sync<T>(metric));
+    if (first && first.samples.length > 0) return first;
+    if (!measure) return first;
+
+    const measured = await safe(`${metric}:measure`, async () => {
+      await ring!.withLiveMetric(metric, () => new Promise<void>((r) => setTimeout(r, dwellMs)));
+      return ring!.sync.sync<T>(metric);
+    });
+    return measured ?? first;
   };
 
   const sleep = await safe('sleep', () => ring!.sync.sync<SleepSample>('sleep'));
@@ -307,21 +465,21 @@ export async function syncAllRingVitals(): Promise<RingVitalsSyncResult> {
     result.sleep = { nightsUpserted: agg.nights, sampleCount: agg.total };
   }
 
-  const hr = await safe('hr', () => ring!.sync.sync<HrSample>('hr'));
+  const hr = await syncMeasured<HrSample>('hr', 8_000);
   if (hr) {
     result.raw.hr = hr.samples;
     result.hr = scalarStats(hr.samples, 'hr');
     await safe('hr:persist', () => persistScalar('hr', hr.samples, (s: HrSample) => s.hr));
   }
 
-  const hrv = await safe('hrv', () => ring!.sync.sync<HrvSample>('hrv'));
+  const hrv = await syncMeasured<HrvSample>('hrv', 12_000);
   if (hrv) {
     result.raw.hrv = hrv.samples;
     result.hrv = { samples: hrv.samples.length, avg: scalarStats(hrv.samples, 'hrv').avg };
     await safe('hrv:persist', () => persistScalar('hrv', hrv.samples, (s: HrvSample) => s.hrv));
   }
 
-  const spo2 = await safe('spo2', () => ring!.sync.sync<Spo2Sample>('spo2'));
+  const spo2 = await syncMeasured<Spo2Sample>('spo2', 6_000);
   if (spo2) {
     result.raw.spo2 = spo2.samples;
     result.spo2 = { samples: spo2.samples.length, avg: scalarStats(spo2.samples, 'spo2').avg };
@@ -337,17 +495,42 @@ export async function syncAllRingVitals(): Promise<RingVitalsSyncResult> {
     await safe('temp:persist', () => persistScalar('temp', temp.samples, (s: TempSample) => s.tempCx10 / 10));
   }
 
-  const stress = await safe('stress', () => ring!.sync.sync<StressSample>('stress'));
+  const stress = await syncMeasured<StressSample>('stress', 10_000);
   if (stress) {
     result.raw.stress = stress.samples;
     result.stress = { samples: stress.samples.length, avg: scalarStats(stress.samples, 'stress').avg };
     await safe('stress:persist', () => persistScalar('stress', stress.samples, (s: StressSample) => s.stress));
   }
 
+  const bp = await safe('bp', () => ring!.sync.sync<BpSample>('bp'));
+  if (bp) {
+    result.raw.bp = bp.samples;
+    result.bp = {
+      samples: bp.samples.length,
+      avgSystolic: scalarStats(bp.samples, 'systolic').avg,
+      avgDiastolic: scalarStats(bp.samples, 'diastolic').avg,
+    };
+    await safe('bp:persist', () => persistBp(bp.samples));
+  }
+
+  const sugar = await safe('sugar', () => ring!.sync.sync<SugarSample>('sugar'));
+  if (sugar) {
+    result.raw.sugar = sugar.samples;
+    result.sugar = { samples: sugar.samples.length, avg: scalarStats(sugar.samples, 'sugar').avg };
+    await safe('sugar:persist', () => persistScalar('sugar', sugar.samples, (s: SugarSample) => s.sugar));
+  }
+
+  // Two steps channels. {5,2,16} is the generic one; {5,26,16} is the Jieli
+  // platform's own ("步数杰里2" in the SDK) and on this hardware it is the one
+  // that actually carries data — 24 of 36 replies in the RWfit capture, versus
+  // 3 of 15 for the generic channel. Pull both and merge; upsertRingSteps
+  // keys on the day and keeps the larger total, so overlap is harmless.
   const steps = await safe('steps', () => ring!.sync.sync<StepSample>('steps'));
-  if (steps) {
-    result.raw.steps = steps.samples;
-    result.steps = await upsertRingSteps(steps.samples);
+  const steps2 = await safe('steps2', () => ring!.sync.sync<StepSample>('steps2'));
+  const allSteps = [...(steps?.samples ?? []), ...(steps2?.samples ?? [])];
+  if (allSteps.length || steps || steps2) {
+    result.raw.steps = allSteps;
+    result.steps = await upsertRingSteps(allSteps);
   }
 
   // Japa/tasbih — for HealthScreen's "Daily Prayer Count" tile AND for the

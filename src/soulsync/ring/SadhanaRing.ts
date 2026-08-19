@@ -38,34 +38,48 @@ import { SyncApi } from './sync';
 import { RemindersApi } from './reminders';
 import { OtaApi } from './ota';
 import { OledApi } from './oled';
+import { MonitoringApi } from './monitoring';
 import { OP_INFO_6_9_0 } from './opcodes.generated';
 
 /**
- * Keep-alive payload observed in the RWfit capture. The ring drops the BLE
- * link after ~7 s of silence otherwise (Android supervision timeout).
+ * `{6,9,0}` is NOT a keep-alive. It is the ring's live-measurement switch,
+ * and misreading it as a heartbeat is what froze the hardware.
  *
- * NOTE: On rings with a touch-cyclable OLED display, this frame appears to
- * pin the on-ring view to whatever `[03 05 01]` selects (likely HR/HRV
- * monitor). Callers can disable keep-alive at connect() time if they want
- * the user to freely cycle modes on the ring — the trade-off is the link
- * may drop after ~7 s of silence.
+ * Ground truth is the RWfit btsnoop capture (rwfit_capture/btsnoop_hci.log).
+ * Over a 2951-second session the real app sent this frame 27 times, always
+ * in ON/OFF pairs and never on a timer:
+ *
+ *     t=2426.88  TX 03 05 01     ← start live HR
+ *     t=2434.02  TX 03 05 00     ← stop  live HR      (7 s later)
+ *     t=2510.19  TX 0a 05 01     ← start live HRV
+ *     t=2519.56  TX 0a 05 00     ← stop  live HRV     (9 s later)
+ *
+ * Payload is `[metric, 0x05, enable]`, and the metric byte matches the sync
+ * cluster exactly: 0x03 HR, 0x09 SpO2, 0x0a HRV, 0x0d stress — the same
+ * numbering as the {5,N,16} pull opcodes in sync.ts.
+ *
+ * We were sending `[03 05 01]` — "begin a live heart-rate measurement" —
+ * every 500 ms forever and never sending the matching stop. The ring's
+ * sensor loop was re-armed twice a second until it stopped responding,
+ * which is the freeze users hit on the Japa tab (the only caller that had
+ * keep-alive enabled).
+ *
+ * The premise behind the timer was also wrong: the ring does NOT drop after
+ * ~7 s of silence. In the same capture RWfit sent nothing at all for 1254
+ * consecutive seconds and the link survived, so no heartbeat is needed and
+ * none is sent here.
  */
-const KEEPALIVE_PAYLOAD = new Uint8Array([0x03, 0x05, 0x01]);
-// 500ms keep-alive — user asked for "live" connection so the ring never
-// approaches its ~7s supervision timeout. Keep-alive frames are the observed
-// {6,9,0} heartbeat and are filtered at notifyFrame so subscribers never
-// see them; they're pure link-warm traffic and don't inflate tap counts.
-const KEEPALIVE_INTERVAL_MS = 500;
+export type LiveMetric = 'hr' | 'spo2' | 'hrv' | 'stress';
+
+const LIVE_METRIC_BYTE: Record<LiveMetric, number> = {
+  hr: 0x03,
+  spo2: 0x09,
+  hrv: 0x0a,
+  stress: 0x0d,
+};
 
 export interface ConnectOptions {
   onFrame?: FrameObserver;
-  /**
-   * Send the observed keep-alive frame every 3 s while connected. Default
-   * `false` — the payload `[03 05 01]` pins the on-ring OLED to HR/HRV
-   * monitor and blocks the touch cycle. Enable only for long-running use
-   * cases where losing the BLE link is worse than losing touch input.
-   */
-  keepAlive?: boolean;
 }
 
 export interface SadhanaRingInfo {
@@ -86,7 +100,10 @@ export class SadhanaRing {
   readonly reminders: RemindersApi;
   readonly ota: OtaApi;
   readonly oled: OledApi;
-  private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
+  /** On-ring sampling schedule — see monitoring.ts. */
+  readonly monitoring: MonitoringApi;
+  /** Live measurements currently armed on the ring, so we can stop them. */
+  private liveMetrics = new Set<LiveMetric>();
   private frameSubs = new Set<FrameObserver>();
 
   private constructor(
@@ -98,6 +115,7 @@ export class SadhanaRing {
     this.reminders = new RemindersApi(this);
     this.ota = new OtaApi(this);
     this.oled = new OledApi(this);
+    this.monitoring = new MonitoringApi(this);
   }
 
   /**
@@ -132,26 +150,47 @@ export class SadhanaRing {
   }
 
   /**
-   * Fire {6,9,0} with the observed [03 05 01] payload on a loop so the ring's
-   * supervision timer doesn't trip. Idempotent — safe to call twice.
+   * Start or stop a live (continuous) measurement on the ring — the real
+   * meaning of {6,9,0}. See the LiveMetric notes at the top of this file.
+   *
+   * Every start MUST be paired with a stop, which is why callers should
+   * prefer `withLiveMetric()` below. Leaving a measurement running is what
+   * the old keep-alive loop effectively did, and the ring stops responding
+   * when it happens.
    */
-  private startKeepAlive(): void {
-    if (this.keepAliveTimer) return;
-    this.keepAliveTimer = setInterval(() => {
-      // Fire-and-forget — a missed ACK isn't fatal, the NEXT one will land
-      // (or the disconnect handler will clean up).
-      this.queue
-        .send(OP_INFO_6_9_0, KEEPALIVE_PAYLOAD, { expectReply: true, timeoutMs: 1500, maxRetries: 0 })
-        .catch(() => {
-          /* swallow — keep-alive shouldn't spam errors */
-        });
-    }, KEEPALIVE_INTERVAL_MS);
+  async setLiveMetric(metric: LiveMetric, on: boolean): Promise<void> {
+    const payload = new Uint8Array([LIVE_METRIC_BYTE[metric], 0x05, on ? 0x01 : 0x00]);
+    await this.queue.send(OP_INFO_6_9_0, payload, {
+      expectReply: true,
+      timeoutMs: 2000,
+      maxRetries: 0,
+    });
+    if (on) this.liveMetrics.add(metric);
+    else this.liveMetrics.delete(metric);
   }
 
-  private stopKeepAlive(): void {
-    if (this.keepAliveTimer) {
-      clearInterval(this.keepAliveTimer);
-      this.keepAliveTimer = null;
+  /**
+   * Run `fn` with a live measurement active, stopping it afterwards even if
+   * `fn` throws. This is the only safe way to use setLiveMetric.
+   */
+  async withLiveMetric<T>(metric: LiveMetric, fn: () => Promise<T>): Promise<T> {
+    await this.setLiveMetric(metric, true);
+    try {
+      return await fn();
+    } finally {
+      // Best-effort: if the stop fails the link is already in trouble, and
+      // disconnect() below will send it again.
+      await this.setLiveMetric(metric, false).catch(() => {});
+    }
+  }
+
+  /**
+   * Turn off anything still running. Called on disconnect so we never walk
+   * away from the ring with its sensor loop armed.
+   */
+  private async stopAllLiveMetrics(): Promise<void> {
+    for (const metric of [...this.liveMetrics]) {
+      await this.setLiveMetric(metric, false).catch(() => {});
     }
   }
 
@@ -223,7 +262,7 @@ export class SadhanaRing {
   private refs = 0;
 
   static async connect(deviceId: string, opts: ConnectOptions = {}): Promise<SadhanaRing> {
-    const { onFrame, keepAlive = false } = opts;
+    const { onFrame } = opts;
 
     // Reuse an existing live instance if there is one for this device.
     // Both Ring Debug and Japa call connect() with the same id — the second
@@ -233,7 +272,6 @@ export class SadhanaRing {
     if (existing) {
       existing.refs += 1;
       if (onFrame) existing.frameSubs.add(onFrame);
-      if (keepAlive) existing.startKeepAlive();
       return existing;
     }
 
@@ -248,25 +286,17 @@ export class SadhanaRing {
     queue.attach();
     sr.instance = new SadhanaRing(ring, queue);
     sr.instance.refs = 1;
-    if (keepAlive) sr.instance.startKeepAlive();
     // Register + auto-evict on disconnect so the next connect() rebuilds fresh.
     SadhanaRing.instances.set(deviceId, sr.instance);
     const sub = ring.onDisconnect(() => {
-      sr.instance?.stopKeepAlive();
+      // Link is already gone — just drop our record of what was armed.
+      sr.instance?.liveMetrics.clear();
       if (sr.instance) sr.instance.refs = 0;
       SadhanaRing.instances.delete(deviceId);
     });
     (sr.instance as unknown as { _disconnectSub: typeof sub })._disconnectSub = sub;
     return sr.instance;
   }
-
-  /** Toggle keep-alive at runtime (useful for debug + ring-mode cycling). */
-  setKeepAlive(on: boolean): void {
-    if (on) this.startKeepAlive();
-    else this.stopKeepAlive();
-  }
-
-  isKeepAliveOn(): boolean { return this.keepAliveTimer !== null; }
 
   get info(): SadhanaRingInfo {
     return {
@@ -293,7 +323,7 @@ export class SadhanaRing {
     this.refs -= 1;
     if (this.refs > 0) return;
     this.refs = 0;
-    this.stopKeepAlive();
+    await this.stopAllLiveMetrics();
     this.queue.detach();
     // Remove from registry BEFORE the low-level disconnect so re-connect()
     // during the tear-down window doesn't return this dying instance.
@@ -304,7 +334,7 @@ export class SadhanaRing {
   /** Force a full teardown regardless of outstanding references. */
   async forceDisconnect(): Promise<void> {
     this.refs = 0;
-    this.stopKeepAlive();
+    await this.stopAllLiveMetrics();
     this.queue.detach();
     SadhanaRing.instances.delete(this.ring.device.id);
     await this.ring.disconnect();
