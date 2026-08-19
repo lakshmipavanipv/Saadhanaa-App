@@ -12,7 +12,13 @@
 
 import { getDB } from './database';
 
-export type VitalMetric = 'hr' | 'hrv' | 'spo2' | 'temp' | 'stress' | 'bp' | 'sugar';
+export type VitalMetric =
+  | 'hr' | 'hrv' | 'spo2' | 'temp' | 'stress' | 'bp' | 'sugar'
+  // Raw sleep stage codes as the ring reports them (1 deep, 2 light, 4 REM,
+  // 0/3 awake, 17 onset, 34 end). Stored because reads are destructive: the
+  // ring drops a page once we ACK it, and aggregateSleep() discards nights it
+  // considers too short. Anything thrown away there was gone for good.
+  | 'sleep';
 export type VitalSource = 'sync' | 'live';
 
 export interface VitalSample {
@@ -66,6 +72,9 @@ const RANGES: Record<VitalMetric, [number, number]> = {
   stress: [0, 100],
   bp:     [40, 260],
   sugar:  [1, 40],
+  // Stage codes, not a measurement — accept the full byte the ring sends
+  // rather than second-guessing which codes a firmware uses.
+  sleep:  [0, 255],
 };
 
 export const isPlausible = (metric: VitalMetric, value: number): boolean => {

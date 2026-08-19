@@ -270,8 +270,12 @@ function logPersist(metric: string, decoded: number, written: number): void {
   console.log(`[ringVitalsSync] ${metric}: decoded=${decoded} persisted=${written}`);
 }
 
-/** How much stored history the detail screens chart when the ring is away. */
-const HISTORY_WINDOW_DAYS = 7;
+/**
+ * How much stored history the detail screens chart when the ring is away.
+ * 30 days, matching what MetricDetailScreen reads directly — a 7-day window
+ * left the weekly and monthly views half-empty for no reason.
+ */
+const HISTORY_WINDOW_DAYS = 30;
 
 /**
  * Fill any empty scalar channel from `vitals_sample`.
@@ -335,6 +339,19 @@ async function hydrateFromHistory(result: RingVitalsSyncResult): Promise<RingVit
       result.temp = { samples: stats.samples, avgC: stats.avg !== null ? stats.avg / 10 : null };
     }
   }
+  if (result.raw.sleep.length === 0) {
+    const sleep = await load<SleepSample>('sleep', (r) => ({
+      ...base(r.ts),
+      sleepModel: Math.round(r.value),
+    }));
+    if (sleep.length) {
+      result.raw.sleep = sleep;
+      // Re-derive the summary from stored stages so the sleep screens show a
+      // night even when the ring has nothing left to hand over.
+      const agg = await aggregateSleep(sleep);
+      result.sleep = { nightsUpserted: agg.nights, sampleCount: agg.total };
+    }
+  }
   if (result.raw.stress.length === 0) {
     const stress = await load<StressSample>('stress', (r) => ({ ...base(r.ts), stress: r.value }));
     if (stress.length) {
@@ -389,11 +406,19 @@ export async function syncAllRingVitals(opts: SyncOptions = {}): Promise<RingVit
   // the ring only samples on a timer once it has been told to.
   try {
     const prefs = await vitalsPrefs.get();
+
+    // Sleep-time vitals only exist if the ring is recording while you sleep.
+    // The recording window is user-editable, and a daytime window (RWfit
+    // ships 09:00-18:00) would silently exclude every overnight reading —
+    // no sleeping HR, no nocturnal HRV, which are the readings that make a
+    // sleep report worth anything. When sleep tracking is on, widen the
+    // window to the whole day so the night is always covered.
+    const coverNight = prefs.sleepModeEnabled;
     await ring.monitoring.setAll({
       enabled: prefs.ringMonitorEnabled,
-      startHour: prefs.ringMonitorStartHour,
+      startHour: coverNight ? 0 : prefs.ringMonitorStartHour,
       startMin: 0,
-      endHour: prefs.ringMonitorEndHour,
+      endHour: coverNight ? 23 : prefs.ringMonitorEndHour,
       endMin: 59,
       intervalMin: prefs.ringMonitorIntervalMin,
     });
@@ -461,6 +486,12 @@ export async function syncAllRingVitals(opts: SyncOptions = {}): Promise<RingVit
   const sleep = await safe('sleep', () => ring!.sync.sync<SleepSample>('sleep'));
   if (sleep) {
     result.raw.sleep = sleep.samples;
+    // Store the raw stages BEFORE aggregating. The ACK we already sent means
+    // the ring has dropped these; aggregateSleep() then throws away any night
+    // with under two samples or under 30 minutes total, so a short or partial
+    // night used to vanish permanently between those two steps.
+    await safe('sleep:persist', () =>
+      persistScalar('sleep', sleep.samples, (s: SleepSample) => s.sleepModel));
     const agg = await aggregateSleep(sleep.samples);
     result.sleep = { nightsUpserted: agg.nights, sampleCount: agg.total };
   }

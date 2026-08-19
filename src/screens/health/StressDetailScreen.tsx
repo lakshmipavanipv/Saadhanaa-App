@@ -13,6 +13,7 @@ import {
 } from './HealthPrimitives';
 import { STRESS_CONFIG, bandForValue } from './healthTokens';
 import { syncAllRingVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
+import { vitalsRepo } from '../../soulsync/db/vitalsRepo';
 
 const DAY_MS = 86_400_000;
 
@@ -32,15 +33,45 @@ export const StressDetailScreen: React.FC<any> = ({ navigation }) => {
   const [selected, setSelected] = useState<string>(isoDay(new Date()));
   const [vitals, setVitals] = useState<RingVitalsSyncResult | null>(null);
 
+  // Stored stress history. The live sync result only carries what the ring
+  // handed over on THIS pull, and reads are destructive — once a page is
+  // ACKed the ring drops it, so `raw.stress` is empty on every sync after the
+  // one that first collected a sample. Reading vitals_sample is what makes
+  // the chart survive.
+  const [history, setHistory] = useState<Array<{ timestamp: Date; value: number }>>([]);
+
   useEffect(() => {
     void (async () => {
       try { setVitals(await syncAllRingVitals()); } catch { /* noop */ }
     })();
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const now = Date.now();
+        const rows = await vitalsRepo.range('stress', now - 30 * DAY_MS, now);
+        if (!cancelled) setHistory(rows.map((r) => ({ timestamp: new Date(r.ts), value: r.value })));
+      } catch { /* DB not ready */ }
+    })();
+    return () => { cancelled = true; };
+  }, [vitals]);
+
+  /** Stored history merged with anything this sync just returned. */
+  const stressSamples = useMemo(() => {
+    const byTs = new Map<number, { timestamp: Date; value: number }>();
+    for (const s of history) byTs.set(s.timestamp.getTime(), s);
+    if (vitals) {
+      for (const s of vitals.raw.stress) {
+        byTs.set(s.timestamp.getTime(), { timestamp: s.timestamp, value: s.stress });
+      }
+    }
+    return [...byTs.values()].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  }, [history, vitals]);
+
   const dayData = useMemo(() => {
-    if (!vitals) return { values: [] as number[], baseline: null as number | null, min: null as number | null, avg: null as number | null, max: null as number | null };
-    const arr = vitals.raw.stress;
+    const arr = stressSamples;
     if (!arr.length) return { values: [], baseline: null, min: null, avg: null, max: null };
     const dayStart = new Date(selected + 'T00:00:00').getTime();
     const dayEnd = dayStart + DAY_MS;
@@ -50,7 +81,7 @@ export const StressDetailScreen: React.FC<any> = ({ navigation }) => {
     const values: number[] = [];
     for (const s of arr) {
       const t = s.timestamp.getTime();
-      const v = s.stress;
+      const v = s.value;
       if (!Number.isFinite(v) || v <= 0) continue;
       if (t >= cutoff7 && t < dayEnd) { sum7 += v; cnt7++; }
       if (t >= dayStart && t < dayEnd) {
