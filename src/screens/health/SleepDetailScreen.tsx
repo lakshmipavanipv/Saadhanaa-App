@@ -11,7 +11,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import Svg, { Path, Line, Text as SvgText, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
+import Svg, { Path, Line, Text as SvgText, Defs, LinearGradient, Stop, Rect, Circle } from 'react-native-svg';
 import { COLORS, SPACING } from '../../theme';
 import { useTheme } from '../../ThemeContext';
 import {
@@ -241,7 +241,7 @@ export const SleepDetailScreen: React.FC<any> = ({ navigation }) => {
             : ''}
         </Text>
 
-        <SleepGauge percent={pct} accent={HEALTH_COLORS.sleep} />
+        <SleepGauge ratio={targetMin > 0 ? stats.totalMin / targetMin : 0} accent={HEALTH_COLORS.sleep} />
 
         <Text style={styles.gaugeNum}>
           {stats.totalMin > 0 ? `${totalH}h ${String(totalM).padStart(2, '0')}m` : '— h — m'}
@@ -371,15 +371,36 @@ export const SleepDetailScreen: React.FC<any> = ({ navigation }) => {
 
 // ── Sub-components ─────────────────────────────────────────────────────────
 
-const SleepGauge: React.FC<{ percent: number; accent: string }> = ({ percent, accent }) => {
+/**
+ * Sleep gauge: a half-ring from 0h on the left to the target on the right.
+ *
+ * `ratio` is slept/target and is NOT clamped by the caller, because going
+ * past the target has to be visible. It previously arrived pre-capped at 1,
+ * so nine hours and exactly eight rendered identically — the one case where
+ * the number most deserves a reaction.
+ *
+ * Overshoot draws a second, brighter lap concentric with the first, the way
+ * an activity ring wraps: the full arc reads "target met", the inner arc
+ * reads "and this much again". The target marker is a cap at the arc's end
+ * rather than the vertical bar that used to sit there — the target IS the end
+ * of the arc, so a bar across it marked nothing and read as a glitch.
+ */
+const SleepGauge: React.FC<{ ratio: number; accent: string }> = ({ ratio, accent }) => {
   const w = 240, h = 132;
   const r = 100, cx = w / 2, cy = 118;
   const start = { x: cx - r, y: cy };
   const end = { x: cx + r, y: cy };
   const track = `M${start.x} ${start.y} A${r} ${r} 0 0 1 ${end.x} ${end.y}`;
-  // Total arc length ≈ πr; dash-offset it to show progress
   const arcLen = Math.PI * r;
-  const dashOffset = arcLen * (1 - Math.max(0, Math.min(1, percent)));
+
+  const primary = Math.max(0, Math.min(1, ratio));
+  const overflow = Math.max(0, Math.min(1, ratio - 1));   // a second lap, capped
+
+  // Inner ring for the overshoot, tucked inside the main arc.
+  const rIn = r - 13;
+  const trackIn = `M${cx - rIn} ${cy} A${rIn} ${rIn} 0 0 1 ${cx + rIn} ${cy}`;
+  const arcLenIn = Math.PI * rIn;
+
   return (
     <Svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`}>
       <Defs>
@@ -389,6 +410,7 @@ const SleepGauge: React.FC<{ percent: number; accent: string }> = ({ percent, ac
           <Stop offset="1" stopColor="#7CB1FF" />
         </LinearGradient>
       </Defs>
+
       <Path d={track} stroke="rgba(255,255,255,0.06)" strokeWidth={16} strokeLinecap="round" fill="none" />
       <Path
         d={track}
@@ -397,10 +419,25 @@ const SleepGauge: React.FC<{ percent: number; accent: string }> = ({ percent, ac
         strokeLinecap="round"
         fill="none"
         strokeDasharray={arcLen}
-        strokeDashoffset={dashOffset}
+        strokeDashoffset={arcLen * (1 - primary)}
       />
-      {/* Target tick at 8h endpoint */}
-      <Rect x={end.x - 3} y={end.y - 24} width={6} height={30} rx={2} fill="#F0D08A" />
+
+      {overflow > 0 && (
+        <Path
+          d={trackIn}
+          stroke="#F0D08A"
+          strokeWidth={6}
+          strokeLinecap="round"
+          fill="none"
+          strokeDasharray={arcLenIn}
+          strokeDashoffset={arcLenIn * (1 - overflow)}
+          opacity={0.95}
+        />
+      )}
+
+      {/* Target marker: a dot at the arc's end, where the target actually is. */}
+      <Circle cx={end.x} cy={end.y} r={5} fill={primary >= 1 ? '#F0D08A' : 'rgba(255,255,255,0.25)'} />
+
       <SvgText x={20}  y={128} fill="#7C8CA3" fontSize={10} fontWeight="600" textAnchor="middle">0h</SvgText>
       <SvgText x={220} y={128} fill="#F0D08A" fontSize={10} fontWeight="700" textAnchor="middle">8h target</SvgText>
     </Svg>

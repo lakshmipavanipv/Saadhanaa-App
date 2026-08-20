@@ -10,7 +10,12 @@ export const getDB = async (): Promise<SQLite.SQLiteDatabase> => {
   return dbInstance;
 };
 
-const MIGRATIONS: Array<{ version: number; sql: string }> = [
+const MIGRATIONS: Array<{
+  version: number;
+  sql: string;
+  /** Optional step needing values SQL cannot know, e.g. the local UTC offset. */
+  run?: (db: SQLite.SQLiteDatabase) => Promise<void>;
+}> = [
   {
     version: 1,
     sql: `
@@ -150,6 +155,37 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       CREATE INDEX IF NOT EXISTS idx_vs_ts         ON vitals_sample(ts);
     `,
   },
+  {
+    version: 6,
+    sql: `SELECT 1;`,   // nothing structural; the repair below is the migration
+    /**
+     * Repair timestamps written while ring readings were being decoded as UTC.
+     *
+     * The ring's clock is set from local wall-clock fields, so its timestamps
+     * are local — but they were converted as though they were UTC, shifting
+     * every stored reading by the local offset. In IST that is +5:30, which
+     * is why a 04:30 sleep onset appeared on the dashboard as 10:00.
+     *
+     * Every row written before this migration carries that shift, so a single
+     * correction across the table is exactly right. getTimezoneOffset()
+     * returns minutes BEHIND UTC (-330 for IST), so adding it moves each
+     * reading back to the instant it actually happened.
+     *
+     * sleep_record is derived, not observed, so it is dropped rather than
+     * patched: the raw stages in vitals_sample are now correct and the
+     * aggregator rebuilds nights from them on the next sync.
+     */
+    run: async (db) => {
+      const offsetMs = new Date().getTimezoneOffset() * 60_000;
+      if (offsetMs !== 0) {
+        await db.runAsync('UPDATE vitals_sample SET ts = ts + ?', offsetMs);
+      }
+      await db.execAsync(
+        `UPDATE vitals_sample SET day = date(ts / 1000, 'unixepoch', 'localtime');`
+      );
+      await db.execAsync('DELETE FROM sleep_record;');
+    },
+  },
 ];
 
 const runMigrations = async (db: SQLite.SQLiteDatabase) => {
@@ -161,6 +197,7 @@ const runMigrations = async (db: SQLite.SQLiteDatabase) => {
   for (const m of MIGRATIONS) {
     if (m.version > current) {
       await db.execAsync(m.sql);
+      if (m.run) await m.run(db);
       await db.runAsync('INSERT INTO schema_meta (version) VALUES (?)', m.version);
     }
   }
