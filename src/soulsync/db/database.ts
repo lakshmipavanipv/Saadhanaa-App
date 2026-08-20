@@ -157,33 +157,44 @@ const MIGRATIONS: Array<{
   },
   {
     version: 6,
-    sql: `SELECT 1;`,   // nothing structural; the repair below is the migration
+    sql: `CREATE TABLE IF NOT EXISTS schema_meta (version INTEGER PRIMARY KEY);`,
     /**
-     * Repair timestamps written while ring readings were being decoded as UTC.
+     * Clear ring-derived history recorded with the wrong clock.
      *
-     * The ring's clock is set from local wall-clock fields, so its timestamps
-     * are local — but they were converted as though they were UTC, shifting
-     * every stored reading by the local offset. In IST that is +5:30, which
-     * is why a 04:30 sleep onset appeared on the dashboard as 10:00.
+     * Until v100 the ring's timestamps were decoded as UTC even though its
+     * clock is set from local wall-clock fields, so every stored reading sat
+     * a full local offset away from when it happened — in IST a 04:30 sleep
+     * onset was filed as 10:00.
      *
-     * Every row written before this migration carries that shift, so a single
-     * correction across the table is exactly right. getTimezoneOffset()
-     * returns minutes BEHIND UTC (-330 for IST), so adding it moves each
-     * reading back to the instant it actually happened.
+     * The first attempt at this shifted every row back by the offset. That
+     * fails, and did: v100 and v101 had already written correctly-stamped
+     * rows, so shifting the old ones landed them on instants the new ones
+     * occupied and SQLite refused the whole statement —
      *
-     * sleep_record is derived, not observed, so it is dropped rather than
-     * patched: the raw stages in vitals_sample are now correct and the
-     * aggregator rebuilds nights from them on the next sync.
+     *     UNIQUE constraint failed: vitals_sample.metric, vitals_sample.ts
+     *
+     * which rolled back, never recorded the migration, and failed again on
+     * every launch. Nothing distinguishes a pre-fix row from a post-fix one
+     * once they are in the table, so there is no safe shift to make.
+     *
+     * The history is a couple of days old and mostly wrong, so it goes. The
+     * ring keeps recording on its own schedule and everything collected from
+     * here on is correctly stamped.
      */
     run: async (db) => {
-      const offsetMs = new Date().getTimezoneOffset() * 60_000;
-      if (offsetMs !== 0) {
-        await db.runAsync('UPDATE vitals_sample SET ts = ts + ?', offsetMs);
-      }
-      await db.execAsync(
-        `UPDATE vitals_sample SET day = date(ts / 1000, 'unixepoch', 'localtime');`
+      const before = await db.getFirstAsync<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM vitals_sample'
       );
+      const nights = await db.getFirstAsync<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM sleep_record'
+      );
+      await db.execAsync('DELETE FROM vitals_sample;');
       await db.execAsync('DELETE FROM sleep_record;');
+      // eslint-disable-next-line no-console
+      console.log(
+        `[db] v6: cleared ${before?.n ?? 0} mis-stamped vitals rows and ` +
+        `${nights?.n ?? 0} derived nights`
+      );
     },
   },
 ];
@@ -194,8 +205,12 @@ const runMigrations = async (db: SQLite.SQLiteDatabase) => {
     'SELECT MAX(version) AS version FROM schema_meta'
   );
   const current = row?.version ?? 0;
+  // eslint-disable-next-line no-console
+  console.log(`[db] schema at v${current}, latest is v${MIGRATIONS[MIGRATIONS.length - 1].version}`);
   for (const m of MIGRATIONS) {
     if (m.version > current) {
+      // eslint-disable-next-line no-console
+      console.log(`[db] applying migration v${m.version}`);
       await db.execAsync(m.sql);
       if (m.run) await m.run(db);
       await db.runAsync('INSERT INTO schema_meta (version) VALUES (?)', m.version);
