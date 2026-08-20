@@ -20,6 +20,7 @@ import {
 } from './HealthPrimitives';
 import { HEALTH_COLORS } from './healthTokens';
 import { syncAllRingVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
+import { groupSleepSessions } from '../../soulsync/ring/ringVitalsSync';
 import { vitalsPrefs, type VitalsPrefs } from '../../soulsync/settings/vitalsPrefs';
 import { sleepModelToStage, type SleepSample } from '../../soulsync/ring/sync';
 
@@ -41,11 +42,10 @@ function isoDay(d: Date): string {
 }
 
 /** A "night" bucket: samples between 18:00 and noon next day → wake date. */
-function nightBucketIso(d: Date): string {
-  const c = new Date(d);
-  if (c.getHours() >= 12) c.setDate(c.getDate() + 1);
-  return isoDay(c);
-}
+// Night grouping lives in ringVitalsSync (groupSleepSessions) so the screen
+// and the aggregator can never disagree. The local copy here used the same
+// "is the hour past noon" rule and split any sleep that crossed midday — a
+// 04:30-13:20 night was cut in half and neither piece matched the ring.
 
 interface NightStats {
   totalMin: number;
@@ -136,7 +136,7 @@ export const SleepDetailScreen: React.FC<any> = ({ navigation }) => {
   // Bucket sleep samples by night → find the samples for the selected night.
   const nightSamples = useMemo(() => {
     if (!vitals) return [] as SleepSample[];
-    return vitals.raw.sleep.filter((s) => nightBucketIso(s.timestamp) === selected);
+    return groupSleepSessions(vitals.raw.sleep).get(selected) ?? [];
   }, [vitals, selected]);
 
   const stats = useMemo(() => computeNightStats(nightSamples), [nightSamples]);
@@ -194,12 +194,7 @@ export const SleepDetailScreen: React.FC<any> = ({ navigation }) => {
 
   const quality = useMemo(() => {
     if (!vitals) return {} as Record<string, DayQuality>;
-    const nights = new Map<string, SleepSample[]>();
-    for (const s of vitals.raw.sleep) {
-      const key = nightBucketIso(s.timestamp);
-      if (!nights.has(key)) nights.set(key, []);
-      nights.get(key)!.push(s);
-    }
+    const nights = groupSleepSessions(vitals.raw.sleep);
     const out: Record<string, DayQuality> = {};
     for (const [iso, arr] of nights) {
       const st = computeNightStats(arr);

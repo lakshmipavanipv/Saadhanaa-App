@@ -48,7 +48,30 @@ const OP = (cmd: number, key: number, keyFlag: number): Opcode => {
 // ── Ring epoch: 2000-01-01 UTC ───────────────────────────────────────────
 export const RING_EPOCH_UNIX = 946_684_800;
 
-export const ringTsToDate = (ringTs32Le: number): Date => new Date((RING_EPOCH_UNIX + ringTs32Le) * 1000);
+/**
+ * Ring timestamp -> Date, honouring the fact that the ring's clock is LOCAL.
+ *
+ * device.ts setDateTime() pushes the phone's wall clock using local fields
+ * (getHours/getDate/...), so the ring counts seconds from 2000-01-01 00:00 in
+ * whatever timezone the user is in — not from the UTC epoch. Adding
+ * RING_EPOCH_UNIX and handing that to `new Date()` interprets the count as
+ * UTC, which shifts every reading by the local offset: +5:30 in IST, so a
+ * 04:30 sleep onset surfaced as 10:00.
+ *
+ * So: build the naive instant, read its UTC fields (which ARE the ring's wall
+ * clock), and re-assemble them as local time.
+ */
+export const ringTsToDate = (ringTs32Le: number): Date => {
+  const naive = new Date((RING_EPOCH_UNIX + ringTs32Le) * 1000);
+  return new Date(
+    naive.getUTCFullYear(),
+    naive.getUTCMonth(),
+    naive.getUTCDate(),
+    naive.getUTCHours(),
+    naive.getUTCMinutes(),
+    naive.getUTCSeconds()
+  );
+};
 
 const readU32LE = (b: Uint8Array, off: number): number =>
   (b[off] | (b[off + 1] << 8) | (b[off + 2] << 16) | (b[off + 3] << 24)) >>> 0;

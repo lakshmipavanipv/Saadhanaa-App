@@ -11,7 +11,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { vitalsRepo } from '../../soulsync/db/vitalsRepo';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { COLORS, SPACING } from '../../theme';
 import { useTheme } from '../../ThemeContext';
 import {
@@ -51,6 +51,7 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
   // the ring had already handed over and been asked to forget disappeared
   // from the charts the moment you navigated away.
   const [history, setHistory] = useState<Array<{ timestamp: Date; value: number }>>([]);
+  const [showReadings, setShowReadings] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -212,6 +213,23 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
           is what makes a sparse day legible — three readings and a flat line
           look identical otherwise. */}
       <View style={styles.chartCard}>
+        {/* Collapsed by default so the screen still opens on the summary, with
+            an explicit control to pull up every reading — the detailed-report
+            affordance rather than a list the user has to scroll past. */}
+        <TouchableOpacity
+          style={styles.reportBtn}
+          onPress={() => setShowReadings((v) => !v)}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.reportBtnTxt, { color: cfg.color }]}>
+            {showReadings ? '▾  Hide detailed report' : '▸  Detailed report'}
+          </Text>
+          <Text style={styles.reportCount}>
+            {dayReadings.length === 0 ? 'no readings' : `${dayReadings.length} readings`}
+          </Text>
+        </TouchableOpacity>
+        {showReadings && (
+        <>
         <View style={styles.chartHead}>
           <Text style={styles.chartLabel}>Readings</Text>
           <Text style={styles.chartAside}>
@@ -237,6 +255,8 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
               </Text>
             </View>
           ))
+        )}
+        </>
         )}
       </View>
 
@@ -294,6 +314,12 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   chartHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 },
   chartLabel: { fontSize: 10, fontWeight: '700', color: C.muted, letterSpacing: 1.2, textTransform: 'uppercase' },
   chartAside: { fontSize: 10, color: C.muted },
+  reportBtn: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 4,
+  },
+  reportBtnTxt: { fontSize: 13, fontWeight: '700' },
+  reportCount: { fontSize: 11, color: C.muted },
   readingRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 9, borderTopWidth: 1, borderTopColor: C.border,

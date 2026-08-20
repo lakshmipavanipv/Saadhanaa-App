@@ -92,17 +92,66 @@ function nightBucket(ts: Date): string {
   return dayOf(d.getTime());
 }
 
+/**
+ * Group raw sleep stages into sessions, keyed by the local date the session
+ * ENDED — the morning the user woke, whatever hour that was.
+ *
+ * Exported because the sleep screen needs the identical grouping. It used to
+ * carry its own copy of a "is the hour past noon" rule, which disagreed with
+ * the aggregator's copy of the same rule the moment a night crossed noon.
+ */
+export function groupSleepSessions(samples: SleepSample[]): Map<string, SleepSample[]> {
+  // Group into SESSIONS, not calendar-hour buckets.
+  //
+  // The old code assigned each sample to a night by asking whether its hour
+  // was past noon. That silently assumes a conventional schedule and breaks
+  // on any other: sleeping 04:30 to 13:20 got split down the middle, with the
+  // hours before noon filed under one date and the hours after under the
+  // next, so neither total matched what the ring reported.
+  //
+  // The ring already tells us where a session begins and ends — sleepModel 17
+  // is onset and 34 is end, which is exactly what RWfit keys on
+  // (s1.java:417-421). Use those, and treat a gap longer than SESSION_GAP_MIN
+  // as an implicit boundary for firmware that omits a marker.
+  const SESSION_GAP_MIN = 90;
+  const sorted = [...samples].sort((a, b) => a.ringTs - b.ringTs);
+  const sessions: SleepSample[][] = [];
+  let current: SleepSample[] = [];
+
+  for (const sample of sorted) {
+    const stage = sleepModelToStage(sample.sleepModel);
+    const prev = current[current.length - 1];
+    const gapMin = prev ? (sample.ringTs - prev.ringTs) / 60 : 0;
+
+    if (stage === 'onset' || (prev && gapMin > SESSION_GAP_MIN)) {
+      if (current.length) sessions.push(current);
+      current = [];
+    }
+    current.push(sample);
+    if (stage === 'end') {
+      sessions.push(current);
+      current = [];
+    }
+  }
+  if (current.length) sessions.push(current);
+
+  // A session is dated by when it ENDED — the morning you woke, whatever the
+  // hour. Matches RWfit, which stamps a session with its end marker's date.
+  const nights = new Map<string, SleepSample[]>();
+  for (const session of sessions) {
+    const last = session[session.length - 1];
+    const key = dayOf(last.timestamp.getTime());
+    const existing = nights.get(key);
+    if (existing) existing.push(...session);
+    else nights.set(key, session);
+  }
+  return nights;
+}
+
 async function aggregateSleep(samples: SleepSample[]): Promise<{ nights: number; total: number }> {
   if (samples.length < 2) return { nights: 0, total: samples.length };
 
-  // Sort by time and group by night bucket
-  const sorted = [...samples].sort((a, b) => a.ringTs - b.ringTs);
-  const nights = new Map<string, SleepSample[]>();
-  for (const s of sorted) {
-    const key = nightBucket(s.timestamp);
-    if (!nights.has(key)) nights.set(key, []);
-    nights.get(key)!.push(s);
-  }
+  const nights = groupSleepSessions(samples);
 
   let upserted = 0;
   for (const [date, nightSamples] of nights) {
