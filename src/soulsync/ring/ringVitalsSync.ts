@@ -84,7 +84,12 @@ function nightBucket(ts: Date): string {
     // Evening samples (12:00–23:59) → tomorrow's wake date.
     d.setDate(d.getDate() + 1);
   }
-  return d.toISOString().slice(0, 10);
+  // Local date, NOT toISOString(). The hour test above is local, so pairing
+  // it with a UTC date string shifted every night east of UTC by a day: a
+  // 02:00 IST sample is 20:30 UTC the previous day, so the night was stored
+  // under one date and read back by the screens (which use a local isoDay)
+  // under another. That is why the app's sleep total disagreed with the ring.
+  return dayOf(d.getTime());
 }
 
 async function aggregateSleep(samples: SleepSample[]): Promise<{ nights: number; total: number }> {

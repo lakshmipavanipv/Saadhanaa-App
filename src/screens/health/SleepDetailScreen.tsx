@@ -20,6 +20,7 @@ import {
 } from './HealthPrimitives';
 import { HEALTH_COLORS } from './healthTokens';
 import { syncAllRingVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
+import { vitalsPrefs, type VitalsPrefs } from '../../soulsync/settings/vitalsPrefs';
 import { sleepModelToStage, type SleepSample } from '../../soulsync/ring/sync';
 
 const DAY_MS = 86_400_000;
@@ -113,6 +114,15 @@ function computeOdi(spo2: Array<{ timestamp: Date; spo2: number }>, from: Date, 
 export const SleepDetailScreen: React.FC<any> = ({ navigation }) => {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
+  // Sleep window from Settings — the fallback bound for overnight vitals when
+  // the ring reports no sleep stages for this night.
+  const [prefs, setPrefs] = useState<VitalsPrefs>(() => vitalsPrefs.peek());
+  useEffect(() => {
+    let cancelled = false;
+    void vitalsPrefs.get().then((p) => { if (!cancelled) setPrefs(p); });
+    const unsub = vitalsPrefs.subscribe((p) => { if (!cancelled) setPrefs(p); });
+    return () => { cancelled = true; unsub(); };
+  }, []);
   const [view, setView] = useState<HealthView>('day');
   const [selected, setSelected] = useState<string>(isoDay(new Date()));
   const [vitals, setVitals] = useState<RingVitalsSyncResult | null>(null);
@@ -140,10 +150,28 @@ export const SleepDetailScreen: React.FC<any> = ({ navigation }) => {
 
   // Vitals averaged over the sleep window.
   const nightVitals = useMemo(() => {
-    if (!vitals || !stats.bedtime || !stats.wakeTime) {
+    if (!vitals) {
       return { hr: null as number | null, hrv: null as number | null, spo2Avg: null as number | null, tempC: null as number | null, stress: null as number | null };
     }
-    const f = stats.bedtime.getTime(), t = stats.wakeTime.getTime();
+    // Prefer the window the ring's own sleep staging reports. When there are
+    // no stages — the ring had none to give, or none survived — fall back to
+    // the sleep window from Settings. Vitals recorded overnight exist either
+    // way, and gating them on sleep staging blanked this whole card whenever
+    // sleep detection came up empty.
+    let f: number, t: number;
+    if (stats.bedtime && stats.wakeTime) {
+      f = stats.bedtime.getTime();
+      t = stats.wakeTime.getTime();
+    } else {
+      const base = new Date(selected + 'T00:00:00');
+      const start = new Date(base);
+      start.setDate(start.getDate() - 1);
+      start.setHours(prefs.sleepStartHour, 0, 0, 0);
+      const end = new Date(base);
+      end.setHours(prefs.sleepEndHour, 0, 0, 0);
+      f = start.getTime();
+      t = end.getTime();
+    }
     const avg = <T,>(arr: T[], get: (v: T) => number, ts: (v: T) => number): number | null => {
       let s = 0, c = 0;
       for (const x of arr) {
@@ -336,7 +364,9 @@ export const SleepDetailScreen: React.FC<any> = ({ navigation }) => {
           <VitalTile k="HRV"      v={nightVitals.hrv}     unit="ms"  color={HEALTH_COLORS.hrv} />
           <VitalTile k="SpO₂"     v={nightVitals.spo2Avg} unit="%"   color={HEALTH_COLORS.spo2} />
           <VitalTile k="Skin"     v={nightVitals.tempC}   unit="°C"  color={HEALTH_COLORS.temp} precision={1} />
-          <VitalTile k="Resp"     v={14}                  unit="/min" color={HEALTH_COLORS.resp} />
+          {/* The ring does not report respiration. It used to show a flat 14,
+              which was a number nothing measured. */}
+          <VitalTile k="Resp"     v={null}                unit="/min" color={HEALTH_COLORS.resp} />
           <VitalTile k="Stress"   v={nightVitals.stress}  unit=""     color={HEALTH_COLORS.stress} />
         </View>
       </View>

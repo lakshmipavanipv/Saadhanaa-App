@@ -71,6 +71,20 @@ export interface MonitoringWindow {
 const clampByte = (n: number, lo: number, hi: number): number =>
   Math.max(lo, Math.min(hi, Math.round(n))) & 0xff;
 
+/**
+ * Metrics this firmware has already refused, so we stop paying for them.
+ *
+ * A rejected channel costs a full send timeout plus its retry on EVERY
+ * connect — with a 2-minute sync cadence that is a permanent tax, and it is
+ * the bulk of the delay when a detail screen opens. Body temperature does
+ * this reliably on the SR16: {2,27,0} never answers, with either the boolean
+ * or the weekday-mask encoding the SDK implies.
+ *
+ * Module-level so it survives reconnects but resets on app restart, which is
+ * the right scope — a firmware update should get another chance.
+ */
+const unsupported = new Set<MonitoredMetric>();
+
 export class MonitoringApi {
   constructor(private readonly ring: SadhanaRing) {}
 
@@ -119,14 +133,16 @@ export class MonitoringApi {
   async setAll(w: MonitoringWindow): Promise<MonitoredMetric[]> {
     const failed: MonitoredMetric[] = [];
     for (const metric of MONITORED_METRICS) {
+      if (unsupported.has(metric)) continue;
       try {
         await this.set(metric, w);
         // eslint-disable-next-line no-console
         console.log(`[monitoring] ${metric}: every ${w.intervalMin}min ${w.enabled ? 'ON' : 'OFF'}`);
       } catch (e) {
         failed.push(metric);
+        unsupported.add(metric);
         // eslint-disable-next-line no-console
-        console.log(`[monitoring] ${metric}: rejected — ${(e as Error).message}`);
+        console.log(`[monitoring] ${metric}: rejected, not retrying — ${(e as Error).message}`);
       }
     }
     return failed;

@@ -213,7 +213,13 @@ export const HealthHubScreen: React.FC<any> = ({ navigation }) => {
               onPress={() => navigation?.navigate?.(t.route, t.routeParams ?? {})}
               activeOpacity={0.8}
             >
-              <Text style={styles.chev}>›</Text>
+              {/* A bare '›' did not read as "there is more here". Pairing a
+                  list glyph with it says what the tap actually opens: every
+                  reading for the day, with its timestamp. */}
+              <View style={styles.detailBadge}>
+                <Text style={styles.detailGlyph}>≡</Text>
+                <Text style={styles.chev}>›</Text>
+              </View>
               <Text style={styles.tileName}>{t.name}</Text>
               <View style={styles.tileNowRow}>
                 <Text style={[styles.tileNow, { color: t.color }]}>
@@ -310,10 +316,14 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
     borderRadius: 14, padding: 12, position: 'relative',
   },
   tileWide: { width: '100%' },
-  chev: {
-    position: 'absolute', top: 10, right: 12,
-    color: C.muted, fontSize: 18, lineHeight: 18,
+  detailBadge: {
+    position: 'absolute', top: 8, right: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 2,
+    paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 10, backgroundColor: C.border,
   },
+  detailGlyph: { color: C.muted, fontSize: 11, lineHeight: 14 },
+  chev: { color: C.muted, fontSize: 14, lineHeight: 14 },
   tileName: {
     fontSize: 10, fontWeight: '700', color: C.muted,
     letterSpacing: 1.4, textTransform: 'uppercase',
