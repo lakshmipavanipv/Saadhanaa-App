@@ -386,7 +386,30 @@ export interface SyncOptions {
   measure?: boolean;
 }
 
-export async function syncAllRingVitals(opts: SyncOptions = {}): Promise<RingVitalsSyncResult> {
+/**
+ * A sync already in flight. Callers that arrive while one is running join it
+ * instead of starting a second.
+ *
+ * Seven screens call syncAllRingVitals() on mount, so navigating produced
+ * overlapping runs — logcat showed every monitoring command and every channel
+ * pull happening twice. That doubled the BLE work behind each screen open,
+ * which is most of the delay before numbers appear.
+ *
+ * It is also a correctness problem, not just a slow one. Reads are
+ * destructive: the ring drops a page once it is ACKed. Two syncs racing the
+ * same channel can both pull and both ACK, so data gets acknowledged away
+ * while only one run holds it — and if that run is the one whose result gets
+ * discarded, the samples are gone from both the ring and the phone.
+ */
+let inFlight: Promise<RingVitalsSyncResult> | null = null;
+
+export function syncAllRingVitals(opts: SyncOptions = {}): Promise<RingVitalsSyncResult> {
+  if (inFlight) return inFlight;
+  inFlight = runSync(opts).finally(() => { inFlight = null; });
+  return inFlight;
+}
+
+async function runSync(opts: SyncOptions = {}): Promise<RingVitalsSyncResult> {
   const { measure = false } = opts;
   const result = emptyResult();
   const deviceId = await readSr16DeviceId();
