@@ -46,11 +46,7 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
   const [battery, setBattery] = useState<BatteryStatus | null>(null);
   const [fw, setFw] = useState<FirmwareInfo | null>(null);
   const [mac, setMac] = useState<string | null>(null);
-  const [lowBatteryReminder, setLowBatteryReminder] = useState(true);
-  const [dailyLikes, setDailyLikes] = useState(true);
   const [unit, setUnit] = useState<'Metric' | 'Imperial'>('Metric');
-  const [wearingDir, setWearingDir] = useState<'Left' | 'Right'>('Right');
-  const [screenBrightness, setScreenBrightness] = useState<'Soft light' | 'Bright'>('Soft light');
   // Was a local useState that flipped a label and nothing else — the control
   // looked functional but changed no theme. Now bound to ThemeContext, which
   // matters more than it did: the drawer's Color Theme entry has been removed
@@ -133,18 +129,26 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
     try { await ring.device.setUnit(u === 'Metric' ? 'metric' : 'imperial'); } catch { /* ignore */ }
   };
 
+  /**
+   * Only controls that actually do something.
+   *
+   * Removed in the Change 13 audit, because a setting that looks functional
+   * and changes nothing is worse than an absent one:
+   *   Message Notifications, Take Photo, App Control, Feedback, FAQ,
+   *   Sleep mode        — placeholders that only raised a "coming soon" alert
+   *   Low Battery Reminder, Daily likes, Wearing direction,
+   *   Screen brightness — local useState never sent to the ring, so the
+   *                       toggle moved and the hardware never heard about it
+   *
+   * Message Notifications was also a duplicate: notification push is
+   * configured on the Reminders screen, which does persist it.
+   */
   const rows: Row[] = [
-    // Pairing sits at the top: it is the one action that has to work before
-    // anything else on this screen means anything.
+    // Pairing first: nothing else on this screen means anything until it works.
     { icon: '🔗', iconBg: '#7C3AED', label: 'Connect / upgrade ring', value: 'Bluetooth', onPress: onOpenPair },
-    { icon: '💬', iconBg: '#3b82f6', label: 'Message Notifications', onPress: () => soon('Message Notifications') },
-    { icon: '🔋', iconBg: '#ef4444', label: 'Low Battery Reminder', toggle: lowBatteryReminder, onToggle: setLowBatteryReminder },
-    { icon: '📸', iconBg: '#10b981', label: 'Daily likes', toggle: dailyLikes, onToggle: setDailyLikes },
-    { icon: '📷', iconBg: '#06b6d4', label: 'Take Photo', onPress: () => soon('Take Photo') },
-    { icon: '☀️', iconBg: '#22c55e', label: 'Screen brightness', value: screenBrightness, onPress: () => setScreenBrightness((v) => v === 'Soft light' ? 'Bright' : 'Soft light') },
     { icon: '📳', iconBg: '#eab308', label: 'Vibration test', value: 'Buzz 1× · 2× · 3×', onPress: () => Alert.alert(
       'Buzz the ring',
-      'Send a vibration test to the ring (opcode 0xDF).',
+      'Sends a vibration to the ring.',
       [
         { text: '1 pulse',  onPress: () => handleBuzzTest(1) },
         { text: '2 pulses', onPress: () => handleBuzzTest(2) },
@@ -152,16 +156,11 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
         { text: 'Cancel', style: 'cancel' },
       ]
     ) },
-    { icon: '📏', iconBg: '#f97316', label: 'Unit Format', value: unit, onPress: () => handleSetUnit(unit === 'Metric' ? 'Imperial' : 'Metric') },
-    { icon: '🖐', iconBg: '#a855f7', label: 'Wearing direction', value: wearingDir, onPress: () => setWearingDir((v) => v === 'Right' ? 'Left' : 'Right') },
-    { icon: '🩺', iconBg: '#ef4444', label: 'Health Monitoring', onPress: () => ring?.device.setHealthMonitorMaster(true).then(() => Alert.alert('Monitor ON')).catch(() => soon('Health Monitoring')) },
     { icon: '🔎', iconBg: '#0ea5e9', label: 'Find Ring (Buzz)', onPress: handleFindDevice },
-    { icon: '📱', iconBg: '#14b8a6', label: 'App Control', value: 'Off', onPress: () => soon('App Control') },
-    { icon: '🚀', iconBg: '#22c55e', label: 'Firmware Upgrade', onPress: () => Alert.alert('Firmware', 'OTA needs the Jieli RCSP challenge/response — flagged as Task #14, not wired yet.') },
-    { icon: '📝', iconBg: '#22c55e', label: 'Feedback', onPress: () => soon('Feedback') },
-    { icon: '❓', iconBg: '#06b6d4', label: 'FAQ', onPress: () => soon('FAQ') },
+    { icon: '🩺', iconBg: '#ef4444', label: 'Health Monitoring', onPress: () => ring?.device.setHealthMonitorMaster(true).then(() => Alert.alert('Monitor ON')).catch(() => soon('Health Monitoring')) },
+    { icon: '📏', iconBg: '#f97316', label: 'Unit Format', value: unit, onPress: () => handleSetUnit(unit === 'Metric' ? 'Imperial' : 'Metric') },
     { icon: '🎨', iconBg: '#22c55e', label: 'Color Theme', value: mode === 'dark' ? 'Dark' : 'Light', onPress: toggleTheme },
-    { icon: '🌙', iconBg: '#f97316', label: 'Sleep mode', onPress: () => soon('Sleep mode') },
+    { icon: '🚀', iconBg: '#22c55e', label: 'Firmware Upgrade', onPress: () => Alert.alert('Firmware', 'Over-the-air update needs the Jieli RCSP challenge/response handshake, which is not implemented yet.') },
     { icon: '🔄', iconBg: '#eab308', label: 'Restore factory settings', onPress: handleFactoryReset, destructive: true },
     { icon: '⏻', iconBg: '#ef4444', label: 'Device Shutdown', onPress: handleShutdown, destructive: true },
   ];

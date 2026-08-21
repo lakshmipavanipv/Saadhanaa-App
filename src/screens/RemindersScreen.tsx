@@ -137,6 +137,14 @@ export const RemindersScreen: React.FC<any> = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
+      {/* ── This month ─────────────────────────────────────────
+          The screen was a flat list of editors with no answer to the first
+          question anyone asks: what is actually going to fire, and when.
+          Alarms recur weekly, so "this month" means the days those weekdays
+          land on — shown here as a calendar with a dot on every day at least
+          one enabled alarm rings. */}
+      <MonthOverview cfg={cfg} styles={styles} palette={palette} />
+
       {/* ── Alarms ─────────────────────────────────────────────── */}
       <SectionHeader label="Alarms" />
       {cfg.alarms.length === 0 && !addingAlarm ? (
@@ -287,6 +295,93 @@ export const RemindersScreen: React.FC<any> = ({ navigation }) => {
 
 // ── Sub-components ─────────────────────────────────────────────────────────
 
+/**
+ * MonthOverview — what actually fires this month.
+ *
+ * Alarms are stored as weekday sets, which tells you nothing about the month
+ * in front of you. This expands them onto the real calendar: a dot on each
+ * day at least one enabled alarm rings, today ringed, and a plain-language
+ * summary above it. Sedentary and drink reminders are interval-based rather
+ * than dated, so they are summarised in words instead of dotted.
+ */
+const MonthOverview: React.FC<{ cfg: RemindersConfig; styles: any; palette: any }> = ({
+  cfg, styles, palette,
+}) => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const today = now.getDate();
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstWeekday = new Date(year, month, 1).getDay();
+
+  const activeAlarms = cfg.alarms.filter((a) => a.enabled);
+  const activeWeekdays = new Set<number>();
+  activeAlarms.forEach((a) => a.daysOfWeek.forEach((d) => activeWeekdays.add(d)));
+
+  // Which dates this month land on a weekday that has an alarm.
+  const firingDates = new Set<number>();
+  if (activeWeekdays.size > 0) {
+    for (let d = 1; d <= daysInMonth; d++) {
+      if (activeWeekdays.has(new Date(year, month, d).getDay())) firingDates.add(d);
+    }
+  }
+
+  const remainingThisMonth = [...firingDates].filter((d) => d >= today).length;
+  const monthName = now.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+  const extras: string[] = [];
+  if (cfg.sedentary.enabled) extras.push(`move every ${cfg.sedentary.intervalMin} min`);
+  if (cfg.drink.enabled) extras.push(`water every ${cfg.drink.intervalMin} min`);
+  if (cfg.dnd.enabled) extras.push(`quiet ${cfg.dnd.startHour}:00–${cfg.dnd.endHour}:00`);
+
+  // Leading blanks so the 1st sits under its weekday column.
+  const cells: Array<number | null> = [
+    ...Array.from({ length: firstWeekday }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+
+  return (
+    <View style={styles.monthCard}>
+      <Text style={styles.monthTitle}>{monthName}</Text>
+      <Text style={styles.monthSummary}>
+        {activeAlarms.length === 0
+          ? 'No alarms enabled — nothing is scheduled to ring this month.'
+          : `${activeAlarms.length} alarm${activeAlarms.length === 1 ? '' : 's'} · rings on ${firingDates.size} day${firingDates.size === 1 ? '' : 's'} this month · ${remainingThisMonth} still to come`}
+      </Text>
+
+      <View style={styles.monthGridHead}>
+        {DAY_LETTERS.map((l, i) => (
+          <Text key={i} style={styles.monthHeadCell}>{l}</Text>
+        ))}
+      </View>
+
+      <View style={styles.monthGrid}>
+        {cells.map((d, i) => {
+          if (d == null) return <View key={`b${i}`} style={styles.monthCell} />;
+          const fires = firingDates.has(d);
+          const isToday = d === today;
+          const past = d < today;
+          return (
+            <View key={d} style={styles.monthCell}>
+              <View style={[styles.monthDay, isToday && { borderColor: palette.gold, borderWidth: 1 }]}>
+                <Text style={[styles.monthDayTxt, past && styles.monthDayPast, isToday && { color: palette.gold, fontWeight: '800' }]}>
+                  {d}
+                </Text>
+              </View>
+              <View style={[styles.monthDot, fires ? { backgroundColor: past ? palette.muted : palette.gold } : null]} />
+            </View>
+          );
+        })}
+      </View>
+
+      {extras.length > 0 && (
+        <Text style={styles.monthExtras}>Also running daily: {extras.join(' · ')}.</Text>
+      )}
+    </View>
+  );
+};
+
 const SectionHeader: React.FC<{ label: string }> = ({ label }) => {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
@@ -414,6 +509,30 @@ function fmtWindow(s: number, e: number): string {
 
 const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.deep },
+  monthCard: {
+    backgroundColor: C.cardBg, borderRadius: 16,
+    borderWidth: 1, borderColor: C.border,
+    padding: SPACING.md, marginBottom: SPACING.md,
+  },
+  monthTitle: { color: C.cream, fontSize: 16, fontWeight: '800' },
+  monthSummary: { color: C.muted, fontSize: 12, marginTop: 4, marginBottom: 12, lineHeight: 17 },
+  monthGridHead: { flexDirection: 'row', marginBottom: 4 },
+  monthHeadCell: {
+    width: `${100 / 7}%`, textAlign: 'center',
+    color: C.muted, fontSize: 10, fontWeight: '700',
+  },
+  monthGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  monthCell: { width: `${100 / 7}%`, alignItems: 'center', paddingVertical: 3 },
+  monthDay: {
+    width: 26, height: 26, borderRadius: 13,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  monthDayTxt: { color: C.cream, fontSize: 12 },
+  monthDayPast: { color: C.muted, opacity: 0.55 },
+  // Always laid out, coloured only when something fires — keeps every row the
+  // same height so the grid does not jitter between weeks.
+  monthDot: { width: 4, height: 4, borderRadius: 2, marginTop: 2, backgroundColor: 'transparent' },
+  monthExtras: { color: C.muted, fontSize: 11, marginTop: 10, lineHeight: 16 },
   body: { paddingHorizontal: SPACING.md, paddingBottom: 40, paddingTop: 6 },
 
   headerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, marginBottom: 8 },

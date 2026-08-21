@@ -37,6 +37,7 @@ import { StressDetailScreen } from './screens/health/StressDetailScreen';
 import { SleepDetailScreen } from './screens/health/SleepDetailScreen';
 import { JapaHistoryDetailScreen } from './screens/JapaHistoryDetailScreen';
 import { RingScanScreen } from './screens/RingScanScreen';
+import { AIIntelligenceScreen } from './screens/AIIntelligenceScreen';
 import { ExerciseDetailScreen } from './screens/health/ExerciseDetailScreen';
 import { DeviceSettingsScreen } from './screens/DeviceSettingsScreen';
 import { RingDebugScreen } from './screens/RingDebugScreen';
@@ -183,6 +184,13 @@ const TabNavigator = () => {
       />
       {/* Ring pairing — the user-facing scan flow. Ring Debug remains the
           developer tool and is reached separately. */}
+      {/* AI Intelligence — its own destination now. The drawer entry used to
+          navigate to History and leave the user to find the insights card. */}
+      <Tab.Screen
+        name="AIIntelligence"
+        component={AIIntelligenceScreen}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' }, tabBarStyle: { display: 'none' } }}
+      />
       <Tab.Screen
         name="RingScan"
         component={RingScanScreen}
@@ -417,7 +425,7 @@ const AppContent = () => {
           } else if (action.openModal === 'ringDebug') {
             setShowRingDebug(true);
           } else if (action.openModal === 'aiInsights') {
-            navRef.current?.navigate('History' as never);
+            navRef.current?.navigate('AIIntelligence' as never);
           } else if (action.openModal === 'themePicker') {
             setShowThemePicker(true);
           }
