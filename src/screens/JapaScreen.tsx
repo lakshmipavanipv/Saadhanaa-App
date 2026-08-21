@@ -30,6 +30,7 @@ import { WeekSparkline } from '../components/WeekSparkline';
 import { getDB } from '../soulsync/db/database';
 import { showNum } from '../services/vitalsDisplay';
 import { vitalsScheduler } from '../soulsync/ring/vitalsScheduler';
+import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
 import { PracticeStatsBox, BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import {
@@ -1026,8 +1027,15 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* ─── Header (title only — lifetime pill removed in v43) ─── */}
         <View style={styles.header}>
-          <Text style={styles.title}>Japa Counter</Text>
-          <Text style={styles.subtitle}>1 Mala = 108 Japas</Text>
+          {/* Same row pattern Exercise uses: title flexes, Plan button sits
+              top-right, so the control lands in the same spot on every tab. */}
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Japa Counter</Text>
+              <Text style={styles.subtitle}>1 Mala = 108 Japas</Text>
+            </View>
+            <PlanWellbeingButton navigation={navigation} preset="japa" />
+          </View>
         </View>
 
         {/* ─── Top stats — same pattern as Yoga / Meditation:

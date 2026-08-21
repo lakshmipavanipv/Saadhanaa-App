@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../theme';
 import { useTheme } from '../ThemeContext';
+import { VitalsMeasurementSection } from './SettingsScreen';
 import { SadhanaRing } from '../soulsync/ring/SadhanaRing';
 import { readSr16DeviceId } from '../soulsync/ring/japaCounter';
 import type { BatteryStatus, FirmwareInfo } from '../soulsync/ring/device';
@@ -40,7 +41,7 @@ interface Row {
 }
 
 export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) => {
-  const { palette } = useTheme();
+  const { palette, mode, toggle: toggleTheme } = useTheme();
   const [connected, setConnected] = useState(false);
   const [battery, setBattery] = useState<BatteryStatus | null>(null);
   const [fw, setFw] = useState<FirmwareInfo | null>(null);
@@ -50,7 +51,10 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
   const [unit, setUnit] = useState<'Metric' | 'Imperial'>('Metric');
   const [wearingDir, setWearingDir] = useState<'Left' | 'Right'>('Right');
   const [screenBrightness, setScreenBrightness] = useState<'Soft light' | 'Bright'>('Soft light');
-  const [colorTheme, setColorTheme] = useState<'Dark' | 'Light'>('Dark');
+  // Was a local useState that flipped a label and nothing else — the control
+  // looked functional but changed no theme. Now bound to ThemeContext, which
+  // matters more than it did: the drawer's Color Theme entry has been removed
+  // as a duplicate, so this is the only way to switch themes.
   const [ring, setRing] = useState<SadhanaRing | null>(null);
 
   const soon = (feature: string) =>
@@ -130,6 +134,9 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
   };
 
   const rows: Row[] = [
+    // Pairing sits at the top: it is the one action that has to work before
+    // anything else on this screen means anything.
+    { icon: '🔗', iconBg: '#7C3AED', label: 'Connect / upgrade ring', value: 'Bluetooth', onPress: onOpenPair },
     { icon: '💬', iconBg: '#3b82f6', label: 'Message Notifications', onPress: () => soon('Message Notifications') },
     { icon: '🔋', iconBg: '#ef4444', label: 'Low Battery Reminder', toggle: lowBatteryReminder, onToggle: setLowBatteryReminder },
     { icon: '📸', iconBg: '#10b981', label: 'Daily likes', toggle: dailyLikes, onToggle: setDailyLikes },
@@ -153,7 +160,7 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
     { icon: '🚀', iconBg: '#22c55e', label: 'Firmware Upgrade', onPress: () => Alert.alert('Firmware', 'OTA needs the Jieli RCSP challenge/response — flagged as Task #14, not wired yet.') },
     { icon: '📝', iconBg: '#22c55e', label: 'Feedback', onPress: () => soon('Feedback') },
     { icon: '❓', iconBg: '#06b6d4', label: 'FAQ', onPress: () => soon('FAQ') },
-    { icon: '🎨', iconBg: '#22c55e', label: 'Color Theme', value: colorTheme, onPress: () => setColorTheme((v) => v === 'Dark' ? 'Light' : 'Dark') },
+    { icon: '🎨', iconBg: '#22c55e', label: 'Color Theme', value: mode === 'dark' ? 'Dark' : 'Light', onPress: toggleTheme },
     { icon: '🌙', iconBg: '#f97316', label: 'Sleep mode', onPress: () => soon('Sleep mode') },
     { icon: '🔄', iconBg: '#eab308', label: 'Restore factory settings', onPress: handleFactoryReset, destructive: true },
     { icon: '⏻', iconBg: '#ef4444', label: 'Device Shutdown', onPress: handleShutdown, destructive: true },
@@ -221,6 +228,11 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* Ring recording behaviour, moved here from Profile: the recording
+          window, sample interval, sleep window and the japa live link are all
+          device behaviour rather than profile preferences. */}
+      <VitalsMeasurementSection />
     </ScrollView>
   );
 };

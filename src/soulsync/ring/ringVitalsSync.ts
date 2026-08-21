@@ -436,6 +436,18 @@ export interface SyncOptions {
 }
 
 /**
+ * Everything already stored, with no BLE at all.
+ *
+ * Screens used to open by awaiting syncAllRingVitals(), which connects to the
+ * ring, configures monitoring and pulls ten channels before anything could be
+ * drawn — seconds of blank UI holding data the phone already had. Paint from
+ * this first, then let the sync refresh in the background.
+ */
+export async function loadStoredVitals(): Promise<RingVitalsSyncResult> {
+  return hydrateFromHistory(emptyResult());
+}
+
+/**
  * A sync already in flight. Callers that arrive while one is running join it
  * instead of starting a second.
  *

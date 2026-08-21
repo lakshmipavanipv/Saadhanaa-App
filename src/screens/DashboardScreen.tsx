@@ -36,6 +36,7 @@ import { computeHealthDashboard } from '../soulsync/analytics/HealthDashboard';
 import { computeSleepScore } from '../soulsync/analytics/SleepScore';
 import { routineRepo } from '../services/routineRepo';
 import { showNum, barPct, NO_DATA_COLOR } from '../services/vitalsDisplay';
+import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
 import { computeHealthBoxes } from '../soulsync/analytics/HealthScores';
 import { SaadhanaScoreCard } from '../soulsync/components/SaadhanaScoreCard';
 import { useEmotionalState } from '../soulsync/hooks/useEmotionalState';
@@ -518,6 +519,12 @@ export const DashboardScreen = ({ navigation }: any) => {
           <BodySoulLogo width={240} />
           <Text style={styles.personalLine}>{getPersonalLine(userProfile?.name)}</Text>
           <Text style={styles.date}>{formatDate(todayStr())}</Text>
+          {/* Top-right, matching where Exercise/Yoga/Meditation/Japa put it.
+              Absolutely positioned rather than placed in a row so the centred
+              brand logo keeps its own layout. */}
+          <View style={styles.headerPlanBtn}>
+            <PlanWellbeingButton navigation={navigation} />
+          </View>
         </View>
 
 
@@ -938,6 +945,7 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
     paddingBottom: SPACING.md,
     alignItems: 'center',
   },
+  headerPlanBtn: { position: 'absolute', top: 0, right: 0 },
   greeting: { fontSize: 26, color: C.cream, fontWeight: '600', marginBottom: 4 },
   tagline: { fontSize: 13, color: C.muted, marginBottom: 6 },
 

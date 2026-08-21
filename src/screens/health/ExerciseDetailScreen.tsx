@@ -14,8 +14,7 @@ import { COLORS, SPACING } from '../../theme';
 import { useTheme } from '../../ThemeContext';
 import {
   ScreenHeader, ViewSwitch, WeekStrip,
-  type HealthView, type DayQuality,
-} from './HealthPrimitives';
+  type HealthView, type DayQuality, useBackToHealth } from './HealthPrimitives';
 import { HEALTH_COLORS } from './healthTokens';
 import { syncAllRingVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
 
@@ -31,6 +30,7 @@ function isoDay(d: Date): string {
 }
 
 export const ExerciseDetailScreen: React.FC<any> = ({ navigation }) => {
+  const goBack = useBackToHealth(navigation);
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
   const [view, setView] = useState<HealthView>('day');
@@ -118,7 +118,7 @@ export const ExerciseDetailScreen: React.FC<any> = ({ navigation }) => {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.body}>
-      <ScreenHeader title="Exercise" iconEmoji="🏃" onBack={() => navigation?.goBack?.()} />
+      <ScreenHeader title="Exercise" iconEmoji="🏃" onBack={goBack} />
 
       <ViewSwitch value={view} onChange={setView} />
       <WeekStrip

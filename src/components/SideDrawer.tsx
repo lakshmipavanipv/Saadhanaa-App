@@ -57,7 +57,8 @@ const SECTIONS: MenuSection[] = [
     items: [
       { icon: '🎯', label: 'Plan Your Wellbeing', action: { key: 'plan', navigate: 'Plan' }, hint: 'Daily plan, goals, routines' },
       { icon: '🛕', label: 'Panchang & Festivals', action: { key: 'panchang', navigate: 'Panchang' }, hint: 'Tithi, festival reminders' },
-      { icon: '💗', label: 'Health Dashboard', action: { key: 'health', navigate: 'Health' }, hint: 'All ring vitals' },
+      // Health Dashboard removed: Health is a bottom tab, so a drawer entry
+      // pointing at the same place was a second door to one room.
     ],
   },
   {
@@ -71,7 +72,8 @@ const SECTIONS: MenuSection[] = [
   {
     title: 'App',
     items: [
-      { icon: '🌗', label: 'Color Theme', action: { key: 'theme', openModal: 'themePicker' }, hint: 'Switch between light and dark' },
+      // Color Theme removed: Device Settings already owns this control, and
+      // two entry points for one setting invite them to disagree.
     ],
   },
 ];

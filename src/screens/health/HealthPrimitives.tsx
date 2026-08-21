@@ -9,10 +9,11 @@
  */
 
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, BackHandler } from 'react-native';
 import Svg, { Path, Line, Rect, Circle, LinearGradient, Stop, Defs } from 'react-native-svg';
 import { COLORS, SPACING, FONT_SIZES } from '../../theme';
 import { useTheme } from '../../ThemeContext';
+import { useFocusEffect } from '@react-navigation/native';
 import type { MetricConfig } from './healthTokens';
 import { HEALTH_COLORS } from './healthTokens';
 
@@ -592,3 +593,27 @@ const headerStyles = (C: typeof COLORS) => StyleSheet.create({
   icon: { fontSize: 22, marginRight: 8 },
   title: { fontSize: 22, color: C.cream, fontWeight: '600' },
 });
+
+/**
+ * Send Back to the Health tab from any health detail screen.
+ *
+ * These screens are hidden routes on a BOTTOM TAB navigator, not a stack, so
+ * there is no back entry to pop — goBack() lands on the navigator's first tab,
+ * which is Home. Both the header button and Android's hardware/gesture back
+ * have to be redirected, or the two disagree.
+ */
+export function useBackToHealth(navigation: { navigate?: (r: string) => void } | undefined) {
+  const goHealth = React.useCallback(() => {
+    navigation?.navigate?.('Health');
+    return true;   // handled — do not let the default pop through
+  }, [navigation]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', goHealth);
+      return () => sub.remove();
+    }, [goHealth])
+  );
+
+  return goHealth;
+}

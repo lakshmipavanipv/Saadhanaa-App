@@ -31,8 +31,6 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
   const [editing, setEditing] = useState(false);
   const [showRingDebug, setShowRingDebug] = useState(false);
 
-  const totalMalas = history.reduce((s, h) => s + h.malas, 0);
-  const totalJapas = totalMalas * 108;
 
   const confirmReset = () => {
     Alert.alert(
@@ -87,16 +85,9 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
           </View>
         )}
 
-        {/* Stats */}
-        <View style={styles.statsCard}>
-          <Text style={styles.statsTitle}>Your sadhana so far</Text>
-          <View style={styles.statsRow}>
-            <Stat value={totalMalas.toString()} label="Malas" />
-            <Stat value={totalJapas.toLocaleString()} label="Japas" />
-            <Stat value={deities.length.toString()} label="Deities" />
-            <Stat value={history.length.toString()} label="Sessions" />
-          </View>
-        </View>
+        {/* "Your sadhana so far" removed — practice totals belong on History,
+            not Profile, and duplicating them here meant two places to keep in
+            agreement. */}
 
         {/* Saadhana Ring (BLE) */}
         <Text style={styles.sectionTitle}>Saadhana Ring</Text>
@@ -130,8 +121,9 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
           <Text style={[styles.rowValue, { color: COLORS.gold }]}>Open ›</Text>
         </TouchableOpacity>
 
-        {/* Vitals measurement cadence */}
-        <VitalsMeasurementSection />
+        {/* Vitals measurement cadence moved to Device Settings — recording
+            window, sample interval, sleep window and japa live-link are ring
+            behaviour, not profile preferences. */}
 
         {/* About */}
         <Text style={styles.sectionTitle}>About</Text>
@@ -186,7 +178,7 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
  * chosen here during the day, every 30 minutes inside the sleep window, and a
  * continuously-held link during japa.
  */
-const VitalsMeasurementSection = () => {
+export const VitalsMeasurementSection = () => {
   const [prefs, setPrefs] = useState<VitalsPrefs>(() => vitalsPrefs.peek());
   const [status, setStatus] = useState<SchedulerStatus | null>(null);
   const [stored, setStored] = useState<number | null>(null);

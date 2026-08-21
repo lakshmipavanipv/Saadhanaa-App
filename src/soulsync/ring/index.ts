@@ -85,7 +85,7 @@ export {
   type CounterEvents,
 } from './japaCounter';
 export { getRingStepsToday, type RingStepsToday } from './ringSteps';
-export { syncAllRingVitals, type RingVitalsSyncResult } from './ringVitalsSync';
+export { syncAllRingVitals, loadStoredVitals, type RingVitalsSyncResult } from './ringVitalsSync';
 export {
   syncJapaHistory,
   readJapaWatermark,

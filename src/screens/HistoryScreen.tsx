@@ -30,7 +30,7 @@ const RANGE_LABELS: Record<TrendRange, string> = {
   yearly: 'Last 5 Years',
 };
 
-export const HistoryScreen = () => {
+export const HistoryScreen = ({ navigation }: { navigation?: any } = {}) => {
   const { history, deities, deityProgress, userProfile } = useSadhana();
   const inProgressJapas = Object.values(deityProgress).reduce(
     (s, p) => s + (p.count || 0), 0
@@ -291,7 +291,10 @@ export const HistoryScreen = () => {
         {/* Recent Sessions */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Recent Sessions</Text>
-          {history.slice(0, 10).map((entry, i) => (
+          {/* Three most recent only. The full log lives behind the button
+              below — rendering every session here buried the summary charts
+              under a list, which is the overload this tab was criticised for. */}
+          {history.slice(0, 3).map((entry, i) => (
             <View key={entry.id || i} style={styles.historyEntry}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.historyDate}>{formatShortDate(entry.date)}</Text>
@@ -303,6 +306,18 @@ export const HistoryScreen = () => {
               </View>
             </View>
           ))}
+          {history.length > 0 && (
+            <TouchableOpacity
+              style={styles.detailBtn}
+              onPress={() => navigation?.navigate?.('JapaHistoryDetail')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.detailBtnTxt}>≡  Detailed report</Text>
+              <Text style={styles.detailBtnCount}>
+                all {history.length} session{history.length === 1 ? '' : 's'} ›
+              </Text>
+            </TouchableOpacity>
+          )}
           {history.length === 0 && (
             <Text style={styles.emptyText}>Save your first japa session</Text>
           )}
@@ -314,6 +329,13 @@ export const HistoryScreen = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.deep },
+  detailBtn: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 12, marginTop: 4,
+    borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  detailBtnTxt: { color: COLORS.gold, fontSize: 13, fontWeight: '700' },
+  detailBtnCount: { color: COLORS.muted, fontSize: 11 },
   content: {
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.lg,

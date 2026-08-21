@@ -483,11 +483,8 @@ const HealthView: React.FC<{
       samples={spo2Samples} current={vitals?.spo2.avg ?? null} currentUnit="%"
       subtitle="SpO₂"
     />
-    <MiniChartCard
-      title="Body Temperature" date={date} bg="#2a4a3a" accent="74, 222, 128"
-      samples={tempSamples} current={vitals?.temp.avgC ?? null} currentUnit=" °C"
-      subtitle="Skin temperature"
-    />
+    {/* Body temperature removed: the ring never answers its timed-monitoring
+        command, so this card could only ever render "no data". */}
     <MiniChartCard
       title="Stress"          date={date} bg="#4a3a2a" accent="245, 158, 11"
       samples={stressSamples} current={vitals?.stress.avg ?? null} currentUnit=""

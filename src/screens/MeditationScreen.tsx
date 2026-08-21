@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
 import { useTheme } from '../ThemeContext';
+import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
 // AddToPlanCta removed — Plan Your Wellbeing lives in the hamburger drawer.
 import { soulActivityRepo } from '../services/soulActivityRepo';
@@ -398,6 +399,7 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
             <TouchableOpacity style={styles.logBtn} onPress={() => setShowLog(true)}>
               <Text style={styles.logBtnText}>+ Log past</Text>
             </TouchableOpacity>
+            <PlanWellbeingButton navigation={navigation} preset="meditation" />
           </View>
         </View>
 

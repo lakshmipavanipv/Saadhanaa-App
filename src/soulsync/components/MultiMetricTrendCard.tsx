@@ -4,7 +4,17 @@ import { LineChart } from 'react-native-chart-kit';
 import { COLORS, SPACING } from '../../theme';
 import { METRICS, MetricInfo, MetricKey, buildMetricTrend } from '../analytics/MetricTrends';
 
-const CHART_W = Dimensions.get('window').width - 64;
+/**
+ * Fallback only. The chart is sized from the card's measured width via
+ * onLayout; this covers the first frame before that measurement lands.
+ *
+ * The old approach used this value for real, which assumed exactly 64px of
+ * horizontal chrome everywhere the card is mounted and never changed after
+ * module load — so on a screen with different padding, or after a rotation or
+ * split-screen resize, the chart drew wider than the card it sits in. That is
+ * the trend line spilling past the border on the History tab.
+ */
+const CHART_W_FALLBACK = Dimensions.get('window').width - 64;
 
 const RANGES: Array<{ key: '7d' | '30d' | '90d'; label: string; days: number }> = [
   { key: '7d',  label: '7d',  days: 7 },
@@ -13,6 +23,7 @@ const RANGES: Array<{ key: '7d' | '30d' | '90d'; label: string; days: number }> 
 ];
 
 export const MultiMetricTrendCard: React.FC = () => {
+  const [chartW, setChartW] = React.useState(CHART_W_FALLBACK);
   const [metricKey, setMetricKey] = useState<MetricKey>('rmssd');
   const [rangeIdx, setRangeIdx]   = useState(0);
   const [points, setPoints] = useState<Array<{ date: string; value: number | null }>>([]);
@@ -54,7 +65,15 @@ export const MultiMetricTrendCard: React.FC = () => {
     : null;
 
   return (
-    <View style={styles.card}>
+    <View
+      style={styles.card}
+      onLayout={(e) => {
+        // Card width minus its own horizontal padding — the space the chart
+        // may actually occupy.
+        const inner = e.nativeEvent.layout.width - SPACING.md * 2;
+        if (inner > 0 && Math.abs(inner - chartW) > 1) setChartW(inner);
+      }}
+    >
       <View style={styles.titleRow}>
         <Text style={styles.title}>Trends</Text>
         <View style={styles.rangeRow}>
@@ -107,7 +126,7 @@ export const MultiMetricTrendCard: React.FC = () => {
       ) : (
         <LineChart
           data={{ labels, datasets: [{ data, color: () => metric.color, strokeWidth: 2 }] }}
-          width={CHART_W}
+          width={chartW}
           height={150}
           bezier
           withDots={false}
@@ -137,6 +156,9 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
     backgroundColor: COLORS.cardBg, borderRadius: 14,
     borderWidth: 1, borderColor: 'rgba(214,224,64,0.12)',
+    // Belt and braces: even with a measured width, a chart library rounding
+    // up must not paint past the card's rounded border.
+    overflow: 'hidden',
   },
   titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { fontSize: 15, color: '#d6e040', fontWeight: '700', letterSpacing: 0.5 },

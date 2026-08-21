@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
 import { useTheme } from '../ThemeContext';
+import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
 // AddToPlanCta removed — the big 🎯 Plan Your Wellbeing tile on this screen
 // (and the drawer's ☰ → Plan Your Wellbeing) both navigate to the Plan tab's
@@ -232,22 +233,7 @@ export const ExerciseScreen = ({ navigation }: any) => {
               <Text style={styles.title}>Workout</Text>
               <Text style={styles.subtitle}>Cardio · strength · ring-tracked daily movement</Text>
             </View>
-            <TouchableOpacity
-              style={{
-                backgroundColor: palette.gold,
-                paddingHorizontal: SPACING.md,
-                paddingVertical: SPACING.sm,
-                borderRadius: 14,
-                alignItems: 'center',
-                marginLeft: SPACING.sm,
-                minWidth: 96,
-              }}
-              onPress={() => navigation?.navigate?.('Plan', { preset: 'exercise' })}
-              activeOpacity={0.85}
-            >
-              <Text style={{ fontSize: 24 }}>🎯</Text>
-              <Text style={{ color: '#1a1a1a', fontSize: 12, fontWeight: '800', marginTop: 2, textAlign: 'center' }}>Plan Your{'\n'}Wellbeing</Text>
-            </TouchableOpacity>
+            <PlanWellbeingButton navigation={navigation} preset="exercise" />
           </View>
           {/* Week strip — Sun→Sat, tap to focus a day */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: SPACING.md }}>

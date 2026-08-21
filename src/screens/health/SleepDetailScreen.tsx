@@ -16,10 +16,9 @@ import { COLORS, SPACING } from '../../theme';
 import { useTheme } from '../../ThemeContext';
 import {
   ScreenHeader, ViewSwitch, WeekStrip,
-  type HealthView, type DayQuality,
-} from './HealthPrimitives';
+  type HealthView, type DayQuality, useBackToHealth } from './HealthPrimitives';
 import { HEALTH_COLORS } from './healthTokens';
-import { syncAllRingVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
+import { syncAllRingVitals, loadStoredVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
 import { groupSleepSessions } from '../../soulsync/ring/ringVitalsSync';
 import { vitalsPrefs, type VitalsPrefs } from '../../soulsync/settings/vitalsPrefs';
 import { sleepModelToStage, type SleepSample } from '../../soulsync/ring/sync';
@@ -114,6 +113,7 @@ function computeOdi(spo2: Array<{ timestamp: Date; spo2: number }>, from: Date, 
 export const SleepDetailScreen: React.FC<any> = ({ navigation }) => {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
+  const goBack = useBackToHealth(navigation);
   // Sleep window from Settings — the fallback bound for overnight vitals when
   // the ring reports no sleep stages for this night.
   const [prefs, setPrefs] = useState<VitalsPrefs>(() => vitalsPrefs.peek());
@@ -128,9 +128,21 @@ export const SleepDetailScreen: React.FC<any> = ({ navigation }) => {
   const [vitals, setVitals] = useState<RingVitalsSyncResult | null>(null);
 
   useEffect(() => {
+    // Storage first so the screen has numbers immediately; the ring sync
+    // then refreshes them. Awaiting the sync meant a connect, a monitoring
+    // configure and ten channel pulls before anything rendered.
+    let cancelled = false;
     void (async () => {
-      try { setVitals(await syncAllRingVitals()); } catch { /* noop */ }
+      try {
+        const stored = await loadStoredVitals();
+        if (!cancelled) setVitals((cur) => cur ?? stored);
+      } catch { /* fall through */ }
+      try {
+        const live = await syncAllRingVitals();
+        if (!cancelled) setVitals(live);
+      } catch { /* keep whatever storage gave us */ }
     })();
+    return () => { cancelled = true; };
   }, []);
 
   // Bucket sleep samples by night → find the samples for the selected night.
@@ -222,7 +234,7 @@ export const SleepDetailScreen: React.FC<any> = ({ navigation }) => {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.body}>
-      <ScreenHeader title="Sleep" iconEmoji="🌙" onBack={() => navigation?.goBack?.()} />
+      <ScreenHeader title="Sleep" iconEmoji="🌙" onBack={goBack} />
 
       <ViewSwitch value={view} onChange={setView} />
       <WeekStrip
@@ -358,7 +370,6 @@ export const SleepDetailScreen: React.FC<any> = ({ navigation }) => {
           <VitalTile k="HR avg"   v={nightVitals.hr}      unit="bpm" color={HEALTH_COLORS.hr} />
           <VitalTile k="HRV"      v={nightVitals.hrv}     unit="ms"  color={HEALTH_COLORS.hrv} />
           <VitalTile k="SpO₂"     v={nightVitals.spo2Avg} unit="%"   color={HEALTH_COLORS.spo2} />
-          <VitalTile k="Skin"     v={nightVitals.tempC}   unit="°C"  color={HEALTH_COLORS.temp} precision={1} />
           {/* The ring does not report respiration. It used to show a flat 14,
               which was a number nothing measured. */}
           <VitalTile k="Resp"     v={null}                unit="/min" color={HEALTH_COLORS.resp} />

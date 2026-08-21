@@ -110,6 +110,34 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
         </Text>
       </TouchableOpacity>
 
+      {/* Live vitals while a session is recording.
+          The bar itself only had room for a single cramped line, and it
+          vanished entirely whenever liveBpm was null — so a session that was
+          recording but not yet receiving heart rate looked broken. This panel
+          always shows every channel, with an em dash for anything the ring is
+          not currently streaming, so "connected but no reading yet" is
+          distinguishable from "not working". */}
+      {soulsync.state.active && (
+        <View style={styles.livePanel}>
+          <Text style={styles.livePanelHead}>Live from your ring</Text>
+          <View style={styles.liveRow}>
+            <LiveStat label="Heart" value={soulsync.state.liveBpm} unit="bpm" color="#FF6B8A" />
+            <LiveStat
+              label="HRV"
+              value={soulsync.state.rmssd != null ? Math.round(soulsync.state.rmssd) : null}
+              unit="ms"
+              color="#B39BFF"
+            />
+            <LiveStat label="SpO₂" value={soulsync.state.liveSpo2} unit="%" color="#7CB1FF" />
+          </View>
+          <Text style={styles.liveFoot}>
+            {soulsync.state.liveBpm == null
+              ? 'Waiting for the ring to report — keep it on your finger.'
+              : `${soulsync.state.peaksRegistered} peak${soulsync.state.peaksRegistered === 1 ? '' : 's'} registered this session`}
+          </Text>
+        </View>
+      )}
+
       <SessionScorePopup
         visible={showScoreModal}
         snapshot={scoreSnap}
@@ -122,6 +150,19 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
     </>
   );
 };
+
+/** One live reading. Renders an em dash rather than hiding when absent. */
+const LiveStat: React.FC<{ label: string; value: number | null; unit: string; color: string }> = ({
+  label, value, unit, color,
+}) => (
+  <View style={styles.liveStat}>
+    <Text style={styles.liveStatLabel}>{label}</Text>
+    <Text style={[styles.liveStatValue, { color: value == null ? COLORS.muted : color }]}>
+      {value == null ? '—' : value}
+      <Text style={styles.liveStatUnit}> {unit}</Text>
+    </Text>
+  </View>
+);
 
 const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   bar: {
@@ -152,6 +193,21 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   label: { fontSize: 12, color: C.cream, fontWeight: '500' },
   labelActive: { color: C.gold, fontWeight: '700' },
   liveStats: { fontSize: 11, color: C.cream, marginTop: 2 },
+  livePanel: {
+    backgroundColor: C.cardBg, borderRadius: 14,
+    borderWidth: 1, borderColor: C.border,
+    padding: SPACING.md, marginTop: SPACING.sm,
+  },
+  livePanelHead: {
+    fontSize: 10, fontWeight: '700', color: C.muted,
+    letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 10,
+  },
+  liveRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  liveStat: { flex: 1, alignItems: 'center' },
+  liveStatLabel: { fontSize: 10, color: C.muted, marginBottom: 4 },
+  liveStatValue: { fontSize: 20, fontWeight: '800' },
+  liveStatUnit: { fontSize: 10, fontWeight: '400', color: C.muted },
+  liveFoot: { fontSize: 11, color: C.muted, marginTop: 10, textAlign: 'center' },
   action: {
     fontSize: 12, color: C.gold, fontWeight: '700',
     marginLeft: SPACING.sm,

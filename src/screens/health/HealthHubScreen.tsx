@@ -18,7 +18,7 @@ import {
 import Svg, { Path } from 'react-native-svg';
 import { COLORS, SPACING } from '../../theme';
 import { useTheme } from '../../ThemeContext';
-import { syncAllRingVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
+import { syncAllRingVitals, loadStoredVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
 import { HEALTH_COLORS, type HealthMetric } from './healthTokens';
 
 const DAY_MS = 86_400_000;
@@ -42,7 +42,10 @@ const TILES: TileSpec[] = [
   { key: 'hr',    name: 'Heart rate',   unit: 'bpm', route: 'MetricDetail', routeParams: { metric: 'hr'   }, color: HEALTH_COLORS.hr,    goodDelta: 'lower'  },
   { key: 'hrv',   name: 'HRV',          unit: 'ms',  route: 'MetricDetail', routeParams: { metric: 'hrv'  }, color: HEALTH_COLORS.hrv,   goodDelta: 'higher' },
   { key: 'spo2',  name: 'SpO₂',         unit: '%',   route: 'MetricDetail', routeParams: { metric: 'spo2' }, color: HEALTH_COLORS.spo2,  goodDelta: 'higher' },
-  { key: 'temp',  name: 'Skin temp',    unit: '°C',  route: 'MetricDetail', routeParams: { metric: 'temp' }, color: HEALTH_COLORS.temp,  precision: 1 },
+  // Skin temperature is deliberately absent. The SR16 never answers the
+  // timed-monitoring command for it ({2,27,0} times out with every encoding
+  // the SDK implies), so the channel produces no data on this hardware and a
+  // permanently blank tile is worse than no tile.
   { key: 'resp',  name: 'Respiration',  unit: '/min',route: 'MetricDetail', routeParams: { metric: 'resp' }, color: HEALTH_COLORS.resp },
   { key: 'sleep', name: 'Sleep',        unit: 'h',   route: 'SleepDetail',                                    color: HEALTH_COLORS.sleep },
   { key: 'stress',name: 'Stress',       unit: '/100',route: 'StressDetail',                                   color: HEALTH_COLORS.stress, goodDelta: 'lower', wide: true },
@@ -135,7 +138,22 @@ export const HealthHubScreen: React.FC<any> = ({ navigation }) => {
     }
   }, []);
 
-  useEffect(() => { void run(); }, [run]);
+  // Paint from storage first, then refresh over BLE. The screen used to await
+  // the whole ring sync — connect, configure monitoring, pull ten channels —
+  // before drawing anything, so it sat blank for seconds while the phone
+  // already held the numbers. Stored data appears immediately; the sync
+  // overwrites it when it lands.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const stored = await loadStoredVitals();
+        if (!cancelled) setVitals((cur) => cur ?? stored);
+      } catch { /* fall through to the live sync */ }
+      if (!cancelled) void run();
+    })();
+    return () => { cancelled = true; };
+  }, [run]);
 
   // Derive per-metric current + baseline + spark.
   const metrics = useMemo(() => {

@@ -9,10 +9,9 @@ import { COLORS, SPACING } from '../../theme';
 import { useTheme } from '../../ThemeContext';
 import {
   ScreenHeader, ViewSwitch, WeekStrip, HeroCard, BandedChart, RangeCard, AboutCard,
-  type HealthView, type DayQuality,
-} from './HealthPrimitives';
+  type HealthView, type DayQuality, useBackToHealth } from './HealthPrimitives';
 import { STRESS_CONFIG, bandForValue } from './healthTokens';
-import { syncAllRingVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
+import { syncAllRingVitals, loadStoredVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
 import { vitalsRepo } from '../../soulsync/db/vitalsRepo';
 
 const DAY_MS = 86_400_000;
@@ -39,11 +38,24 @@ export const StressDetailScreen: React.FC<any> = ({ navigation }) => {
   // one that first collected a sample. Reading vitals_sample is what makes
   // the chart survive.
   const [history, setHistory] = useState<Array<{ timestamp: Date; value: number }>>([]);
+  const goBack = useBackToHealth(navigation);
 
   useEffect(() => {
+    // Storage first so the screen has numbers immediately; the ring sync
+    // then refreshes them. Awaiting the sync meant a connect, a monitoring
+    // configure and ten channel pulls before anything rendered.
+    let cancelled = false;
     void (async () => {
-      try { setVitals(await syncAllRingVitals()); } catch { /* noop */ }
+      try {
+        const stored = await loadStoredVitals();
+        if (!cancelled) setVitals((cur) => cur ?? stored);
+      } catch { /* fall through */ }
+      try {
+        const live = await syncAllRingVitals();
+        if (!cancelled) setVitals(live);
+      } catch { /* keep whatever storage gave us */ }
     })();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -132,7 +144,7 @@ export const StressDetailScreen: React.FC<any> = ({ navigation }) => {
       <ScreenHeader
         title="Stress"
         iconEmoji="🧘"
-        onBack={() => navigation?.goBack?.()}
+        onBack={goBack}
       />
 
       <ViewSwitch value={view} onChange={setView} />

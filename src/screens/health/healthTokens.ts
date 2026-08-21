@@ -151,9 +151,9 @@ export const METRIC_CONFIG: Record<Exclude<HealthMetric, 'sleep' | 'stress' | 'e
     aboutTitle: 'What is respiration rate?',
     aboutIcon: '🌬️',
     aboutBody:
-      "How many breaths you take per minute. Estimated by the ring from tiny " +
-      'movements in your finger. Most adults breathe 12–20 times per minute at ' +
-      'rest — this rises with activity, illness, or anxiety.',
+      "How many breaths you take per minute. Most adults breathe 12-20 times " +
+      'per minute at rest, rising with activity, illness or anxiety. Your ring ' +
+      'does not report this measurement, so no value is shown.',
   },
 };
 
@@ -174,10 +174,16 @@ export const STRESS_CONFIG: MetricConfig = {
   aboutTitle: 'How stress is scored',
   aboutIcon: '🌬️',
   aboutBody:
-    'Your ring watches tiny shifts in your heart rate and pulse rhythm to ' +
-    "estimate how activated your nervous system is. A lower number means you're " +
-    'in rest-and-digest mode; a rising number means your body is on alert. ' +
-    'A short breath practice or a walk usually pulls the score down within minutes.',
+    "Where this number comes from: the ring calculates it, not the app. Its " +
+    'sensor measures the gaps between consecutive heartbeats, and the ' +
+    'variation in those gaps reflects how activated your nervous system is — ' +
+    'steady, even gaps mean alertness or strain, while naturally varying gaps ' +
+    'mean rest-and-digest. The ring turns that into a 0-100 figure on its own ' +
+    'chip and reports the finished value; the app stores and charts it ' +
+    'unchanged, and applies no formula of its own. ' +
+    'Lower is calmer. A short breath practice or a walk usually pulls the ' +
+    'score down within minutes, which is the quickest way to see whether the ' +
+    'reading is tracking how you actually feel.',
 };
 
 /** Given a numeric value, return which band label it falls into. */

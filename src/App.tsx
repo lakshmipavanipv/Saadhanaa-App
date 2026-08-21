@@ -35,6 +35,8 @@ import { HealthHubScreen } from './screens/health/HealthHubScreen';
 import { MetricDetailScreen } from './screens/health/MetricDetailScreen';
 import { StressDetailScreen } from './screens/health/StressDetailScreen';
 import { SleepDetailScreen } from './screens/health/SleepDetailScreen';
+import { JapaHistoryDetailScreen } from './screens/JapaHistoryDetailScreen';
+import { RingScanScreen } from './screens/RingScanScreen';
 import { ExerciseDetailScreen } from './screens/health/ExerciseDetailScreen';
 import { DeviceSettingsScreen } from './screens/DeviceSettingsScreen';
 import { RingDebugScreen } from './screens/RingDebugScreen';
@@ -172,6 +174,20 @@ const TabNavigator = () => {
         component={HistoryScreen}
         options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' }, tabBarStyle: { display: 'none' } }}
       />
+      {/* Full japa session log — History shows the three most recent and links
+          here, so the summary charts are not buried under the list. */}
+      <Tab.Screen
+        name="JapaHistoryDetail"
+        component={JapaHistoryDetailScreen}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' }, tabBarStyle: { display: 'none' } }}
+      />
+      {/* Ring pairing — the user-facing scan flow. Ring Debug remains the
+          developer tool and is reached separately. */}
+      <Tab.Screen
+        name="RingScan"
+        component={RingScanScreen}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' }, tabBarStyle: { display: 'none' } }}
+      />
       <Tab.Screen
         name="Health"
         component={HealthHubScreen}
@@ -238,6 +254,10 @@ const AppContent = () => {
   const [showDrawer, setShowDrawer] = useState(false);
   const [showDeviceSettings, setShowDeviceSettings] = useState(false);
   const [showRingDebug, setShowRingDebug] = useState(false);
+  // User-facing ring pairing. Distinct from Ring Debug, which stays a
+  // developer tool — sending a normal user into a raw BLE frame log was
+  // never the intent of the 'pair my ring' button.
+  const [showRingScan, setShowRingScan] = useState(false);
   const [showThemePicker, setShowThemePicker] = useState(false);
   // v75: DPDP consent gate — null = still loading, true = must show consent.
   const [needsConsent, setNeedsConsent] = useState<boolean | null>(null);
@@ -407,11 +427,14 @@ const AppContent = () => {
       <Modal visible={showDeviceSettings} animationType="slide" onRequestClose={() => setShowDeviceSettings(false)}>
         <DeviceSettingsScreen
           onClose={() => setShowDeviceSettings(false)}
-          onOpenPair={() => { setShowDeviceSettings(false); setTimeout(() => setShowRingDebug(true), 100); }}
+          onOpenPair={() => { setShowDeviceSettings(false); setTimeout(() => setShowRingScan(true), 100); }}
         />
       </Modal>
       <Modal visible={showRingDebug} animationType="slide" onRequestClose={() => setShowRingDebug(false)}>
         <RingDebugScreen onClose={() => setShowRingDebug(false)} />
+      </Modal>
+      <Modal visible={showRingScan} animationType="slide" onRequestClose={() => setShowRingScan(false)}>
+        <RingScanScreen navigation={{ goBack: () => setShowRingScan(false) }} />
       </Modal>
       {toast && <Toast message={toast} />}
 

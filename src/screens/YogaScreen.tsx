@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
 import { useTheme } from '../ThemeContext';
+import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
 // AddToPlanCta removed — Plan Your Wellbeing lives in the hamburger drawer.
 import { YogaPoseAnimation } from '../components/YogaPoseAnimation';
@@ -343,6 +344,7 @@ export const YogaScreen = ({ navigation }: any) => {
             <TouchableOpacity style={styles.logBtn} onPress={() => setShowLog(true)}>
               <Text style={styles.logBtnText}>+ Log past</Text>
             </TouchableOpacity>
+            <PlanWellbeingButton navigation={navigation} preset="yoga" />
           </View>
         </View>
 
