@@ -74,45 +74,31 @@ const emptyResult = (): RingVitalsSyncResult => ({
   },
 });
 
-/** Bucket a sample's Date into its "sleep night" — the calendar date the
- * user WAKES on. Samples between 18:00 and 06:00 belong to the following
- * morning's date; between 06:00 and 12:00 to the same day (early-riser).
+/*
+ * nightBucket() removed. It assigned a sample to a night by asking whether
+ * its local hour was past noon, then formatted the date with toISOString(),
+ * which is UTC — so nights split at midday and, east of UTC, were filed a day
+ * early. Three copies of that rule existed (here, the sleep screen, the health
+ * hub) and they disagreed with each other, which is how the hub came to show
+ * about an hour of sleep while the sleep dashboard showed the real total.
+ *
+ * groupSleepSessions() below replaces all three: it uses the ring's own
+ * session markers and dates a night by when it ended.
  */
-function nightBucket(ts: Date): string {
-  const d = new Date(ts);
-  if (d.getHours() >= 12) {
-    // Evening samples (12:00–23:59) → tomorrow's wake date.
-    d.setDate(d.getDate() + 1);
-  }
-  // Local date, NOT toISOString(). The hour test above is local, so pairing
-  // it with a UTC date string shifted every night east of UTC by a day: a
-  // 02:00 IST sample is 20:30 UTC the previous day, so the night was stored
-  // under one date and read back by the screens (which use a local isoDay)
-  // under another. That is why the app's sleep total disagreed with the ring.
-  return dayOf(d.getTime());
-}
 
 /**
  * Group raw sleep stages into sessions, keyed by the local date the session
  * ENDED — the morning the user woke, whatever hour that was.
  *
- * Exported because the sleep screen needs the identical grouping. It used to
- * carry its own copy of a "is the hour past noon" rule, which disagreed with
- * the aggregator's copy of the same rule the moment a night crossed noon.
+ * Exported because the sleep screen and the health hub need the identical
+ * grouping. Each used to carry its own copy of a "is the hour past noon" rule
+ * and they disagreed the moment a night crossed midday.
+ *
+ * Boundaries come from the ring's own markers — sleepModel 17 is onset, 34 is
+ * end, which is what RWfit keys on (s1.java:417-421) — with a gap longer than
+ * SESSION_GAP_MIN as an implicit boundary for firmware that omits a marker.
  */
 export function groupSleepSessions(samples: SleepSample[]): Map<string, SleepSample[]> {
-  // Group into SESSIONS, not calendar-hour buckets.
-  //
-  // The old code assigned each sample to a night by asking whether its hour
-  // was past noon. That silently assumes a conventional schedule and breaks
-  // on any other: sleeping 04:30 to 13:20 got split down the middle, with the
-  // hours before noon filed under one date and the hours after under the
-  // next, so neither total matched what the ring reported.
-  //
-  // The ring already tells us where a session begins and ends — sleepModel 17
-  // is onset and 34 is end, which is exactly what RWfit keys on
-  // (s1.java:417-421). Use those, and treat a gap longer than SESSION_GAP_MIN
-  // as an implicit boundary for firmware that omits a marker.
   const SESSION_GAP_MIN = 90;
   const sorted = [...samples].sort((a, b) => a.ringTs - b.ringTs);
   const sessions: SleepSample[][] = [];
@@ -135,8 +121,6 @@ export function groupSleepSessions(samples: SleepSample[]): Map<string, SleepSam
   }
   if (current.length) sessions.push(current);
 
-  // A session is dated by when it ENDED — the morning you woke, whatever the
-  // hour. Matches RWfit, which stamps a session with its end marker's date.
   const nights = new Map<string, SleepSample[]>();
   for (const session of sessions) {
     const last = session[session.length - 1];

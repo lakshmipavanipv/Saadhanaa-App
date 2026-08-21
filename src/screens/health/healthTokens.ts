@@ -152,8 +152,28 @@ export const METRIC_CONFIG: Record<Exclude<HealthMetric, 'sleep' | 'stress' | 'e
     aboutIcon: '🌬️',
     aboutBody:
       "How many breaths you take per minute. Most adults breathe 12-20 times " +
-      'per minute at rest, rising with activity, illness or anxiety. Your ring ' +
-      'does not report this measurement, so no value is shown.',
+      'per minute at rest, rising with activity, illness or anxiety.' +
+      ' ' +
+      'HOW THIS IS CALCULATED. Breathing subtly speeds and slows the heart: ' +
+      'you speed up slightly breathing in and slow down breathing out. That ' +
+      'effect is called respiratory sinus arrhythmia, and it means the ' +
+      'breathing rate is recoverable from the beat-to-beat intervals alone.' +
+      ' ' +
+      'The formula: take the series of R-R intervals (the gap in ' +
+      'milliseconds between one heartbeat and the next), resample it to an ' +
+      'even 4 Hz, remove the slow drift, then band-pass it to 0.15-0.40 Hz. ' +
+      'That band is 9 to 24 breaths per minute, the physiological range. The ' +
+      'strongest frequency remaining, multiplied by 60, is the respiration ' +
+      'rate in breaths per minute.' +
+      ' ' +
+      'WHY NO NUMBER IS SHOWN. The method needs beat-to-beat intervals ' +
+      'several times a second. Your SR16 reports averaged heart rate on a ' +
+      'timer and no R-R intervals, and it has no respiration channel of its ' +
+      'own. A ten-minute average cannot carry a signal that cycles every ' +
+      'three to five seconds, so the rate is not recoverable from what this ' +
+      'ring provides. The calculation above is implemented and will produce ' +
+      'a value as soon as the ring streams raw intervals; until then a number ' +
+      'here would be invented rather than measured.',
   },
 };
 

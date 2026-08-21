@@ -19,6 +19,7 @@ import Svg, { Path } from 'react-native-svg';
 import { COLORS, SPACING } from '../../theme';
 import { useTheme } from '../../ThemeContext';
 import { syncAllRingVitals, loadStoredVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
+import { groupSleepSessions } from '../../soulsync/ring/ringVitalsSync';
 import { HEALTH_COLORS, type HealthMetric } from './healthTokens';
 
 const DAY_MS = 86_400_000;
@@ -87,33 +88,40 @@ function computeMetric<K extends string>(
 }
 
 function sleepFromResult(r: RingVitalsSyncResult | null): { current: number | null; baseline7d: number | null; spark: number[] } {
-  // "current" for sleep = last night's total minutes (from sleep aggregate)
-  // Baseline = 7-day avg total sleep minutes.
-  // We rebuild both from the raw sleep samples grouped into nights.
+  // Nights come from groupSleepSessions, the same function the sleep screen
+  // and the aggregator use.
+  //
+  // This used to carry its own copy of the bucketing rule, and that copy still
+  // had the two bugs the shared one was written to fix: it decided which night
+  // a sample belonged to by asking whether the local hour was past noon, then
+  // formatted the date with toISOString(), which is UTC. So a night was split
+  // in half at midday and filed a day early in IST — which is why this tile
+  // read about an hour while the sleep dashboard, already on the shared
+  // function, showed the real total.
   if (!r || !r.raw.sleep.length) return { current: null, baseline7d: null, spark: [] };
-  // Rely on the aggregate step already computed inside syncAllRingVitals — it
-  // upserts sleep_record. Without a repo read here we approximate: bucket raw
-  // samples by night and count minute-durations.
+
+  const sessions = groupSleepSessions(r.raw.sleep);
   const byNight: Record<string, number> = {};
-  const sorted = [...r.raw.sleep].sort((a, b) => a.ringTs - b.ringTs);
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const cur = sorted[i];
-    const next = sorted[i + 1];
-    const durSec = next.ringTs - cur.ringTs;
-    if (durSec <= 0 || durSec > 6 * 3600) continue;
-    // Skip awake segments (sleepModel 0, 3, 34)
-    if (cur.sleepModel === 0 || cur.sleepModel === 3 || cur.sleepModel === 34) continue;
-    // Bucket to wake-date
-    const d = new Date(cur.timestamp);
-    if (d.getHours() >= 12) d.setDate(d.getDate() + 1);
-    const key = d.toISOString().slice(0, 10);
-    byNight[key] = (byNight[key] || 0) + durSec / 60;
+
+  for (const [date, samples] of sessions) {
+    const sorted = [...samples].sort((a, b) => a.ringTs - b.ringTs);
+    let minutes = 0;
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const cur = sorted[i];
+      const durSec = sorted[i + 1].ringTs - cur.ringTs;
+      if (durSec <= 0 || durSec > 6 * 3600) continue;
+      // Asleep only — 0 and 3 are awake, 34 is the session-end marker.
+      if (cur.sleepModel === 0 || cur.sleepModel === 3 || cur.sleepModel === 34) continue;
+      minutes += durSec / 60;
+    }
+    if (minutes > 0) byNight[date] = (byNight[date] ?? 0) + minutes;
   }
+
   const nights = Object.entries(byNight).sort(([a], [b]) => a.localeCompare(b));
   if (!nights.length) return { current: null, baseline7d: null, spark: [] };
-  const current = nights[nights.length - 1][1] / 60; // hours
+  const current = nights[nights.length - 1][1] / 60;              // hours
   const lastSeven = nights.slice(-7).map(([, m]) => m / 60);
-  const baseline = lastSeven.reduce((s, v) => s + v, 0) / lastSeven.length;
+  const baseline = lastSeven.reduce((sum, v) => sum + v, 0) / lastSeven.length;
   return { current, baseline7d: baseline, spark: lastSeven };
 }
 

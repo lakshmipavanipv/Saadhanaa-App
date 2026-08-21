@@ -129,6 +129,9 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
               color="#B39BFF"
             />
             <LiveStat label="SpO₂" value={soulsync.state.liveSpo2} unit="%" color="#7CB1FF" />
+            {/* Derived from R-R intervals, so it stays blank on rings that
+                report averaged heart rate only. See analytics/Respiration.ts. */}
+            <LiveStat label="Breaths" value={soulsync.state.liveRespirationBpm} unit="/min" color="#8BD3C7" />
           </View>
           <Text style={styles.liveFoot}>
             {soulsync.state.liveBpm == null

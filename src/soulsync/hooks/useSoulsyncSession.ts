@@ -8,6 +8,7 @@ import { sessionSpiritualRepo } from '../db/sessionSpiritualRepo';
 import { telemetryRepo } from '../db/telemetryRepo';
 import { peakRepo } from '../db/peakRepo';
 import { ambientIngestion } from '../services/AmbientIngestion';
+import { estimateRespirationRate } from '../analytics/Respiration';
 
 const MAX_WAVE_SAMPLES = 90; // ~90s on the wave at a time
 
@@ -23,6 +24,13 @@ export interface SoulsyncSessionState {
   liveBpm: number | null;
   liveSpo2: number | null;
   liveSkinTempC: number | null;
+  /**
+   * Breaths per minute, derived from R-R intervals (see
+   * analytics/Respiration.ts). Null on hardware that does not stream
+   * intervals — the SR16 reports averaged heart rate only, so this stays
+   * null there rather than showing a figure nothing measured.
+   */
+  liveRespirationBpm: number | null;
 }
 
 /**
@@ -32,6 +40,13 @@ export interface SoulsyncSessionState {
  *
  * `start()` opens a new session row. `stop()` finalises avg_bpm + end_time.
  */
+/**
+ * Cap on the rolling R-R window used for respiration. ~600 beats is roughly
+ * eight minutes at rest — comfortably more than the estimator needs, and
+ * bounded so a long session cannot grow the array indefinitely.
+ */
+const RR_WINDOW_MAX = 600;
+
 export const useSoulsyncSession = () => {
   const [state, setState] = useState<SoulsyncSessionState>({
     active: false,
@@ -43,6 +58,7 @@ export const useSoulsyncSession = () => {
     isBaselineEstablished: false,
     peaksRegistered: 0,
     liveBpm: null,
+    liveRespirationBpm: null,
     liveSpo2: null,
     liveSkinTempC: null,
   });
@@ -58,9 +74,23 @@ export const useSoulsyncSession = () => {
   const lastTempRef = useRef<number | null>(null);
   const lastBpmRef = useRef<number | null>(null);
   const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Rolling R-R window for the respiration estimate. Capped so a long
+  // session does not grow this without bound; the estimator only needs a
+  // few minutes and prefers recent beats anyway.
+  const rrWindowRef = useRef<number[]>([]);
 
   const handleSample = useCallback(async (s: RingSample) => {
     if (!sessionIdRef.current || !calcRef.current) return;
+
+    // Feed the respiration window before the peak loop — it wants every
+    // interval, not only the ones that trigger a peak.
+    if (s.rrMs.length) {
+      const w = rrWindowRef.current;
+      w.push(...s.rrMs);
+      if (w.length > RR_WINDOW_MAX) w.splice(0, w.length - RR_WINDOW_MAX);
+      const resp = estimateRespirationRate(w);
+      if (resp) setState((st) => ({ ...st, liveRespirationBpm: Math.round(resp.bpm) }));
+    }
 
     let snap: RMSSDResult | null = null;
     for (const rr of s.rrMs) {
@@ -181,6 +211,7 @@ export const useSoulsyncSession = () => {
       liveBpm: null,
       liveSpo2: null,
       liveSkinTempC: null,
+      liveRespirationBpm: null,
     });
   }, [state.active, handleSample]);
 
@@ -213,6 +244,7 @@ export const useSoulsyncSession = () => {
       liveBpm: null,
       liveSpo2: null,
       liveSkinTempC: null,
+      liveRespirationBpm: null,
     });
   }, [state.active]);
 
