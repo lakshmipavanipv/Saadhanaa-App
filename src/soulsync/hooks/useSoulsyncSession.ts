@@ -23,6 +23,13 @@ export interface SoulsyncSessionState {
   peaksRegistered: number;
   liveBpm: number | null;
   liveSpo2: number | null;
+  /**
+   * HRV in ms as the RING measured it, refreshed on the service's live
+   * measurement cycle. Distinct from `rmssd`, which is computed here from R-R
+   * intervals and stays null on hardware that does not stream them — which is
+   * all of them today, so this is the only HRV a live session can show.
+   */
+  liveHrv: number | null;
   liveSkinTempC: number | null;
   /**
    * Breaths per minute, derived from R-R intervals (see
@@ -60,6 +67,7 @@ export const useSoulsyncSession = () => {
     liveBpm: null,
     liveRespirationBpm: null,
     liveSpo2: null,
+    liveHrv: null,
     liveSkinTempC: null,
   });
 
@@ -71,6 +79,7 @@ export const useSoulsyncSession = () => {
   const peakIdxBufferRef = useRef<number[]>([]);
   const peakCountRef = useRef(0);
   const lastSpo2Ref = useRef<number | null>(null);
+  const lastHrvRef = useRef<number | null>(null);
   const lastTempRef = useRef<number | null>(null);
   const lastBpmRef = useRef<number | null>(null);
   const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -114,8 +123,12 @@ export const useSoulsyncSession = () => {
     }
 
     lastBpmRef.current = s.bpm;
-    lastSpo2Ref.current = s.spo2;
-    lastTempRef.current = s.skinTempC;
+    // 0 is the stream's "not measured" sentinel, not a reading. Copying it
+    // through blanked the HUD and charted a zero every time a heart-rate frame
+    // arrived before the first SpO2/HRV measurement of the session.
+    if (s.spo2 > 0) lastSpo2Ref.current = s.spo2;
+    if (s.hrv > 0) lastHrvRef.current = s.hrv;
+    if (s.skinTempC > 0) lastTempRef.current = s.skinTempC;
     bpmBufferRef.current.push(s.bpm);
     if (bpmBufferRef.current.length > MAX_WAVE_SAMPLES) {
       const overflow = bpmBufferRef.current.length - MAX_WAVE_SAMPLES;
@@ -131,9 +144,13 @@ export const useSoulsyncSession = () => {
         session_id: sessionIdRef.current,
         timestamp: new Date(s.receivedAt).toISOString(),
         bpm: s.bpm,
-        rmssd_ms: snap?.rmssd ?? null,
-        spo2: s.spo2,
-        skin_temp_c: s.skinTempC,
+        // Prefer RMSSD computed here from real R-R intervals; when the hardware
+        // does not stream them — every ring the app supports today — fall back
+        // to the HRV the ring's own firmware measured, so the session actually
+        // has an HRV column instead of a table of nulls.
+        rmssd_ms: snap?.rmssd ?? (s.hrv > 0 ? s.hrv : null),
+        spo2: s.spo2 > 0 ? s.spo2 : null,
+        skin_temp_c: s.skinTempC > 0 ? s.skinTempC : null,
       });
     } catch { /* drop */ }
   }, []);
@@ -149,6 +166,7 @@ export const useSoulsyncSession = () => {
         peaksRegistered: peakCountRef.current,
         liveBpm: lastBpmRef.current,
         liveSpo2: lastSpo2Ref.current,
+        liveHrv: lastHrvRef.current,
         liveSkinTempC: lastTempRef.current,
       }));
     };
@@ -183,6 +201,13 @@ export const useSoulsyncSession = () => {
     bpmBufferRef.current = [];
     peakIdxBufferRef.current = [];
     peakCountRef.current = 0;
+    // Carrying the previous session's last readings into a new one would show
+    // an old number as "live" until the first measurement window closes.
+    lastBpmRef.current = null;
+    lastSpo2Ref.current = null;
+    lastHrvRef.current = null;
+    lastTempRef.current = null;
+    rrWindowRef.current = [];
 
     calcRef.current = new RMSSDCalculator();
     ringRef.current = createDefaultRing();
@@ -197,7 +222,19 @@ export const useSoulsyncSession = () => {
     });
 
     ambientIngestion.pause();
-    await ringRef.current.start(handleSample, 'session');
+    try {
+      await ringRef.current.start(handleSample, 'session');
+    } catch (e) {
+      // A start that throws (ring out of range, permission revoked) used to
+      // leave the session half-open: `active` never flipped, so `stop()` early
+      // returned and `ambientIngestion` stayed paused for the rest of the app
+      // session — silently ending baseline capture. Unwind properly instead.
+      ambientIngestion.resume();
+      ringRef.current = null;
+      sessionIdRef.current = null;
+      calcRef.current = null;
+      throw e;
+    }
 
     setState({
       active: true,
@@ -210,6 +247,7 @@ export const useSoulsyncSession = () => {
       peaksRegistered: 0,
       liveBpm: null,
       liveSpo2: null,
+      liveHrv: null,
       liveSkinTempC: null,
       liveRespirationBpm: null,
     });
@@ -243,6 +281,7 @@ export const useSoulsyncSession = () => {
       peaksRegistered: 0,
       liveBpm: null,
       liveSpo2: null,
+      liveHrv: null,
       liveSkinTempC: null,
       liveRespirationBpm: null,
     });

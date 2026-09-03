@@ -17,7 +17,7 @@ import { consentRepo } from '../services/consentRepo';
 const PRIVACY_URL = 'https://velvue.in/body-soul-privacy';   // host your policy here
 const GRIEVANCE_EMAIL = 'saadhanaring@velvue.in';
 
-const ITEMS: Array<{ icon: string; title: string; body: string }> = [
+const ITEMS: { icon: string; title: string; body: string }[] = [
   { icon: '🪪', title: 'Identity & contact', body: 'Your name, email and phone (from Google or manual sign-in).' },
   { icon: '📱', title: 'Account & device', body: 'Sign-in method, device model, app version, timestamps.' },
   { icon: '📊', title: 'Usage & diagnostics', body: 'Screens visited, features used, session frequency, crashes, issues you report.' },
@@ -47,7 +47,7 @@ export const ConsentScreen: React.FC<{ onAgree: () => void }> = ({ onAgree }) =>
         <Text style={s.title}>Your privacy & consent</Text>
         <Text style={s.sub}>
           Body &amp; Soul personalises your practice using the data below. We ask your
-          consent first, as required by India's Digital Personal Data Protection Act, 2023.
+          consent first, as required by India&apos;s Digital Personal Data Protection Act, 2023.
         </Text>
 
         {ITEMS.map(it => (

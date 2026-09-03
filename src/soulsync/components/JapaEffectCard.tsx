@@ -43,7 +43,7 @@ export const JapaEffectCard: React.FC = () => {
   if (!snap) {
     return (
       <View style={styles.card}>
-        <Text style={styles.loading}>Calculating today's Japa Effect…</Text>
+        <Text style={styles.loading}>Calculating today&apos;s Japa Effect…</Text>
       </View>
     );
   }
@@ -54,7 +54,7 @@ export const JapaEffectCard: React.FC = () => {
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>Japa Effect Score</Text>
-        <Text style={styles.subtitle}>Today's session impact</Text>
+        <Text style={styles.subtitle}>Today&apos;s session impact</Text>
       </View>
 
       <View style={styles.bigRow}>

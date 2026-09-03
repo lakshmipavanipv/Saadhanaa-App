@@ -74,7 +74,7 @@ export const PrayerReminderPopup: React.FC<Props> = ({
           <Text style={styles.deityName}>{deity.name}</Text>
 
           {deity.mantra && (
-            <Text style={styles.mantra}>"{deity.mantra}"</Text>
+            <Text style={styles.mantra}>&quot;{deity.mantra}&quot;</Text>
           )}
 
           <Text style={styles.time}>⏰ {deity.prayerAlarm}</Text>

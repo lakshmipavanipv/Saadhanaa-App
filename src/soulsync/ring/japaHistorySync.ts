@@ -67,7 +67,11 @@ export async function syncJapaHistory(): Promise<JapaHistorySyncResult> {
 
   let samples: TasbihSample[] = [];
   try {
-    const res = await ring.sync.sync<TasbihSample>('japa');
+    // Priority: the user is standing on the Japa tab waiting for this number.
+    // Without it this read joins the back of the shared command queue behind
+    // whatever `syncAllRingVitals()` is draining — ten channels, up to forty
+    // pages each — and the counter appeared frozen for minutes.
+    const res = await ring.sync.sync<TasbihSample>('japa', { priority: true });
     samples = res.samples;
   } catch (e) {
     await ring.disconnect().catch(() => {});

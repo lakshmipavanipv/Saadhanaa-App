@@ -257,7 +257,7 @@ const buildPlan = (i: PlanInputs): VitalsPlan => {
   if (total > CAP) {
     const over = total - CAP;
     // Trim from the bucket that grew most (walking usually)
-    const buckets: Array<keyof typeof plan> = ['walkingMin', 'meditationMin', 'japaMin', 'yogaMin', 'breathworkMin'];
+    const buckets: (keyof typeof plan)[] = ['walkingMin', 'meditationMin', 'japaMin', 'yogaMin', 'breathworkMin'];
     let remaining = over;
     for (const b of buckets) {
       if (remaining <= 0) break;

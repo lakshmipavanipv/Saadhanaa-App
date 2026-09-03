@@ -16,7 +16,7 @@ import { METRICS, MetricInfo, MetricKey, buildMetricTrend } from '../analytics/M
  */
 const CHART_W_FALLBACK = Dimensions.get('window').width - 64;
 
-const RANGES: Array<{ key: '7d' | '30d' | '90d'; label: string; days: number }> = [
+const RANGES: { key: '7d' | '30d' | '90d'; label: string; days: number }[] = [
   { key: '7d',  label: '7d',  days: 7 },
   { key: '30d', label: '30d', days: 30 },
   { key: '90d', label: '90d', days: 90 },
@@ -26,7 +26,7 @@ export const MultiMetricTrendCard: React.FC = () => {
   const [chartW, setChartW] = React.useState(CHART_W_FALLBACK);
   const [metricKey, setMetricKey] = useState<MetricKey>('rmssd');
   const [rangeIdx, setRangeIdx]   = useState(0);
-  const [points, setPoints] = useState<Array<{ date: string; value: number | null }>>([]);
+  const [points, setPoints] = useState<{ date: string; value: number | null }[]>([]);
 
   const metric: MetricInfo = useMemo(
     () => METRICS.find(m => m.key === metricKey) || METRICS[0],

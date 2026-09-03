@@ -63,7 +63,7 @@ export const MicroSadhanaCard: React.FC<Props> = ({ event, onComplete }) => {
       {step === 'offer' && (
         <View>
           <Text style={styles.body}>
-            Your body has been moving softly the last three days — we're skipping the
+            Your body has been moving softly the last three days — we&apos;re skipping the
             108-count today. A short, high-energy mantra is enough. Pick a length:
           </Text>
           <View style={styles.choiceRow}>
@@ -106,7 +106,7 @@ export const MicroSadhanaCard: React.FC<Props> = ({ event, onComplete }) => {
           </View>
           <Text style={styles.milestoneBody}>
             Your post-session HRV improved by <Text style={styles.b}>{improvementPct}%</Text>.
-            You showed up — that's what mattered.
+            You showed up — that&apos;s what mattered.
           </Text>
           <TouchableOpacity style={styles.doneBtn} onPress={() => onComplete?.()}>
             <Text style={styles.doneBtnText}>Continue</Text>

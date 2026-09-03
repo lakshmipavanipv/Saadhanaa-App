@@ -33,6 +33,7 @@ export class AmbientIngestionService {
   private ring: RingService = createDefaultRing();
   private rmssd = new RMSSDCalculator({ baselineDurationSec: 0 });
   private running = false;
+  private starting = false;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   /** null until the ring actually reports one — never seeded with a guess. */
   private lastBpm: number | null = null;
@@ -44,8 +45,13 @@ export class AmbientIngestionService {
   private paused = false;
 
   async start(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
+    // `running` is claimed only once the ring is actually streaming. Setting it
+    // up front meant a launch with the ring out of range left it stuck true, so
+    // nothing could ever bring ambient capture up again for that app session.
+    // `starting` covers the window in between so two callers can't overlap.
+    if (this.running || this.starting) return;
+    this.starting = true;
+    try {
 
     // Lazily provision the EmotionalEngine singleton
     if (!getEmotionalEngine()) setEmotionalEngine(new EmotionalEngine(this.ring));
@@ -73,8 +79,13 @@ export class AmbientIngestionService {
       void engine?.ingest(s);
     }, 'ambient');
 
+    this.running = true;
+
     // Flush one row per minute
     this.flushTimer = setInterval(() => { void this.flush(); }, 60_000);
+    } finally {
+      this.starting = false;
+    }
   }
 
   /**

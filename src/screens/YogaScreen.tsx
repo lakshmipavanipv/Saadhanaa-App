@@ -378,6 +378,7 @@ export const YogaScreen = ({ navigation }: any) => {
         <LiveVitalsTrends
           bpmSeries={soulsync.state.bpmSeries}
           liveSpo2={soulsync.state.liveSpo2}
+          liveHrv={soulsync.state.liveHrv}
           isActive={soulsync.state.active}
         />
         <BeforeAfterVitals practice="yoga" isActive={soulsync.state.active} />

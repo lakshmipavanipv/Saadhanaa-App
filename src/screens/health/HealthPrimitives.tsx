@@ -436,7 +436,7 @@ const bandedStyles = (C: typeof COLORS) => StyleSheet.create({
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface RangeCardProps {
-  entries: Array<{ label: string; value: string | number; unit?: string }>;
+  entries: { label: string; value: string | number; unit?: string }[];
 }
 
 export const RangeCard: React.FC<RangeCardProps> = ({ entries }) => {
@@ -480,7 +480,7 @@ interface AboutCardProps {
   icon: string;
   title: string;
   body: string;
-  bands?: Array<{ name: string; range: string; tone?: 'good' | 'mid' | 'bad' | 'flat' }>;
+  bands?: { name: string; range: string; tone?: 'good' | 'mid' | 'bad' | 'flat' }[];
   footnote?: string;
   accent: string;
 }

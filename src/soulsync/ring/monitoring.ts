@@ -136,12 +136,12 @@ export class MonitoringApi {
       if (unsupported.has(metric)) continue;
       try {
         await this.set(metric, w);
-        // eslint-disable-next-line no-console
+
         console.log(`[monitoring] ${metric}: every ${w.intervalMin}min ${w.enabled ? 'ON' : 'OFF'}`);
       } catch (e) {
         failed.push(metric);
         unsupported.add(metric);
-        // eslint-disable-next-line no-console
+
         console.log(`[monitoring] ${metric}: rejected, not retrying — ${(e as Error).message}`);
       }
     }

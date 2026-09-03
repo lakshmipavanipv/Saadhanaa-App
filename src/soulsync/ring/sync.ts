@@ -301,7 +301,10 @@ export class SyncApi {
    * the multi-packet reply (auto-reassembled), then sends the 0x30 ACK the
    * ring expects (fire-and-forget).
    */
-  async sync<T extends TsSample>(metric: SyncMetric): Promise<SyncResult<T>> {
+  async sync<T extends TsSample>(
+    metric: SyncMetric,
+    opts: { priority?: boolean; maxPages?: number } = {}
+  ): Promise<SyncResult<T>> {
     const spec = DECODER[metric];
     if (!spec) throw new Error(`unknown metric: ${metric}`);
 
@@ -323,7 +326,10 @@ export class SyncApi {
     // SyncJLDataService in the SDK (blesdk/service/r.java:63-72) does the
     // same thing: ACK, hand the page to listeners, re-request; the empty
     // reply ends the loop.
-    const MAX_PAGES = 40;   // ~40 pages of history is far past any real ring
+    // ~40 pages of history is far past any real ring. Callers that only want
+    // the freshest reading (the live-vitals cycler) pass a much smaller cap so
+    // they cost one round-trip instead of draining the whole channel.
+    const MAX_PAGES = opts.maxPages ?? 40;
     const samples: T[] = [];
     let lastFrame: JieliFrame | null = null;
     let firstPayload: Uint8Array = new Uint8Array(0);
@@ -334,6 +340,7 @@ export class SyncApi {
         expectReply: true,
         timeoutMs: 6000,   // sync replies can be large
         maxRetries: 1,
+        priority: opts.priority,
       });
       pages += 1;
       lastFrame = frame;
@@ -349,7 +356,11 @@ export class SyncApi {
       // ACK before re-requesting — the ring won't advance otherwise.
       // Fire-and-forget, exactly as RWfit does.
       this.ring.queue
-        .send(spec.ack, new Uint8Array(0), { expectReply: false, maxRetries: 0 })
+        .send(spec.ack, new Uint8Array(0), {
+          expectReply: false,
+          maxRetries: 0,
+          priority: opts.priority,
+        })
         .catch(() => {
           /* ACK is best-effort */
         });

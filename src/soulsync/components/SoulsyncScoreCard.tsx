@@ -60,7 +60,7 @@ export const computeScores = async (): Promise<ScorePack> => {
   //    weights are renormalised, so the number always describes something
   //    that was actually measured — and stays null when nothing was.
   const clamp = (n: number) => Math.max(0, Math.min(100, n));
-  const parts: Array<{ score: number; weight: number }> = [];
+  const parts: { score: number; weight: number }[] = [];
   const add = (raw: number, score: () => number, weight: number) => {
     if (raw > 0) parts.push({ score: clamp(score()), weight });
   };

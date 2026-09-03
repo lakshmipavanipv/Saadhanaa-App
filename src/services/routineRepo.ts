@@ -51,10 +51,10 @@ export interface RoutineItem {
    *  reads warmly. */
   spokenReminder?: boolean;
   /** For festivals: built-in shopping/prep list with done flags. */
-  prepList?: Array<{ item: string; done: boolean }>;
+  prepList?: { item: string; done: boolean }[];
   /** Multi-step routine path — e.g. a custom yoga kriya with sequenced
    *  poses, or a japa Sadhana Path (Ganapathi → Guru → Ishta → ...). */
-  steps?: Array<{
+  steps?: {
     name: string;
     /** Numeric value of the step. */
     value: number;
@@ -62,7 +62,7 @@ export interface RoutineItem {
     unit: 'min' | 'malas' | 'japas' | 'count';
     /** Optional progress flag for during-execution checkoff. */
     done?: boolean;
-  }>;
+  }[];
 }
 
 const KEY = 'sankalpa.routine.v1';

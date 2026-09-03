@@ -43,9 +43,9 @@ export const TodayPrayersCard: React.FC<Props> = ({ slots, onSelect }) => {
   if (slots.length === 0) {
     return (
       <View style={styles.card}>
-        <Text style={styles.title}>Today's Sadhana Times</Text>
+        <Text style={styles.title}>Today&apos;s Sadhana Times</Text>
         <Text style={styles.empty}>
-          No reminders set yet. Tap a deity from the "Deities" tab to schedule one.
+          No reminders set yet. Tap a deity from the &quot;Deities&quot; tab to schedule one.
         </Text>
       </View>
     );
@@ -53,7 +53,7 @@ export const TodayPrayersCard: React.FC<Props> = ({ slots, onSelect }) => {
 
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>Today's Sadhana Times</Text>
+      <Text style={styles.title}>Today&apos;s Sadhana Times</Text>
       {slots.slice(0, 5).map((s, i) => (
         <TouchableOpacity
           key={s.deity.id}

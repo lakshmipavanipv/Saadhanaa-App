@@ -62,7 +62,7 @@ export const telemetry = {
   },
 
   /** Queue-free batch of usage events (screen views, feature use, AI adoption…). */
-  async events(events: Array<{ type: string; payload?: any; clientTs?: string }>): Promise<void> {
+  async events(events: { type: string; payload?: any; clientTs?: string }[]): Promise<void> {
     if (!(await consentAllows('usage')) || events.length === 0) return;
     await post('/events', { events });
   },

@@ -38,6 +38,20 @@ export interface SendOptions {
   maxRetries?: number;
   /** override the flag byte (default: FLAG_REQUEST). */
   flag?: number;
+  /**
+   * Jump the queue instead of joining the back of it.
+   *
+   * This queue is a strict FIFO shared by everything that talks to the ring,
+   * and `syncAllRingVitals()` enqueues ten channels of up to forty pages each
+   * with a 6 s per-page timeout. Anything asked for while that is draining —
+   * the japa counter's history reconcile, most visibly — waited minutes for a
+   * request that takes under a second on an idle link. Priority requests are
+   * unshifted so a user-facing read is served next, not last.
+   *
+   * Does NOT interrupt the request already in flight; ordering only applies
+   * to what is still waiting.
+   */
+  priority?: boolean;
 }
 
 interface PendingRequest {
@@ -49,6 +63,7 @@ interface PendingRequest {
   retriesLeft: number;
   bytes: Uint8Array;
   timeoutMs: number;
+  priority: boolean;
 }
 
 export interface QueueEvents {
@@ -93,6 +108,7 @@ export class RingCommandQueue {
       timeoutMs = 2500,
       maxRetries = 3,
       flag = FLAG_REQUEST,
+      priority = false,
     } = opts;
 
     const bytes = buildFrame({ flag, cmd: op.cmd, key: op.key, keyFlag: op.keyFlag, payload });
@@ -107,8 +123,19 @@ export class RingCommandQueue {
         retriesLeft: maxRetries,
         bytes,
         timeoutMs,
+        priority,
       };
-      this.queue.push(req);
+      if (priority) {
+        // Ahead of ordinary work, but BEHIND priority requests already queued.
+        // A plain unshift would reverse them, and the sync loop depends on its
+        // own order: a page's 0x30 ACK must reach the ring before the request
+        // for the next page, or the ring never advances.
+        let at = 0;
+        while (at < this.queue.length && this.queue[at].priority) at++;
+        this.queue.splice(at, 0, req);
+      } else {
+        this.queue.push(req);
+      }
       void this.pump();
     });
   }

@@ -18,12 +18,12 @@ import { EXERCISE_CATALOG, type WorkoutItem } from '../data/exerciseCatalog';
  * The step-by-step content, benefit blurb and contraindications come from
  * EXERCISE_CATALOG — the single source of truth kept up-to-date over time.
  */
-const PLAN_ACTIVITIES: Array<{
+const PLAN_ACTIVITIES: {
   id: BodyActivity;
   color: string;
   defaultGoal: number;
   defaultUnit: GoalUnit;
-}> = [
+}[] = [
   { id: 'walk',  color: '#5dafff', defaultGoal: 8000, defaultUnit: 'steps' },
   { id: 'jog',   color: '#4ade80', defaultGoal: 20,   defaultUnit: 'min'   },
   { id: 'run',   color: '#ef4444', defaultGoal: 20,   defaultUnit: 'min'   },

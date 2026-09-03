@@ -442,6 +442,7 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
         <LiveVitalsTrends
           bpmSeries={soulsync.state.bpmSeries}
           liveSpo2={soulsync.state.liveSpo2}
+          liveHrv={soulsync.state.liveHrv}
           isActive={soulsync.state.active}
         />
         <BeforeAfterVitals practice="meditation" isActive={soulsync.state.active} />

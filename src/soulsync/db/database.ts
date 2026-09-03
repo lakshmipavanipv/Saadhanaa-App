@@ -10,12 +10,12 @@ export const getDB = async (): Promise<SQLite.SQLiteDatabase> => {
   return dbInstance;
 };
 
-const MIGRATIONS: Array<{
+const MIGRATIONS: {
   version: number;
   sql: string;
   /** Optional step needing values SQL cannot know, e.g. the local UTC offset. */
   run?: (db: SQLite.SQLiteDatabase) => Promise<void>;
-}> = [
+}[] = [
   {
     version: 1,
     sql: `
@@ -190,7 +190,7 @@ const MIGRATIONS: Array<{
       );
       await db.execAsync('DELETE FROM vitals_sample;');
       await db.execAsync('DELETE FROM sleep_record;');
-      // eslint-disable-next-line no-console
+
       console.log(
         `[db] v6: cleared ${before?.n ?? 0} mis-stamped vitals rows and ` +
         `${nights?.n ?? 0} derived nights`
@@ -205,11 +205,11 @@ const runMigrations = async (db: SQLite.SQLiteDatabase) => {
     'SELECT MAX(version) AS version FROM schema_meta'
   );
   const current = row?.version ?? 0;
-  // eslint-disable-next-line no-console
+
   console.log(`[db] schema at v${current}, latest is v${MIGRATIONS[MIGRATIONS.length - 1].version}`);
   for (const m of MIGRATIONS) {
     if (m.version > current) {
-      // eslint-disable-next-line no-console
+
       console.log(`[db] applying migration v${m.version}`);
       await db.execAsync(m.sql);
       if (m.run) await m.run(db);

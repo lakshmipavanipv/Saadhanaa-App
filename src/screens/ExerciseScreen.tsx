@@ -40,14 +40,14 @@ import { getTodaySteps } from '../services/stepTracker';
 import { getRingStepsToday } from '../soulsync/ring';
 import { getDB } from '../soulsync/db/database';
 
-// Shared ring instance for stage-mark buzzes during a live session
-const ring = createDefaultRing();
-
 // Catalog moved to `src/data/exerciseCatalog.ts` so the WellbeingPlanSheet
 // can consume it without a circular dependency. Import for local use here,
 // then re-export so screens that already `import from './ExerciseScreen'`
 // don't need to change.
 import { EXERCISE_CATALOG, type WorkoutItem, type Category } from '../data/exerciseCatalog';
+
+// Shared ring instance for stage-mark buzzes during a live session
+const ring = createDefaultRing();
 export { EXERCISE_CATALOG, type WorkoutItem };
 
 /** Roughly map an activity to kcal/min (used for the calories KPI). */
@@ -539,7 +539,7 @@ export const ExerciseScreen = ({ navigation }: any) => {
           <View style={styles.logCard}>
             <View style={styles.logHandle} />
             <Text style={styles.logTitle}>Log past workout</Text>
-            <Text style={styles.logHint}>Add minutes you've already done.</Text>
+            <Text style={styles.logHint}>Add minutes you&apos;ve already done.</Text>
 
             <Text style={styles.logFieldLabel}>Activity</Text>
             <View style={styles.activityPickerRow}>

@@ -566,7 +566,7 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
               </TouchableOpacity>
             </View>
             <Text style={styles.hint}>
-              Tap 🎤 to speak — or type below. I'll answer in your language and take action.
+              Tap 🎤 to speak — or type below. I&apos;ll answer in your language and take action.
             </Text>
 
             {/* v55: the mic visualizer is now the PRIMARY tap target —
@@ -659,8 +659,8 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
                 in v55 to declutter the modal. */}
 
             <Text style={styles.examples}>
-              Try:  "Take me to japa"  ·  "What's my routine today?"  ·{' '}
-              "Remind me to meditate at 6 am"  ·  "Explain my vitals"
+              Try:  &quot;Take me to japa&quot;  ·  &quot;What&apos;s my routine today?&quot;  ·{' '}
+              &quot;Remind me to meditate at 6 am&quot;  ·  &quot;Explain my vitals&quot;
             </Text>
           </View>
         </View>

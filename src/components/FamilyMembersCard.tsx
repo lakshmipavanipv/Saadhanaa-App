@@ -101,7 +101,7 @@ export const FamilyMembersCard: React.FC = () => {
 
       {members.length === 0 ? (
         <Text style={styles.empty}>
-          🕯️ No family members added yet. Tap + Add to track parents' or relatives' annual shraddha dates.
+          🕯️ No family members added yet. Tap + Add to track parents&apos; or relatives&apos; annual shraddha dates.
         </Text>
       ) : (
         members.map(m => (
@@ -297,7 +297,7 @@ const FamilyEditorModal: React.FC<{
                 <View style={styles.reminderRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.fieldLabel, { marginTop: SPACING.md }]}>Auto reminder</Text>
-                    <Text style={styles.hint}>Notify on the morning of each year's shraddha</Text>
+                    <Text style={styles.hint}>Notify on the morning of each year&apos;s shraddha</Text>
                   </View>
                   <Switch
                     value={member.reminderEnabled ?? true}

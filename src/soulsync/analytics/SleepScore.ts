@@ -48,9 +48,9 @@ export interface SleepScoreSnapshot {
   /** Has any sleep data been recorded yet. */
   hasData: boolean;
   /** 30-day series of total composite score. */
-  trend: Array<{ date: string; score: number | null }>;
+  trend: { date: string; score: number | null }[];
   /** 30-day series of deep-sleep HOURS (separate trend line). */
-  deepSleepTrend: Array<{ date: string; hours: number | null }>;
+  deepSleepTrend: { date: string; hours: number | null }[];
   /** First-7-days average of deep sleep hours, for the baseline reference. */
   deepSleepBaseline: number;
 }
@@ -241,7 +241,7 @@ export const computeSleepScore = async (): Promise<SleepScoreSnapshot> => {
   }
 
   // Score every night + sort chronologically
-  const dated: Array<{ date: string; stats: NightStats }> = [];
+  const dated: { date: string; stats: NightStats }[] = [];
   for (const r of recent) {
     const stats = await computeNightStats(r);
     dated.push({ date: r.sleep_date, stats });
@@ -267,7 +267,7 @@ export const computeSleepScore = async (): Promise<SleepScoreSnapshot> => {
   const baseWaso       = avg(s => s.wasoMin);
 
   // ── 30-day composite-score trend ──
-  const trend: Array<{ date: string; score: number | null }> = [];
+  const trend: { date: string; score: number | null }[] = [];
   const byDate = new Map(dated.map(d => [d.date, d.stats.score]));
   for (let i = 29; i >= 0; i--) {
     const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
@@ -275,7 +275,7 @@ export const computeSleepScore = async (): Promise<SleepScoreSnapshot> => {
   }
 
   // ── 30-day deep-sleep-hours trend ──
-  const deepSleepTrend: Array<{ date: string; hours: number | null }> = [];
+  const deepSleepTrend: { date: string; hours: number | null }[] = [];
   const deepByDate = new Map(dated.map(d => [d.date, d.stats.deepHours]));
   for (let i = 29; i >= 0; i--) {
     const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);

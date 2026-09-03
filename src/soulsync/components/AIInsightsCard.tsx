@@ -144,7 +144,7 @@ export const AIInsightsCard: React.FC<Props> = ({ userName, mode = 'today' }) =>
 
       {state.kind === 'error' && (
         <View>
-          <Text style={styles.errorTitle}>Couldn't reach Gemma</Text>
+          <Text style={styles.errorTitle}>Couldn&apos;t reach Gemma</Text>
           <Text style={styles.errorBody}>{state.message}</Text>
           <View style={styles.errorBtnRow}>
             <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }]} onPress={() => refresh()}>

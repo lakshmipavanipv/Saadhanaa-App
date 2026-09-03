@@ -53,7 +53,7 @@ export interface ConnectedRing {
   /** Notify characteristic UUID actually used. */
   notifyCharUuid: string;
   /** Every service+characteristic UUID the ring exposes, in discovery order (useful for debugging). */
-  services: Array<{ service: string; characteristics: Array<{ uuid: string; write: boolean; notify: boolean; indicate: boolean }> }>;
+  services: { service: string; characteristics: { uuid: string; write: boolean; notify: boolean; indicate: boolean }[] }[];
   write(bytes: Uint8Array): Promise<void>;
   onNotify(handler: (bytes: Uint8Array) => void): Subscription;
   onDisconnect(cb: (err: BleError | null) => void): Subscription;

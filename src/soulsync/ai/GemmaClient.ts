@@ -73,10 +73,10 @@ export interface GemmaRequest {
 }
 
 interface ChatCompletionResponse {
-  choices?: Array<{
+  choices?: {
     message?: { role: string; content?: string };
     finish_reason?: string;
-  }>;
+  }[];
   error?: { message?: string; code?: number | string };
 }
 
@@ -87,7 +87,7 @@ export class GemmaClient {
 
   /** Try one model; throws on failure. */
   private async tryModel(model: string, req: GemmaRequest, signal?: AbortSignal): Promise<string> {
-    const messages: Array<{ role: string; content: string }> = [];
+    const messages: { role: string; content: string }[] = [];
     if (req.systemPrompt) {
       messages.push({ role: 'system', content: req.systemPrompt });
     }
@@ -137,7 +137,7 @@ export class GemmaClient {
    * chat completions JSON.
    */
   private async tryPollinations(req: GemmaRequest, signal?: AbortSignal): Promise<string> {
-    const messages: Array<{ role: string; content: string }> = [];
+    const messages: { role: string; content: string }[] = [];
     if (req.systemPrompt) messages.push({ role: 'system', content: req.systemPrompt });
     messages.push({ role: 'user', content: req.userMessage });
 

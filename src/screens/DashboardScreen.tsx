@@ -753,7 +753,7 @@ export const DashboardScreen = ({ navigation }: any) => {
 
         {/* ── 7. Today's Planned Activities (restored to original position) ── */}
         <View style={styles.tpaBox}>
-          <Text style={styles.tpaTitle}>📅  Today's Planned Activities</Text>
+          <Text style={styles.tpaTitle}>📅  Today&apos;s Planned Activities</Text>
           <View style={styles.tpaSummary}>
             <View style={styles.tpaSummaryCol}>
               <Text style={styles.tpaSummaryValue}>{todayBodyMin}</Text>
@@ -770,7 +770,7 @@ export const DashboardScreen = ({ navigation }: any) => {
           </View>
           {todayRoutine.length === 0 ? (
             <Text style={styles.tpaEmpty}>
-              No activities planned yet. Tap "Plan your well-being" above to set up your routine.
+              No activities planned yet. Tap &quot;Plan your well-being&quot; above to set up your routine.
             </Text>
           ) : (
             todayRoutine.slice(0, 6).map(item => {

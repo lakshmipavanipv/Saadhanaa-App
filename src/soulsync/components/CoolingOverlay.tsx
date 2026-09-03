@@ -68,7 +68,7 @@ export const CoolingOverlay: React.FC<Props> = ({ event, onDismiss }) => {
 
         {seconds >= 30 && (
           <TouchableOpacity style={styles.doneBtn} onPress={handleDone}>
-            <Text style={styles.doneBtnText}>I'm steady</Text>
+            <Text style={styles.doneBtnText}>I&apos;m steady</Text>
           </TouchableOpacity>
         )}
         {seconds < 30 && <Text style={styles.lockedText}>Stay with it for 30 seconds.</Text>}

@@ -43,13 +43,13 @@ export const AggressionReliefPopup: React.FC<Props> = ({
             <Text style={styles.buzzText}>📳 Ring buzzed · agitation detected</Text>
           </View>
 
-          <Text style={styles.title}>I'm with you 💛</Text>
+          <Text style={styles.title}>I&apos;m with you 💛</Text>
           <Text style={styles.message}>
             My dear friend, your body is carrying some heat right now —{'\n'}
-            and that's okay. You're human. You're allowed to feel this.{'\n\n'}
+            and that&apos;s okay. You&apos;re human. You&apos;re allowed to feel this.{'\n\n'}
             Relax for yourself. Not for anyone else. Just for <Text style={styles.messageEmphasis}>you</Text>.{'\n\n'}
             Step away for 2 minutes. The moment that triggered you{'\n'}
-            will still be there — but you'll meet it with a clearer heart.
+            will still be there — but you&apos;ll meet it with a clearer heart.
           </Text>
 
           <Text style={styles.chooseLabel}>A gentle cooling practice — pick one ♡</Text>
@@ -71,7 +71,7 @@ export const AggressionReliefPopup: React.FC<Props> = ({
           ))}
 
           <TouchableOpacity style={styles.dismissBtn} onPress={onDismiss}>
-            <Text style={styles.dismissText}>I'm okay now — thank you 🙏</Text>
+            <Text style={styles.dismissText}>I&apos;m okay now — thank you 🙏</Text>
           </TouchableOpacity>
         </View>
       </View>

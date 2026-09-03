@@ -153,7 +153,7 @@ const dailySleepScore = async (dateStr: string): Promise<number | null> => {
 // ─── KPI builder ───────────────────────────────────────────────────
 
 const buildKPI = (label: string, points: TrendPoint[]): ScoreKPI => {
-  const scored = points.filter(p => p.score != null) as Array<{ date: string; score: number }>;
+  const scored = points.filter(p => p.score != null) as { date: string; score: number }[];
   if (scored.length === 0) return { label, baseline: 0, now: 0, monthlyDelta: 0, lifetimeDelta: 0 };
   const first7 = scored.slice(0, 7);
   const last7  = scored.slice(-7);

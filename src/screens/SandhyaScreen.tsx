@@ -73,7 +73,7 @@ export const SandhyaScreen = () => {
             onPress={() => setView('today')}
           >
             <Text style={[styles.tabText, view === 'today' && styles.tabTextActive]}>
-              Today's Sandhyas
+              Today&apos;s Sandhyas
             </Text>
           </TouchableOpacity>
           <TouchableOpacity

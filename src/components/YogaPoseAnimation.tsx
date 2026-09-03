@@ -199,16 +199,19 @@ export const YogaPoseAnimation: React.FC<Props> = ({ poseId, size = 220, cycling
 
   const activePoseId = cycling ? SURYA_FLOW[currentIdx] : poseId;
 
+  // Declared before the pranayama early-returns below: hooks must run in the
+  // same order on every render, and switching from a pranayama pose to a
+  // regular one keeps this component mounted.
+  const imgStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: breathing.value }],
+    opacity: cycling ? fade.value : 1,
+  }));
+
   // Pranayama orb
   if (poseId === 'nadi-shodhana')    return <BreathVisualizer size={size} pattern={{ in: 4, hold1: 0, out: 4, hold2: 0 }} />;
   if (poseId === 'four-seven-eight') return <BreathVisualizer size={size} pattern={{ in: 4, hold1: 7, out: 8, hold2: 0 }} />;
   if (poseId === 'bhramari')         return <BreathVisualizer size={size} pattern={{ in: 4, hold1: 0, out: 8, hold2: 0 }} />;
   if (poseId === 'kapalabhati')      return <BreathVisualizer size={size} pattern={{ in: 1, hold1: 0, out: 1, hold2: 0 }} />;
-
-  const imgStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: breathing.value }],
-    opacity: cycling ? fade.value : 1,
-  }));
 
   const caption = POSE_CAPTIONS[activePoseId];
   const imageSource = POSE_IMAGES[activePoseId];

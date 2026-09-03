@@ -27,12 +27,11 @@ import {
   Easing,
 } from 'react-native';
 import { useSadhana } from '../context';
-import { UserProfile } from '../types';
+import { UserProfile , BodyActivity, SoulActivity, UserGoals } from '../types';
 import { COLORS, SPACING } from '../theme';
 import { WellBeingHero } from '../components/WellBeingHero';
 import { BodySoulLogo } from '../soulsync/components/BodySoulLogo';
 import { otpClient } from '../soulsync/auth/otpClient';
-import { BodyActivity, SoulActivity, UserGoals } from '../types';
 import {
   isFirebaseAvailable,
   signInWithGoogle,
@@ -684,7 +683,7 @@ const About = ({
     <Text style={styles.stepLabel}>STEP 3 OF 4</Text>
     <Text style={styles.title}>About you</Text>
     <Text style={styles.subtitle}>
-      Helps the AI personalise your daily plan. All optional — tap Skip if you'd
+      Helps the AI personalise your daily plan. All optional — tap Skip if you&apos;d
       rather not share.
     </Text>
 

@@ -336,7 +336,7 @@ const MonthOverview: React.FC<{ cfg: RemindersConfig; styles: any; palette: any 
   if (cfg.dnd.enabled) extras.push(`quiet ${cfg.dnd.startHour}:00–${cfg.dnd.endHour}:00`);
 
   // Leading blanks so the 1st sits under its weekday column.
-  const cells: Array<number | null> = [
+  const cells: (number | null)[] = [
     ...Array.from({ length: firstWeekday }, () => null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ];

@@ -9,9 +9,8 @@ import {
   TextInput,
   FlatList,
   Switch,
-} from 'react-native';
+ Platform } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Platform } from 'react-native';
 import { useSadhana } from '../context';
 import { COLORS, SPACING } from '../theme';
 import { Deity } from '../types';
@@ -421,7 +420,7 @@ const ReminderEditor: React.FC<{
               />
             )}
             <Text style={{ fontSize: 10, color: COLORS.muted, marginTop: 4, fontStyle: 'italic' }}>
-              Uses your phone's timezone — adjusts automatically with DST.
+              Uses your phone&apos;s timezone — adjusts automatically with DST.
             </Text>
           </View>
 

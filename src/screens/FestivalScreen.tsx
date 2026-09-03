@@ -8,7 +8,7 @@ import {
   Modal,
   Switch,
   TextInput,
-} from 'react-native';
+ TextInput as RNTextInput } from 'react-native';
 import { PANCHANG_FESTIVALS, PanchangFestival } from '../festivalsData';
 import { Storage } from '../storage';
 import { getDaysUntil, formatShortDate } from '../utils';
@@ -16,13 +16,12 @@ import { COLORS, SPACING } from '../theme';
 import { Calendar } from '../components/Calendar';
 import { FamilyMembersCard } from '../components/FamilyMembersCard';
 import { specialSadhanaRepo, SpecialSadhana, SpecialTrigger, isFestivalEntry } from '../services/specialSadhanaRepo';
-import { TextInput as RNTextInput } from 'react-native';
 import { getUserLocation, UserLocation } from '../services/location';
 import { computeSunTimes, fmtHHMM, SunTimes } from '../services/sunTimes';
 import { buildCalendar, CalendarItem } from '../services/calendarAggregator';
+import { ReminderPicker, ReminderValue } from '../components/ReminderPicker';
 
 type CheckedState = Record<string, boolean>;
-import { ReminderPicker, ReminderValue } from '../components/ReminderPicker';
 
 type ReminderState = Record<string, {
   shopping: { enabled: boolean } & ReminderValue;
@@ -747,7 +746,7 @@ const SpecialSadhanaBuilder: React.FC = () => {
     <View style={styles.specialBox}>
       <Text style={styles.specialIntro}>
         Special sadhanas observed on specific tithis, weekdays, or dates —
-        e.g. "Mahamrityunjaya on every Pradosh" or "108 names on Mondays".
+        e.g. &quot;Mahamrityunjaya on every Pradosh&quot; or &quot;108 names on Mondays&quot;.
       </Text>
 
       {/* List of saved special sadhanas */}

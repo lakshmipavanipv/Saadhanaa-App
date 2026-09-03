@@ -127,7 +127,7 @@ export const GroundingOverlay: React.FC<Props> = ({ event, onDismiss }) => {
           <Text style={styles.label}>GROUNDING JAPA</Text>
           <Text style={styles.headline}>Breathe with us</Text>
           <Text style={styles.subline}>
-            Your body picked up an anxious wave — we're here to settle it.
+            Your body picked up an anxious wave — we&apos;re here to settle it.
           </Text>
         </View>
 

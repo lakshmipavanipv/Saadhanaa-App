@@ -48,10 +48,9 @@ export const SplashScreen: React.FC<Props> = ({ label = 'Awakening your body & s
     return () => { [dot1, dot2, dot3].forEach(cancelAnimation); };
   }, []);
 
-  const dotStyle = (sv: typeof dot1) => useAnimatedStyle(() => ({ opacity: sv.value }));
-  const dot1Anim = dotStyle(dot1);
-  const dot2Anim = dotStyle(dot2);
-  const dot3Anim = dotStyle(dot3);
+  const dot1Anim = useAnimatedStyle(() => ({ opacity: dot1.value }));
+  const dot2Anim = useAnimatedStyle(() => ({ opacity: dot2.value }));
+  const dot3Anim = useAnimatedStyle(() => ({ opacity: dot3.value }));
 
   return (
     <View style={styles.root}>

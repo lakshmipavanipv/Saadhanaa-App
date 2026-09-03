@@ -91,7 +91,7 @@ export const ambientBaselineRepo = {
   },
 
   /** Hourly BPM buckets for one calendar day — drives Line A (Ambient Baseline). */
-  async hourlySeriesForDate(yyyyMmDd: string): Promise<Array<{ hour: number; bpm: number }>> {
+  async hourlySeriesForDate(yyyyMmDd: string): Promise<{ hour: number; bpm: number }[]> {
     const db = await getDB();
     return db.getAllAsync<{ hour: number; bpm: number }>(
       `SELECT CAST(strftime('%H', timestamp) AS INTEGER) AS hour,
@@ -174,7 +174,7 @@ export const ambientBaselineRepo = {
 
   /** Last N minutes of BPM samples — drives the "pre-Japa" slice of the journey chart. */
   async lastMinutes(minutes: number):
-    Promise<Array<{ timestamp: string; bpm: number; rmssd: number }>> {
+    Promise<{ timestamp: string; bpm: number; rmssd: number }[]> {
     const db = await getDB();
     const cutoff = new Date(Date.now() - minutes * 60_000).toISOString();
     return db.getAllAsync<any>(

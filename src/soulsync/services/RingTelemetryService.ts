@@ -32,6 +32,16 @@ export interface RingSample {
   rrMs: number[];
   /** Blood oxygen %. 0 when no recent reading exists. */
   spo2: number;
+  /**
+   * The ring's own HRV figure (ms), as measured by its firmware — NOT derived
+   * from `rrMs`, which this hardware never populates. 0 when no reading has
+   * arrived yet.
+   *
+   * This is the only HRV the SR16 can give a live session: `rrMs` stays empty,
+   * so RMSSD computed on this stream is always null. Consumers that want "HRV
+   * right now" must read this field.
+   */
+  hrv: number;
   /** Skin temperature °C. 0 when no recent reading exists. */
   skinTempC: number;
   /** Accelerometer magnitude. 0 — the SR16 does not stream motion. */

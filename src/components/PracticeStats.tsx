@@ -149,7 +149,7 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
           <View style={[statBoxStyles.progressTrack, { height: 10, marginTop: 6 }]}>
             <View style={[statBoxStyles.progressFill, { width: `${goalPct}%` }]} />
           </View>
-          <Text style={statBoxStyles.compactHeroPct}>{goalPct}% of today's goal</Text>
+          <Text style={statBoxStyles.compactHeroPct}>{goalPct}% of today&apos;s goal</Text>
 
           {/* Depth score block — tappable to open the trend modal */}
           {onOpenTrend ? (
@@ -175,7 +175,7 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
         <View style={statBoxStyles.progressTrack}>
           <View style={[statBoxStyles.progressFill, { width: `${goalPct}%` }]} />
         </View>
-        <Text style={statBoxStyles.heroPct}>{goalPct}% of today's goal</Text>
+        <Text style={statBoxStyles.heroPct}>{goalPct}% of today&apos;s goal</Text>
 
         {/* Optional sub-metric (japa count today, mala count, etc.) */}
         {subMetric && (
@@ -196,7 +196,7 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
         </View>
         <DashedBar value={barPct(depthScore)} color={scoreColor} />
         <Text style={statBoxStyles.depthHint}>
-          Today's overall practice quality — weighted HRV · BPM · duration · SpO₂.
+          Today&apos;s overall practice quality — weighted HRV · BPM · duration · SpO₂.
         </Text>
       </View>
     </View>

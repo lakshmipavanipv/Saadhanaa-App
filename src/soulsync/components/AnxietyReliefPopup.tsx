@@ -51,7 +51,7 @@ export const AnxietyReliefPopup: React.FC<Props> = ({
             {(event.baselineBpm ?? 0) > 0
               ? ` (${event.bpm} bpm vs your usual ${event.baselineBpm})`
               : ''}
-            {'.\n'}Let's settle the body together.
+            {'.\n'}Let&apos;s settle the body together.
           </Text>
 
           <Text style={styles.chooseLabel}>Choose what feels right now:</Text>
@@ -73,7 +73,7 @@ export const AnxietyReliefPopup: React.FC<Props> = ({
           ))}
 
           <TouchableOpacity style={styles.dismissBtn} onPress={onDismiss}>
-            <Text style={styles.dismissText}>I'm fine — dismiss</Text>
+            <Text style={styles.dismissText}>I&apos;m fine — dismiss</Text>
           </TouchableOpacity>
         </View>
       </View>

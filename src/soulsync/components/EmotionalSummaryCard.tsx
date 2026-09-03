@@ -4,7 +4,7 @@ import { COLORS, SPACING } from '../../theme';
 import { buildEmotionalSummary, EmotionalSummarySnapshot, TriggerStats } from '../analytics/EmotionalSummary';
 import { EmotionTrigger } from '../emotional/types';
 
-const RANGES: Array<{ key: '7d' | '30d' | '90d'; label: string; days: number }> = [
+const RANGES: { key: '7d' | '30d' | '90d'; label: string; days: number }[] = [
   { key: '7d',  label: '7d',  days: 7 },
   { key: '30d', label: '30d', days: 30 },
   { key: '90d', label: '90d', days: 90 },

@@ -57,10 +57,10 @@ import { GoalUnit, GOAL_UNIT_META } from '../services/workoutGoalsRepo';
 
 // ─── Catalog meta ───────────────────────────────────────────────
 
-const CATEGORIES: Array<{
+const CATEGORIES: {
   id: RoutineCategory; label: string; icon: string; color: string;
   hint: string; defaultMin: number;
-}> = [
+}[] = [
   { id: 'exercise', label: 'Exercise',  icon: '🏃',   color: '#4ea8de', hint: 'Walk · jog · cycle · gym', defaultMin: 30 },
   { id: 'yoga',     label: 'Yoga',      icon: '🧘‍♀️', color: '#FFB800', hint: 'Asanas · pranayama',       defaultMin: 20 },
   { id: 'japa',     label: 'Japa',      icon: '📿',   color: '#FF8C42', hint: 'Mantra · mala',            defaultMin: 15 },
@@ -174,7 +174,7 @@ const TITHI_OPTIONS = [
 
 type OccasionType = 'festival' | 'tithi' | 'special' | 'shraadha';
 
-const OCCASION_TYPES: Array<{ id: OccasionType; icon: string; label: string; hint: string }> = [
+const OCCASION_TYPES: { id: OccasionType; icon: string; label: string; hint: string }[] = [
   { id: 'festival', icon: '🛕', label: 'Festival',       hint: 'Diwali · Navratri · Ekadashi…' },
   { id: 'tithi',    icon: '🌗', label: 'Tithi day',      hint: 'Recurring lunar observance' },
   { id: 'special',  icon: '🗓', label: 'Special day',    hint: 'Your own date(s)' },
@@ -287,7 +287,7 @@ export const WellBeingPlanScreen = ({ navigation, route }: any) => {
             {showAi && (
               <View style={{ marginTop: SPACING.sm }}>
                 <Text style={s.aiSub}>
-                  Tuned to your age, today's vitals, and last 7-day history.
+                  Tuned to your age, today&apos;s vitals, and last 7-day history.
                 </Text>
                 {aiPlan.notes.map((n, i) => (
                   <Text key={i} style={s.aiNote}>• {n}</Text>
@@ -976,7 +976,7 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
             </TouchableOpacity>
           </View>
           <Text style={ws.disclosure}>
-            🔊 Sound previews play directly. Voice out uses your phone's built-in voice.
+            🔊 Sound previews play directly. Voice out uses your phone&apos;s built-in voice.
             Android limits notification sounds to bundled files — custom files preview here
             but the actual notification may fall back to default.
           </Text>

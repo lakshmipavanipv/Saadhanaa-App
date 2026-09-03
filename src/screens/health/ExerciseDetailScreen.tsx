@@ -86,7 +86,7 @@ export const ExerciseDetailScreen: React.FC<any> = ({ navigation }) => {
 
   // Last 7 days (ordered oldest → newest, including today)
   const last7 = useMemo(() => {
-    const days: Array<{ iso: string; steps: number; kcal: number; km: number; active: number }> = [];
+    const days: { iso: string; steps: number; kcal: number; km: number; active: number }[] = [];
     const anchor = new Date(selected + 'T00:00:00');
     for (let i = 6; i >= 0; i--) {
       const d = new Date(anchor.getTime() - i * DAY_MS);
@@ -202,10 +202,10 @@ export const ExerciseDetailScreen: React.FC<any> = ({ navigation }) => {
           <Text style={styles.aboutTitle}>How your movement is measured</Text>
         </View>
         <Text style={styles.aboutBody}>
-          Your ring's motion sensor counts every step and the gyroscope tracks how
+          Your ring&apos;s motion sensor counts every step and the gyroscope tracks how
           vigorously you move. When your heart rate rises above 100 bpm for
           several minutes we mark it as raised-HR activity — a good proxy for real
-          workout effort even if you didn't tap "start workout".
+          workout effort even if you didn&apos;t tap &quot;start workout&quot;.
         </Text>
         <Text style={[styles.aboutBody, { marginTop: 10 }]}>
           Aim for at least 8,000 steps and 30 minutes of active time on most days.

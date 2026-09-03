@@ -394,7 +394,7 @@ const ReminderBlock: React.FC<{
             )}
           </View>
           <Text style={styles.tonePreviewHint}>
-            🔊 Tap any tile to pick + hear it. Make sure your phone isn't on silent.
+            🔊 Tap any tile to pick + hear it. Make sure your phone isn&apos;t on silent.
             {picked === 'custom' && '\n⚠️ Custom files preview here, but the actual reminder uses the default Android tone — Android can\'t play arbitrary files as a notification sound.'}
           </Text>
         </View>
@@ -621,7 +621,7 @@ export const SankalpaScreen = ({ navigation }: any) => {
               <Text style={styles.aiPlanTotal}>{aiPlan.totalMin} min</Text>
             </View>
             <Text style={styles.aiPlanSub}>
-              Tuned to your age, today's vitals, and last-7-day history.
+              Tuned to your age, today&apos;s vitals, and last-7-day history.
             </Text>
 
             {aiPlan.notes.map((n, i) => (
@@ -660,7 +660,7 @@ export const SankalpaScreen = ({ navigation }: any) => {
         <View style={styles.chatCard}>
           <Text style={styles.chatLabel}>💬 TELL ME YOUR ROUTINE</Text>
           <Text style={styles.chatHint}>
-            Type in plain English. Example: "30 min walk daily, Gayatri 1 mala morning"
+            Type in plain English. Example: &quot;30 min walk daily, Gayatri 1 mala morning&quot;
           </Text>
           <View style={styles.chatRow}>
             <TextInput
@@ -706,7 +706,7 @@ export const SankalpaScreen = ({ navigation }: any) => {
 
         {/* Today's plan — clearly shows next reminder + multi-step paths */}
         <View style={styles.todaySectionHeader}>
-          <Text style={styles.sectionLabelInline}>📅 TODAY'S ROUTINE</Text>
+          <Text style={styles.sectionLabelInline}>📅 TODAY&apos;S ROUTINE</Text>
           {todayItems.length > 0 && (
             <Text style={styles.todayHeaderMeta}>
               {todayItems.length} item{todayItems.length === 1 ? '' : 's'}
@@ -984,7 +984,7 @@ export const SankalpaScreen = ({ navigation }: any) => {
             </View>
             <ScrollView showsVerticalScrollIndicator={false}>
               <Text style={styles.sandhyaIntro}>
-                The 3 daily junctures — dawn, noon, dusk — where the day's
+                The 3 daily junctures — dawn, noon, dusk — where the day&apos;s
                 rhythm meets the cosmos. Performed by initiated Hindus
                 (dvija) after upanayana, but the breath-and-water core
                 is open to anyone.
@@ -1033,7 +1033,7 @@ export const SankalpaScreen = ({ navigation }: any) => {
               <Text style={styles.sandhyaSection}>WHY THESE TIMES?</Text>
               <Text style={styles.sandhyaWhat}>
                 The three sandhi-kalas are joints between night and day,
-                light and shadow. Scripturally, the Sun's tejas is most
+                light and shadow. Scripturally, the Sun&apos;s tejas is most
                 accessible here. Physiologically, the autonomic switch
                 between sympathetic and parasympathetic mirrors these
                 same moments — perfect time for breath + mantra to land.
@@ -1090,7 +1090,7 @@ const AddItemSheet: React.FC<{
   const [spokenReminder,   setSpokenReminder]   = useState<boolean>(false);
 
   // ── Custom multi-step path editor ──
-  const [steps, setSteps] = useState<Array<{ name: string; value: number }>>([]);
+  const [steps, setSteps] = useState<{ name: string; value: number }[]>([]);
   const [newStepName, setNewStepName] = useState('');
   const [newStepValue, setNewStepValue] = useState(stepUnit === 'malas' ? '1' : '5');
   const [showDeityPicker, setShowDeityPicker] = useState(false);
@@ -1224,7 +1224,7 @@ const AddItemSheet: React.FC<{
                 placeholderTextColor={COLORS.muted}
               />
               <Text style={styles.pathNameHint}>
-                We'll use this name in your routine list and reminders. Leave blank to auto-name.
+                We&apos;ll use this name in your routine list and reminders. Leave blank to auto-name.
               </Text>
             </View>
           ) : (

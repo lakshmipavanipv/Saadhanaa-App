@@ -18,12 +18,27 @@ import type { JieliFrame } from './codec';
 import { Storage } from '../../storage';
 
 const STORAGE_KEY = 'sr16_last_device';
-// User asked for a "live" connection — retry fast + never actually give up.
-// The ring's supervision timer is ~7s, so if we can reconnect within a
-// couple of seconds after a drop, the user sees the pill stay green.
+
+/**
+ * Reconnect backoff. The link is supposed to come back on its own — the user
+ * should never have to tap the status pill to revive bead counting.
+ *
+ * The previous scheme retried every 400 ms up to 40 times inside a 30 s
+ * "burst window", which sounds like "keep trying" but isn't: 40 × 400 ms is
+ * 16 s, so the cap was reached while still inside the window, the window never
+ * got a chance to reset it, and `scheduleReconnect()` returned WITHOUT arming
+ * a timer. Nothing else calls it, so the counter went permanently dead about
+ * sixteen seconds after the ring wandered out of range — which is exactly why
+ * the pill had to be tapped by hand to get japa counting back.
+ *
+ * Now: fast for the first few tries (a bead-tap gap is short), then back off
+ * to a steady poll, and never stop. A quiet retry every few seconds costs far
+ * less than a session of missed beads.
+ */
 const RECONNECT_MS = 400;
-const MAX_RECONNECTS = 40;              // effectively "keep trying"
-const RECONNECT_BURST_WINDOW_MS = 30_000;
+const RECONNECT_MAX_MS = 5_000;
+/** Attempts served at RECONNECT_MS before the delay starts growing. */
+const RECONNECT_FAST_ATTEMPTS = 8;
 
 export const saveSr16DeviceId = (id: string): Promise<void> =>
   Storage.set(STORAGE_KEY, { id, savedAt: Date.now() });
@@ -71,7 +86,6 @@ export class JapaRingCounter {
   private deviceId: string;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastReconnectResetAt = 0;
   private stopped = false;
   private tapCount = 0;
 
@@ -86,12 +100,22 @@ export class JapaRingCounter {
       throw new Error('no SR16 paired — open Ring Debug and connect first');
     }
     const c = new JapaRingCounter(deviceId, events);
-    await c.connect();
+    // Deliberately NOT awaited. `connectRing()` allows the BLE stack up to
+    // 10 s to answer, and awaiting it here froze the Japa tab's setup for that
+    // whole time whenever the ring was momentarily out of range — the tab
+    // looked stuck and the user reached for the status pill. connect() catches
+    // its own failures and arms the retry loop, so every outcome is reported
+    // through the events instead.
+    void c.connect();
     return c;
   }
 
   private async connect(): Promise<void> {
-    if (this.stopped) return;
+    // `this.ring` non-null means we are already live. Reconnecting over the top
+    // of that would stack a SECOND frame subscription on the shared instance
+    // and every bead would be counted twice.
+    if (this.stopped || this.connecting || this.ring) return;
+    this.connecting = true;
     try {
       // No keep-alive: the RWfit capture shows the ring holding the link
       // through 1254 s of total silence, so nothing needs to be sent to
@@ -103,20 +127,39 @@ export class JapaRingCounter {
       void this.ring.device.vibrate(1).catch(() => { /* silent */ });
       this.events.onConnected?.();
       this.reconnectAttempts = 0;
+      // A backoff armed by the failure that preceded this success is now stale.
+      if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
 
-      this.ring.onFrame((f) => this.handleFrame(f));
+      // Drop the previous link's subscriptions before taking new ones. The ring
+      // instance is shared and long-lived, so leaving them attached across a
+      // reconnect would double-count every bead.
+      this.unsubscribe?.();
+      const offFrame = this.ring.onFrame((f) => this.handleFrame(f));
 
       // Auto-reconnect if the link drops (typical after ~7 s of no taps).
-      this.ring.onDisconnect(() => {
+      const offDisconnect = this.ring.onDisconnect(() => {
         this.events.onDisconnected?.();
         this.ring = null;
         if (!this.stopped) this.scheduleReconnect();
       });
+      this.unsubscribe = () => { offFrame(); offDisconnect(); };
     } catch (err) {
       this.events.onError?.(err as Error);
       this.scheduleReconnect();
+    } finally {
+      this.connecting = false;
     }
   }
+
+  /**
+   * True while a connect attempt is in flight. `start()` no longer awaits the
+   * first one, so focus and foreground events can both arrive mid-connect;
+   * without this they would each launch another.
+   */
+  private connecting = false;
+
+  /** Detaches this counter's frame + disconnect handlers from the shared ring. */
+  private unsubscribe: (() => void) | null = null;
 
   private handleFrame(frame: JieliFrame): void {
     // Preferred path: the ring's realtime prayer-count push, {2,0x53,0}
@@ -210,20 +253,30 @@ export class JapaRingCounter {
 
   private scheduleReconnect(): void {
     if (this.stopped) return;
-    // Rolling window: if the last burst of reconnects was more than
-    // RECONNECT_BURST_WINDOW_MS ago, reset the counter — a long-lived
-    // healthy connection shouldn't inherit stale retry state.
-    const now = Date.now();
-    if (now - this.lastReconnectResetAt > RECONNECT_BURST_WINDOW_MS) {
-      this.reconnectAttempts = 0;
-      this.lastReconnectResetAt = now;
-    }
-    if (this.reconnectAttempts >= MAX_RECONNECTS) return;
+    // One timer at a time — a drop that arrives while a retry is already armed
+    // must not stack a second loop.
+    if (this.reconnectTimer) return;
     this.reconnectAttempts++;
+    const delay = this.reconnectAttempts <= RECONNECT_FAST_ATTEMPTS
+      ? RECONNECT_MS
+      : Math.min(RECONNECT_MAX_MS, RECONNECT_MS * 2 ** (this.reconnectAttempts - RECONNECT_FAST_ATTEMPTS));
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       void this.connect();
-    }, RECONNECT_MS);
+    }, delay);
+  }
+
+  /**
+   * Drop any pending backoff and try again right now. Called when the tab
+   * regains focus or the app returns to the foreground — both are strong
+   * hints the ring is back in range, and waiting out a 5 s backoff there
+   * reads as the counter being asleep.
+   */
+  retryNow(): void {
+    if (this.stopped || this.ring || this.connecting) return;
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    this.reconnectAttempts = 0;
+    void this.connect();
   }
 
   getTapCount(): number { return this.tapCount; }
@@ -250,6 +303,8 @@ export class JapaRingCounter {
   async stop(): Promise<void> {
     this.stopped = true;
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    this.unsubscribe?.();
+    this.unsubscribe = null;
     if (this.ring) { await this.ring.disconnect(); this.ring = null; }
   }
 }

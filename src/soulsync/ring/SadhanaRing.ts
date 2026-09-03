@@ -261,6 +261,44 @@ export class SadhanaRing {
    */
   private refs = 0;
 
+  /**
+   * How many callers currently hold this link. A caller that sees `> 1` right
+   * after `connect()` joined a link somebody else already opened and set up,
+   * and should not re-run connection-time configuration on it.
+   */
+  get refCount(): number { return this.refs; }
+
+  /** Set once connection-time configuration has been applied to this link. */
+  private configured = false;
+
+  /**
+   * Claim the right to run connection-time configuration (clock push, health
+   * monitor master switch). Returns true exactly once per physical link.
+   *
+   * The link is shared, so "did I just open this?" is not the same question as
+   * "does this need configuring?" — and re-running that setup on a link the
+   * japa counter is using costs a burst of reply-waiting commands on the
+   * channel the ring pushes bead taps over.
+   */
+  claimSetup(): boolean {
+    if (this.configured) return false;
+    this.configured = true;
+    return true;
+  }
+
+  /**
+   * Connects that have not finished yet, keyed by device id.
+   *
+   * The registry above only helps once a connection is COMPLETE. Three callers
+   * race for this link on a cold start — ambient ingestion at boot, the japa
+   * counter when the tab opens, a Soulsync session when the user starts one —
+   * and `connectRing()` takes seconds. Two callers arriving inside that window
+   * both saw an empty registry and both opened a GATT connection to the same
+   * peripheral, leaving a second queue attached to a notify subscription
+   * nobody owned and double-ACKing every frame the ring sent.
+   */
+  private static pending = new Map<string, Promise<SadhanaRing>>();
+
   static async connect(deviceId: string, opts: ConnectOptions = {}): Promise<SadhanaRing> {
     const { onFrame } = opts;
 
@@ -275,6 +313,28 @@ export class SadhanaRing {
       return existing;
     }
 
+    const inFlight = SadhanaRing.pending.get(deviceId);
+    if (inFlight) {
+      const sr = await inFlight;
+      sr.refs += 1;
+      if (onFrame) sr.frameSubs.add(onFrame);
+      return sr;
+    }
+
+    const attempt = SadhanaRing.open(deviceId, onFrame);
+    SadhanaRing.pending.set(deviceId, attempt);
+    try {
+      return await attempt;
+    } finally {
+      SadhanaRing.pending.delete(deviceId);
+    }
+  }
+
+  /** The actual open. Only ever called through `connect()`'s de-duplication. */
+  private static async open(
+    deviceId: string,
+    onFrame: FrameObserver | undefined
+  ): Promise<SadhanaRing> {
     const ring = await connectRing(deviceId);
     const sr: { instance?: SadhanaRing } = {};
     const queue = new RingCommandQueue(ring, {
@@ -323,6 +383,22 @@ export class SadhanaRing {
     this.refs -= 1;
     if (this.refs > 0) return;
     this.refs = 0;
+
+    // If this object is no longer the registered instance for the device, the
+    // link it described is already gone and something else has since opened a
+    // NEW one. Falling through here would delete that new instance from the
+    // registry and cancel its GATT connection on the way out — a stale holder
+    // silently killing a live link.
+    //
+    // This is how ending a Soulsync session used to stop bead counting: the
+    // session's ring handle was captured before a momentary drop, so by the
+    // time `stop()` released it the japa counter had already reconnected, and
+    // the release tore that reconnection down.
+    if (SadhanaRing.instances.get(this.ring.device.id) !== this) {
+      this.queue.detach();
+      return;
+    }
+
     await this.stopAllLiveMetrics();
     this.queue.detach();
     // Remove from registry BEFORE the low-level disconnect so re-connect()

@@ -49,7 +49,7 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
   // render only whatever the last live sync happened to return, so anything
   // the ring had already handed over and been asked to forget disappeared
   // from the charts the moment you navigated away.
-  const [history, setHistory] = useState<Array<{ timestamp: Date; value: number }>>([]);
+  const [history, setHistory] = useState<{ timestamp: Date; value: number }[]>([]);
   const [showReadings, setShowReadings] = useState(false);
   const goBack = useBackToHealth(navigation);
 
@@ -300,7 +300,7 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function pickSamples(v: RingVitalsSyncResult, metric: ScalarMetric): Array<{ timestamp: Date; value: number }> {
+function pickSamples(v: RingVitalsSyncResult, metric: ScalarMetric): { timestamp: Date; value: number }[] {
   switch (metric) {
     case 'hr':   return v.raw.hr.map((s)   => ({ timestamp: s.timestamp, value: s.hr }));
     case 'hrv':  return v.raw.hrv.map((s)  => ({ timestamp: s.timestamp, value: s.hrv }));

@@ -79,7 +79,14 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
         setShowScoreModal(true);
       } catch { /* soft fail */ }
     } else {
-      await soulsync.start();
+      // start() now rethrows when the ring can't be reached, so it can unwind
+      // cleanly instead of leaving a half-open session behind. Swallow it here
+      // — the bar simply stays off, which is what the user sees anyway.
+      try {
+        await soulsync.start();
+      } catch (e) {
+        console.warn('[Soulsync] session start failed:', (e as Error).message);
+      }
     }
   };
 

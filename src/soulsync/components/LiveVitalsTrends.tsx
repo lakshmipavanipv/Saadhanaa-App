@@ -11,6 +11,10 @@
  *      ──────  baseline 97.2%  (dashed)
  *      ▁▂▃▃▃▃▄▄▄▄▄  ← live SpO₂ trace
  *
+ *   🌿 HRV · LIVE            current 42 ms
+ *      ──────  baseline 38 ms (dashed)
+ *      ▁▂▃▄▅▅▆▆▇▇▇  ← live HRV trace
+ *
  * Why this exists:
  *   The old HRVWaveGraph only showed BPM and didn't surface the user's
  *   today-baseline as a reference line, so the user couldn't tell at a
@@ -19,9 +23,16 @@
  *   trace as a coloured bezier line — same UX for heart and lung so
  *   older users learn one mental model.
  *
- * SpO₂ note: the soulsync hook only exposes `liveSpo2` (single number)
- * so this component maintains its own rolling buffer locally, sampled
- * each render while the session is active.
+ * SpO₂ / HRV note: the soulsync hook exposes each as a single current
+ * number, so this component maintains its own rolling buffer locally,
+ * sampled on a timer while the session is active.
+ *
+ * HRV here is the figure the RING measured, not an RMSSD computed from R-R
+ * intervals — this hardware does not stream those. It refreshes on the ring
+ * service's live measurement cycle rather than per heartbeat, so its trace
+ * steps rather than flows. That is the real sampling rate, not a rendering
+ * artefact, and flattering it with interpolation would be a lie about how
+ * often the sensor actually ran.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -35,6 +46,12 @@ interface Props {
   bpmSeries: number[];
   /** Latest single SpO₂ reading from useSoulsyncSession.state.liveSpo2. */
   liveSpo2: number | null;
+  /**
+   * Latest ring-measured HRV (ms) from useSoulsyncSession.state.liveHrv.
+   * Optional so the screens that have not been given it yet still compile
+   * and simply omit the third card.
+   */
+  liveHrv?: number | null;
   /** Whether the session is actively recording. */
   isActive: boolean;
 }
@@ -42,13 +59,16 @@ interface Props {
 const CHART_W = Dimensions.get('window').width - 32 - 24;   // page padding + card padding
 const CHART_H = 130;
 
-export const LiveVitalsTrends: React.FC<Props> = ({ bpmSeries, liveSpo2, isActive }) => {
+export const LiveVitalsTrends: React.FC<Props> = ({ bpmSeries, liveSpo2, liveHrv, isActive }) => {
   const [baselineBpm,  setBaselineBpm]  = useState<number | null>(null);
   const [baselineSpo2, setBaselineSpo2] = useState<number | null>(null);
+  const [baselineHrv,  setBaselineHrv]  = useState<number | null>(null);
 
-  // Local rolling buffer for SpO₂ — sampled while session is active
+  // Local rolling buffers for SpO₂ and HRV — sampled while session is active
   const spo2BufferRef = useRef<number[]>([]);
   const [spo2Series, setSpo2Series] = useState<number[]>([]);
+  const hrvBufferRef = useRef<number[]>([]);
+  const [hrvSeries, setHrvSeries] = useState<number[]>([]);
 
   // Fetch today's baseline from ambient_baseline
   useEffect(() => {
@@ -60,9 +80,11 @@ export const LiveVitalsTrends: React.FC<Props> = ({ bpmSeries, liveSpo2, isActiv
         // Null until the ring has actually reported a baseline today.
         setBaselineBpm(t && t.bpm > 0 ? Math.round(t.bpm) : null);
         setBaselineSpo2(t && t.spo2 > 0 ? Math.round(t.spo2 * 10) / 10 : null);
+        setBaselineHrv(t && t.rmssd > 0 ? Math.round(t.rmssd) : null);
       } catch {
         setBaselineBpm(null);
         setBaselineSpo2(null);
+        setBaselineHrv(null);
       }
     })();
     return () => { cancelled = true; };
@@ -82,11 +104,28 @@ export const LiveVitalsTrends: React.FC<Props> = ({ bpmSeries, liveSpo2, isActiv
     return () => clearInterval(id);
   }, [isActive, liveSpo2, baselineSpo2]);
 
-  // Reset SpO₂ buffer when session ends
+  // Sample HRV on the same tick. The ring only produces a new figure once a
+  // measurement window closes, so most ticks re-chart the value already there
+  // — that flat run IS the sampling rate and is left visible on purpose.
+  useEffect(() => {
+    if (!isActive) return;
+    const id = setInterval(() => {
+      const v = liveHrv ?? baselineHrv;
+      if (v == null) return;
+      hrvBufferRef.current.push(Number(v));
+      if (hrvBufferRef.current.length > 60) hrvBufferRef.current.shift();
+      setHrvSeries([...hrvBufferRef.current]);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isActive, liveHrv, baselineHrv]);
+
+  // Reset buffers when session ends
   useEffect(() => {
     if (!isActive) {
       spo2BufferRef.current = [];
       setSpo2Series([]);
+      hrvBufferRef.current = [];
+      setHrvSeries([]);
     }
   }, [isActive]);
 
@@ -94,6 +133,7 @@ export const LiveVitalsTrends: React.FC<Props> = ({ bpmSeries, liveSpo2, isActiv
 
   const liveBpm  = bpmSeries[bpmSeries.length - 1] ?? null;
   const liveSpo2Now = spo2Series[spo2Series.length - 1] ?? liveSpo2;
+  const liveHrvNow  = hrvSeries[hrvSeries.length - 1] ?? liveHrv ?? null;
 
   return (
     <View style={{ marginHorizontal: SPACING.md, marginTop: SPACING.sm }}>
@@ -115,6 +155,17 @@ export const LiveVitalsTrends: React.FC<Props> = ({ bpmSeries, liveSpo2, isActiv
         color="#7FE8C8"
         hint="Pranayama steady-state should sit at or above your baseline."
       />
+      {liveHrvNow != null && (
+        <TrendCard
+          title="🌿  HRV · LIVE TREND"
+          live={liveHrvNow}
+          baseline={baselineHrv}
+          unit="ms"
+          series={hrvSeries}
+          color="#C6A5FF"
+          hint="Rising HRV means the nervous system is settling into the practice."
+        />
+      )}
     </View>
   );
 };

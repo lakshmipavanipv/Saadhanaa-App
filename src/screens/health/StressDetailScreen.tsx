@@ -37,7 +37,7 @@ export const StressDetailScreen: React.FC<any> = ({ navigation }) => {
   // ACKed the ring drops it, so `raw.stress` is empty on every sync after the
   // one that first collected a sample. Reading vitals_sample is what makes
   // the chart survive.
-  const [history, setHistory] = useState<Array<{ timestamp: Date; value: number }>>([]);
+  const [history, setHistory] = useState<{ timestamp: Date; value: number }[]>([]);
   const goBack = useBackToHealth(navigation);
 
   useEffect(() => {

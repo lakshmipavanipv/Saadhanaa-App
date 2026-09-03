@@ -559,20 +559,30 @@ export default function App() {
     let cancelled = false;
     let stopSteps: (() => void) | null = null;
     (async () => {
-      try {
-        await getDB();               // runs migrations on first launch
-        if (!cancelled) await ambientIngestion.start();
-        // Cadence engine — measures on the user's chosen interval, every 30
-        // min inside the sleep window, and continuously during japa.
-        if (!cancelled) await vitalsScheduler.start();
-        await initNotifications();   // register Android channel for prayer reminders
-        // v73: start the foreground pedometer — accumulates today's steps and
-        // fires a "goal achieved" notification when a planned walk goal is met.
-        if (!cancelled) stopSteps = await startStepTracking();
-      } catch (e) {
-        // Failures here must NEVER block the rest of the app
-        console.warn('[Soulsync] bootstrap failed:', e);
-      }
+      // Each step is isolated. These used to be a single await chain, so the
+      // very first one that threw took everything after it down with it — and
+      // the one most likely to throw is ambient ingestion, which needs the ring
+      // in range at launch. Open the app with the ring off the finger and the
+      // vitals scheduler never started at all, which is precisely when the
+      // Japa tab appeared to sync nothing.
+      const step = async (name: string, fn: () => Promise<void>) => {
+        if (cancelled) return;
+        try {
+          await fn();
+        } catch (e) {
+          console.warn(`[Soulsync] bootstrap step "${name}" failed:`, e);
+        }
+      };
+
+      await step('db', async () => { await getDB(); });   // runs migrations on first launch
+      await step('ambient', () => ambientIngestion.start());
+      // Cadence engine — measures on the user's chosen interval, every 30
+      // min inside the sleep window, and continuously during japa.
+      await step('vitals-scheduler', () => vitalsScheduler.start());
+      await step('notifications', async () => { await initNotifications(); });
+      // v73: start the foreground pedometer — accumulates today's steps and
+      // fires a "goal achieved" notification when a planned walk goal is met.
+      await step('steps', async () => { stopSteps = await startStepTracking(); });
     })();
     return () => { cancelled = true; ambientIngestion.stop(); vitalsScheduler.stop(); stopSteps?.(); };
   }, []);

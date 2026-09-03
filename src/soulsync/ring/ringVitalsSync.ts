@@ -270,7 +270,7 @@ async function persistScalar<T extends TsSample>(
  */
 function logSamples(metric: string, rows: VitalSample[]): void {
   for (const r of rows.slice(0, 5)) {
-    // eslint-disable-next-line no-console
+
     console.log(
       `[ringVitalsSync] ${metric} sample: value=${r.value}` +
       `${r.value2 != null ? `/${r.value2}` : ''} at ${new Date(r.ts).toISOString()}`
@@ -304,7 +304,7 @@ async function persistBp(samples: BpSample[]): Promise<void> {
  * invisible because the screens just show fewer points.
  */
 function logPersist(metric: string, decoded: number, written: number): void {
-  // eslint-disable-next-line no-console
+
   console.log(`[ringVitalsSync] ${metric}: decoded=${decoded} persisted=${written}`);
 }
 
@@ -508,13 +508,13 @@ async function runSync(opts: SyncOptions = {}): Promise<RingVitalsSyncResult> {
     try {
       const out = await fn();
       const n = (out as unknown as { samples?: unknown[] })?.samples?.length;
-      // eslint-disable-next-line no-console
+
       console.log(`[ringVitalsSync] ${label}: ok samples=${n ?? 'n/a'} in ${Date.now() - startedAt}ms`);
       return out;
     } catch (e) {
       const msg = (e as Error).message;
       result.errors.push(`${label}: ${msg}`);
-      // eslint-disable-next-line no-console
+
       console.log(`[ringVitalsSync] ${label}: FAILED after ${Date.now() - startedAt}ms — ${msg}`);
       return null;
     }

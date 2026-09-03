@@ -94,7 +94,7 @@ const gatherSignals = async (): Promise<DailySignals> => {
 
 // ─── Rule engine ──────────────────────────────────────────────────
 
-const RULES: Array<(s: DailySignals) => Recommendation | null> = [
+const RULES: ((s: DailySignals) => Recommendation | null)[] = [
   // ── Anger detected → empathetic calm ──
   (s) => !s.recentAnger ? null : ({
     id: 'anger-calm',

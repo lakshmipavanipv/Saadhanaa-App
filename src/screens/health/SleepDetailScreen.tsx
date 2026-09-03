@@ -84,7 +84,7 @@ function computeNightStats(samples: SleepSample[]): NightStats {
 }
 
 /** ODI = count of SpO₂ dips ≥4% per hour of sleep, using a rolling baseline. */
-function computeOdi(spo2: Array<{ timestamp: Date; spo2: number }>, from: Date, to: Date): {
+function computeOdi(spo2: { timestamp: Date; spo2: number }[], from: Date, to: Date): {
   odi: number;
   min: number | null;
   avg: number | null;

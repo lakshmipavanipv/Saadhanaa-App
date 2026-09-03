@@ -5,9 +5,8 @@
 
 import React from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS, COLORS_LIGHT } from '../theme';
+import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS, COLORS_LIGHT , paletteFor } from '../theme';
 import { useTheme } from '../ThemeContext';
-import { paletteFor } from '../theme';
 
 interface Props {
   visible: boolean;

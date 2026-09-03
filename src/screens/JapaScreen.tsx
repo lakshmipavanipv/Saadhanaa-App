@@ -9,6 +9,7 @@ import {
   FlatList,
   TextInput,
   Platform,
+  AppState,
 } from 'react-native';
 import { useSadhana } from '../context';
 import { todayStr, japasToSeconds, formatSadhanaTime } from '../utils';
@@ -792,10 +793,18 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
         console.warn('[JapaScreen] score popup failed', e);
       }
     } else {
-      await soulsync.start();
+      try {
+        await soulsync.start();
+      } catch (e) {
+        // start() rethrows when the ring is unreachable, having already
+        // unwound the half-open session. Tell the user rather than failing
+        // silently under a button that appears to do nothing.
+        showToast(`Soulsync needs the ring — ${(e as Error).message}`);
+        return;
+      }
       setHintMode('none');
     }
-  }, [soulsync]);
+  }, [soulsync, showToast]);
 
   const reset = () => {
     setCount(0);
@@ -832,10 +841,29 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   const [sr16LastError, setSr16LastError] = useState<string | null>(null);
   const isFocused = useIsFocused();
 
-  // Factored so both the focus effect and the manual reconnect button can
-  // call it. Returns a cancel token to allow abort if the tab blurs mid-connect.
+  // Kicks the ring history reconcile. Assigned below, once the effect that
+  // owns it has been declared — held in a ref so the connect callback can
+  // fire it without a declaration-order dance.
+  const syncRingHistoryRef = useRef<(() => void) | null>(null);
+
+  // Guards against two overlapping start attempts. `startSr16Counter` awaits
+  // storage before it can claim sr16CounterRef, and focus + foreground can
+  // both fire inside that window — which used to build two counters, two GATT
+  // holders, and two taps per bead.
+  const sr16StartingRef = useRef(false);
+
+  // Factored so the focus effect, the app-foreground listener and the manual
+  // pill tap can all call it.
   const startSr16Counter = useCallback(async (): Promise<'ok' | 'no-pair' | 'error'> => {
-    if (sr16CounterRef.current) return 'ok';
+    if (sr16CounterRef.current) {
+      // A counter exists, but it may be sitting in a reconnect backoff. Focus
+      // is a strong hint the ring is back in reach, so skip the wait.
+      sr16CounterRef.current.retryNow();
+      return 'ok';
+    }
+    if (sr16StartingRef.current) return 'ok';
+    sr16StartingRef.current = true;
+    try {
     const paired = await readSr16DeviceId();
     if (!paired) { setSr16Status('off'); setSr16LastError('No ring paired — pair from Bluetooth screen first.'); return 'no-pair'; }
     setSr16Status('connecting');
@@ -852,6 +880,10 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
           setSr16LastError(null);
           // Live link held open — tighten the vitals cadence for the session.
           vitalsScheduler.setJapaActive(true);
+          // The link is up NOW, so reconcile the ring's stored counter now.
+          // This used to run off a blind 1.5 s timer from mount, which fired
+          // whether or not there was anything to talk to.
+          syncRingHistoryRef.current?.();
         },
         onDisconnected: () => setSr16Status('connecting'),
         onError: (e) => { setSr16Status('off'); setSr16LastError(e.message); },
@@ -863,6 +895,9 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
       setSr16LastError((e as Error).message);
       vitalsScheduler.setJapaActive(false);
       return 'error';
+    }
+    } finally {
+      sr16StartingRef.current = false;
     }
   }, []);
 
@@ -876,6 +911,17 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   useEffect(() => {
     if (!isFocused) return;
     void startSr16Counter();
+  }, [isFocused, startSr16Counter]);
+
+  // Coming back from the background is the other moment the ring is likely
+  // reachable again — Android tears BLE links down aggressively while the app
+  // is away. Without this the tab could sit on a stale "off" pill until the
+  // user tapped it, which is the manual step this screen should never need.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active' && isFocused) void startSr16Counter();
+    });
+    return () => sub.remove();
   }, [isFocused, startSr16Counter]);
 
   const reconnectSr16 = useCallback(async () => {
@@ -920,33 +966,43 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   // the Japa tab wasn't open (the live JapaRingCounter above only counts
   // taps that arrive while it's actively connected).
   //
-  // Runs OUTSIDE the live counter — it opens its own short-lived BLE
-  // session, reads once, disconnects. Watermark is persisted so we only
-  // ever attribute NEW ring counts to the app, never phantom back-fill.
+  // It reuses whatever link is already open (SadhanaRing.connect hands back
+  // the shared instance and ref-counts it), and its read is sent at queue
+  // priority so it is not stuck behind a full vitals sweep. Watermark is
+  // persisted so we only ever attribute NEW ring counts to the app, never
+  // phantom back-fill.
+  //
+  // Triggered by the counter's onConnected rather than a timer: the old
+  // version slept 1.5 s from mount and then fired regardless, so it ran before
+  // the link existed on a cold open — reporting "connect: …" and never trying
+  // again — and needlessly late when the link was already up.
+  const japaSyncBusyRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const paired = await readSr16DeviceId();
-      if (!paired || cancelled) return;
-      // Small delay so the live-counter connect doesn't race with us on
-      // the same GATT link.
-      await new Promise(r => setTimeout(r, 1500));
-      if (cancelled) return;
-      const res = await syncJapaHistory();
-      if (cancelled) return;
-      if (!res.delta || res.delta <= 0) return;
-      // Cap the batch so a wildly stale watermark doesn't fire thousands
-      // of taps at once — 10 malas (1080 beads) is a very generous cap.
-      const applied = Math.min(res.delta, 1080);
-      for (let i = 0; i < applied; i++) tapRef.current?.();
-      showToast(
-        applied === res.delta
-          ? `📿 ${applied} ring tap${applied === 1 ? '' : 's'} synced`
-          : `📿 ${applied} synced (${res.delta - applied} skipped, cap)`
-      );
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    syncRingHistoryRef.current = () => {
+      if (cancelled || japaSyncBusyRef.current) return;
+      japaSyncBusyRef.current = true;
+      (async () => {
+        try {
+          const res = await syncJapaHistory();
+          if (cancelled) return;
+          if (!res.delta || res.delta <= 0) return;
+          // Cap the batch so a wildly stale watermark doesn't fire thousands
+          // of taps at once — 10 malas (1080 beads) is a very generous cap.
+          const applied = Math.min(res.delta, 1080);
+          for (let i = 0; i < applied; i++) tapRef.current?.();
+          showToast(
+            applied === res.delta
+              ? `📿 ${applied} ring tap${applied === 1 ? '' : 's'} synced`
+              : `📿 ${applied} synced (${res.delta - applied} skipped, cap)`
+          );
+        } finally {
+          japaSyncBusyRef.current = false;
+        }
+      })();
+    };
+    return () => { cancelled = true; syncRingHistoryRef.current = null; };
+  }, [showToast]);
 
   // Register pair / disconnect handlers in context so SettingsScreen can invoke them.
   useEffect(() => {
@@ -1186,7 +1242,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
           <Text style={{ fontSize: 12, color: palette.cream, fontWeight: '600' }}>
             {sr16Status === 'connected' ? `Ring · ${sr16Events} tap${sr16Events === 1 ? '' : 's'}` :
              sr16Status === 'connecting' ? 'Ring connecting…' :
-                                            'Ring off · tap to connect'}
+                                            'Ring off · tap to retry'}
           </Text>
           {sr16LastError && sr16Status === 'off' ? (
             <Text style={{ fontSize: 10, color: palette.muted, marginLeft: 4 }} numberOfLines={1}>
@@ -1261,6 +1317,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
         <LiveVitalsTrends
           bpmSeries={soulsync.state.bpmSeries}
           liveSpo2={soulsync.state.liveSpo2}
+          liveHrv={soulsync.state.liveHrv}
           isActive={soulsync.state.active}
         />
         <BeforeAfterVitals practice="japa" isActive={soulsync.state.active} />

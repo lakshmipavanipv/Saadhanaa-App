@@ -2,8 +2,8 @@ import { ambientBaselineRepo } from '../db/ambientBaselineRepo';
 import { sessionSpiritualRepo } from '../db/sessionSpiritualRepo';
 
 export interface DivergenceSnapshot {
-  baselineSeries: Array<{ hour: number; bpm: number }>;   // Line A
-  spiritualSeries: Array<{ hour: number; bpm: number }>;  // Line B
+  baselineSeries: { hour: number; bpm: number }[];   // Line A
+  spiritualSeries: { hour: number; bpm: number }[];  // Line B
   divergencePct: number;                                  // positive = japa more relaxed
   message: string;
   hasData: boolean;
@@ -26,7 +26,7 @@ export const computeCalmDivergence = async (yyyyMmDd: string): Promise<Divergenc
     .map(([hour, { sum, n }]) => ({ hour, bpm: Math.round(sum / n) }))
     .sort((a, b) => a.hour - b.hour);
 
-  const avg = (arr: Array<{ bpm: number }>) =>
+  const avg = (arr: { bpm: number }[]) =>
     arr.length ? arr.reduce((a, b) => a + b.bpm, 0) / arr.length : 0;
   const baselineAvg = avg(baselineSeries);
   const spiritualAvg = avg(spiritualSeries);
