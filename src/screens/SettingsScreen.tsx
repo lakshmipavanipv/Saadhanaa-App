@@ -10,6 +10,7 @@ import {
   Alert,
   Switch,
 } from 'react-native';
+import Constants from 'expo-constants';
 import { useSadhana } from '../context';
 import { UserProfile } from '../types';
 import { COLORS, SPACING } from '../theme';
@@ -21,7 +22,10 @@ import {
 import { vitalsScheduler, type SchedulerStatus } from '../soulsync/ring/vitalsScheduler';
 import { vitalsRepo } from '../soulsync/db/vitalsRepo';
 
-const APP_VERSION = '1.0.9';
+// Read from app.json at build time. This was a hardcoded '1.0.9' that stopped
+// being true a hundred releases ago, which made the About row worse than
+// useless — it actively misreported which build was installed.
+const APP_VERSION = Constants.expoConfig?.version ?? 'unknown';
 
 export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
   const {

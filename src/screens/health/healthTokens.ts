@@ -17,9 +17,13 @@ export const HEALTH_COLORS = {
   stress:   '#F0D08A',   // gold
   exercise: '#FF9F45',   // saffron
   // shared semantic tints for band backgrounds (10-14% opacity looks right)
-  tintLow:  'rgba(255,122,133,0.10)',   // low / high (both flag risk)
-  tintOk:   'rgba(123,228,184,0.14)',   // healthy / relaxed / rested
+  tintLow:  'rgba(255,122,133,0.10)',   // high / genuinely low (both flag risk)
+  tintOk:   'rgba(123,228,184,0.14)',   // healthy / relaxed / normal
   tintWarn: 'rgba(245,197,107,0.10)',   // moderate / elevated
+  // The best band on a metric, greener than plain 'ok' so it reads as the one
+  // to aim for rather than merely acceptable — a resting HR of 40-60 and a
+  // rested HRV are achievements, not the neutral middle.
+  tintFit:  'rgba(110,240,180,0.26)',   // fitter / rested
 } as const;
 
 export type HealthMetric =
@@ -33,8 +37,8 @@ export interface Band {
   from: number;
   /** Numeric upper bound (in same units as data). */
   to: number;
-  /** Tint token to fill the band background — one of `tintLow|tintOk|tintWarn`. */
-  tint: 'low' | 'ok' | 'warn';
+  /** Tint token to fill the band background — one of `tintLow|tintOk|tintWarn|tintFit`. */
+  tint: 'low' | 'ok' | 'warn' | 'fit';
 }
 
 export interface MetricConfig {
@@ -65,7 +69,9 @@ export const METRIC_CONFIG: Record<Exclude<HealthMetric, 'sleep' | 'stress' | 'e
     color: HEALTH_COLORS.hr,
     yMin: 40, yMax: 120,
     bands: [
-      { name: 'Low',      from: 40,  to: 60,  tint: 'low'  },
+      // 40-60 resting is athlete territory, not a risk band. It was labelled
+      // 'Low' in red, which contradicted this metric's own aboutBody.
+      { name: 'Fitter',   from: 40,  to: 60,  tint: 'fit'  },
       { name: 'Healthy',  from: 60,  to: 80,  tint: 'ok'   },
       { name: 'Elevated', from: 80,  to: 100, tint: 'warn' },
       { name: 'High',     from: 100, to: 120, tint: 'low'  },
@@ -87,7 +93,7 @@ export const METRIC_CONFIG: Record<Exclude<HealthMetric, 'sleep' | 'stress' | 'e
     bands: [
       { name: 'Fatigued',   from: 0,  to: 40,  tint: 'low'  },
       { name: 'Recovering', from: 40, to: 60,  tint: 'warn' },
-      { name: 'Rested',     from: 60, to: 100, tint: 'ok'   },
+      { name: 'Rested',     from: 60, to: 100, tint: 'fit'  },
     ],
     goodDelta: 'higher',
     aboutTitle: 'What is HRV?',
@@ -206,10 +212,29 @@ export const STRESS_CONFIG: MetricConfig = {
     'reading is tracking how you actually feel.',
 };
 
-/** Given a numeric value, return which band label it falls into. */
-export function bandForValue(cfg: MetricConfig, v: number): string | null {
+/** Given a numeric value, return the band it falls into. */
+export function bandDefForValue(cfg: MetricConfig, v: number): Band | null {
   for (const b of cfg.bands) {
-    if (v >= b.from && v <= b.to) return b.name;
+    if (v >= b.from && v <= b.to) return b;
   }
   return null;
+}
+
+/**
+ * Quality of a value, derived from its band's tint rather than its name.
+ *
+ * Callers used to compare band names against a hand-kept list, which silently
+ * mis-graded every band the list had not been updated for — 'Fitter' is the
+ * current example, but 'Low' was already wrong in both directions (good for
+ * HR, bad for SpO2) under one shared name.
+ */
+export function qualityForValue(cfg: MetricConfig, v: number): 'good' | 'fair' | 'poor' | null {
+  const b = bandDefForValue(cfg, v);
+  if (!b) return null;
+  return b.tint === 'fit' || b.tint === 'ok' ? 'good' : b.tint === 'warn' ? 'fair' : 'poor';
+}
+
+/** Given a numeric value, return which band label it falls into. */
+export function bandForValue(cfg: MetricConfig, v: number): string | null {
+  return bandDefForValue(cfg, v)?.name ?? null;
 }

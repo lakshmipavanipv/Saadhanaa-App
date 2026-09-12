@@ -17,14 +17,17 @@ import { useTheme } from '../../ThemeContext';
 import {
   ScreenHeader, ViewSwitch, WeekStrip, HeroCard, BandedChart, RangeCard, AboutCard,
   type HealthView, type DayQuality, useBackToHealth } from './HealthPrimitives';
-import { METRIC_CONFIG, HEALTH_COLORS, bandForValue, type HealthMetric } from './healthTokens';
+import { METRIC_CONFIG, qualityForValue, type HealthMetric } from './healthTokens';
 import { syncAllRingVitals, loadStoredVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
 
 type ScalarMetric = Exclude<HealthMetric, 'sleep' | 'stress' | 'exercise'>;
 
 const DAY_MS = 86_400_000;
-/** How far back the detail screen charts and lists stored samples. */
-const HISTORY_DAYS = 30;
+/** How far back the detail screen charts and lists stored samples.
+ *  Month view compares against the previous month, so it needs two of them. */
+const HISTORY_DAYS = 62;
+/** Days each Day/Week/Month view spans, and what it compares itself against. */
+const VIEW_DAYS: Record<HealthView, number> = { day: 1, week: 7, month: 30 };
 const isScalar = (m: string): m is ScalarMetric =>
   m === 'hr' || m === 'hrv' || m === 'spo2' || m === 'temp' || m === 'resp';
 
@@ -98,6 +101,57 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
     return [...byTs.values()].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   }, [history, vitals, metric]);
 
+  /**
+   * One average per calendar day across everything loaded. Week and month
+   * views chart these, not raw readings — 30 days of 10-minute samples is
+   * thousands of points, and the day-to-day trend is the thing being asked
+   * for. Days with no reading are simply absent rather than plotted as zero.
+   */
+  const dailyAvg = useMemo(() => {
+    const buckets = new Map<string, { sum: number; n: number }>();
+    for (const s of samples) {
+      if (!Number.isFinite(s.value) || s.value <= 0) continue;
+      const iso = isoDay(s.timestamp);
+      const b = buckets.get(iso) ?? { sum: 0, n: 0 };
+      b.sum += s.value; b.n += 1;
+      buckets.set(iso, b);
+    }
+    return new Map([...buckets].map(([iso, b]) => [iso, b.sum / b.n] as const));
+  }, [samples]);
+
+  /**
+   * Week / month summary: daily averages inside the window ending on the
+   * selected day, with the window immediately before it as the baseline. That
+   * makes the hero delta "this week vs last week" rather than the day view's
+   * "right now vs a rolling 7-day mean".
+   */
+  const periodData = useMemo(() => {
+    const days = VIEW_DAYS[view];
+    const end = new Date(selected + 'T00:00:00').getTime() + DAY_MS;
+    const start = end - days * DAY_MS;
+    const prevStart = start - days * DAY_MS;
+
+    const series: { iso: string; value: number }[] = [];
+    let prevSum = 0, prevCount = 0;
+    for (const [iso, avg] of dailyAvg) {
+      const t = new Date(iso + 'T00:00:00').getTime();
+      if (t >= start && t < end) series.push({ iso, value: avg });
+      else if (t >= prevStart && t < start) { prevSum += avg; prevCount += 1; }
+    }
+    series.sort((a, b) => (a.iso < b.iso ? -1 : 1));
+
+    const values = series.map((d) => d.value);
+    const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    return {
+      series,
+      values,
+      avg,
+      min: values.length ? Math.min(...values) : null,
+      max: values.length ? Math.max(...values) : null,
+      baseline: prevCount > 0 ? prevSum / prevCount : null,
+    };
+  }, [dailyAvg, view, selected]);
+
   // Pull raw samples for THIS metric and reduce to the selected day.
   const dayData = useMemo(() => {
     const arr = samples;
@@ -127,45 +181,80 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
       avg: count > 0 ? sum / count : null,
       max: count > 0 ? mx : null,
     };
-  }, [vitals, metric, selected]);
+  }, [samples, selected]);
 
-  const current = dayData.values.length > 0 ? dayData.values[dayData.values.length - 1] : null;
-  const delta = current != null && dayData.baseline != null ? current - dayData.baseline : null;
+  /**
+   * The one shape the whole screen renders from, so Day/Week/Month differ in
+   * what they summarise and nothing else. The switch used to set state that
+   * no render path read, which is why tapping Week or Month changed only
+   * which pill looked selected.
+   */
+  const panel = useMemo(() => {
+    if (view === 'day') {
+      const vals = dayData.values;
+      return {
+        headline: vals.length ? vals[vals.length - 1] : null,
+        baseline: dayData.baseline,
+        min: dayData.min, avg: dayData.avg, max: dayData.max,
+        values: vals,
+        eyebrow: `Now · ${formatLongDate(selected)}`,
+        baselineWord: 'vs baseline',
+        chartLabel: 'Today · every reading',
+        chartAside: `${vals.length} samples`,
+        xLabels: ['00', '06', '12', '18', 'now'],
+      };
+    }
+    const week = view === 'week';
+    const { series, values, avg, min, max, baseline } = periodData;
+    return {
+      headline: avg,
+      baseline,
+      min, avg, max,
+      values,
+      eyebrow: `${week ? '7 days' : '30 days'} to ${formatLongDate(selected)}`,
+      baselineWord: week ? 'vs previous week' : 'vs previous month',
+      chartLabel: `${week ? 'This week' : 'This month'} · daily average`,
+      chartAside: `${series.length} of ${VIEW_DAYS[view]} days`,
+      xLabels: periodXLabels(series, week),
+    };
+  }, [view, dayData, periodData, selected]);
+
+  const current = panel.headline;
+  const delta = current != null && panel.baseline != null ? current - panel.baseline : null;
   const deltaKind: 'good' | 'mid' | 'bad' = (() => {
     if (delta == null || Math.abs(delta) < 0.1) return 'mid';
     if (cfg.goodDelta === 'lower')  return delta < 0 ? 'good' : 'bad';
     return delta > 0 ? 'good' : 'bad';
   })();
 
-  /** Every stored reading on the selected day, newest first. */
-  const dayReadings = useMemo(() => {
+  /**
+   * The detailed report, newest first: every reading on the selected day, or
+   * one row per day when the view is a week or a month. Listing 30 days of
+   * raw samples would be thousands of rows nobody reads.
+   */
+  const reportRows = useMemo(() => {
+    if (view !== 'day') {
+      return [...periodData.series]
+        .reverse()
+        .map((d) => ({ key: d.iso, when: formatLongDate(d.iso), value: d.value }));
+    }
     const start = new Date(selected + 'T00:00:00').getTime();
     const end = start + DAY_MS;
     return samples
       .filter((s) => s.timestamp.getTime() >= start && s.timestamp.getTime() < end)
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-  }, [samples, selected]);
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+      .map((s) => ({
+        key: String(s.timestamp.getTime()),
+        when: s.timestamp.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+        value: s.value,
+      }));
+  }, [view, periodData, samples, selected]);
 
   const quality = useMemo(() => {
-    const arr = samples;
-    const buckets: Record<string, number[]> = {};
-    for (const s of arr) {
-      if (!Number.isFinite(s.value) || s.value <= 0) continue;
-      const iso = isoDay(s.timestamp);
-      (buckets[iso] ??= []).push(s.value);
-    }
     const out: Record<string, DayQuality> = {};
-    for (const [iso, vals] of Object.entries(buckets)) {
-      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-      const band = bandForValue(cfg, avg);
-      out[iso] =
-        band === 'Healthy' || band === 'Rested' || band === 'Normal' || band === 'Relaxed' ? 'good' :
-        band === 'Elevated' || band === 'Recovering' || band === 'Moderate' || band === 'Low' ? 'fair' :
-        band === 'High' || band === 'Fatigued' ? 'poor' :
-        null;
-    }
+    for (const [iso, avg] of dailyAvg) out[iso] = qualityForValue(cfg, avg);
     return out;
-  }, [vitals, metric, cfg]);
+  }, [dailyAvg, cfg]);
 
   const fmt = (v: number | null): string =>
     v == null ? '—' : (cfg.unit === '°C' ? v.toFixed(1) : String(Math.round(v)));
@@ -187,36 +276,36 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
       />
 
       <HeroCard
-        eyebrow={`Now · ${formatLongDate(selected)}`}
+        eyebrow={panel.eyebrow}
         current={fmt(current)}
         unit={cfg.unit}
-        baseline={fmt(dayData.baseline)}
+        baseline={fmt(panel.baseline)}
         delta={delta != null && Math.abs(delta) >= 0.1
-          ? `${delta > 0 ? '+' : ''}${cfg.unit === '°C' ? delta.toFixed(1) : Math.round(delta)} vs baseline`
+          ? `${delta > 0 ? '+' : ''}${cfg.unit === '°C' ? delta.toFixed(1) : Math.round(delta)} ${panel.baselineWord}`
           : null}
         deltaKind={deltaKind}
-        sub={dayData.min != null && dayData.max != null ? `Range · ${fmt(dayData.min)} – ${fmt(dayData.max)} ${cfg.unit}` : undefined}
+        sub={panel.min != null && panel.max != null ? `Range · ${fmt(panel.min)} – ${fmt(panel.max)} ${cfg.unit}` : undefined}
         accent={cfg.color}
       />
 
       <View style={styles.chartCard}>
         <View style={styles.chartHead}>
-          <Text style={styles.chartLabel}>Today · every reading</Text>
-          <Text style={styles.chartAside}>{dayData.values.length} samples</Text>
+          <Text style={styles.chartLabel}>{panel.chartLabel}</Text>
+          <Text style={styles.chartAside}>{panel.chartAside}</Text>
         </View>
         <BandedChart
           cfg={cfg}
-          data={dayData.values}
-          baseline={dayData.baseline}
-          xLabels={['00', '06', '12', '18', 'now']}
+          data={panel.values}
+          baseline={panel.baseline}
+          xLabels={panel.xLabels}
         />
       </View>
 
       <RangeCard
         entries={[
-          { label: 'Min', value: fmt(dayData.min), unit: cfg.unit },
-          { label: 'Avg', value: fmt(dayData.avg), unit: cfg.unit },
-          { label: 'Max', value: fmt(dayData.max), unit: cfg.unit },
+          { label: view === 'day' ? 'Min' : 'Lowest day',  value: fmt(panel.min), unit: cfg.unit },
+          { label: view === 'day' ? 'Avg' : 'Daily avg',   value: fmt(panel.avg), unit: cfg.unit },
+          { label: view === 'day' ? 'Max' : 'Highest day', value: fmt(panel.max), unit: cfg.unit },
         ]}
       />
 
@@ -237,30 +326,32 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
             {showReadings ? '▾  Hide detailed report' : '▸  Detailed report'}
           </Text>
           <Text style={styles.reportCount}>
-            {dayReadings.length === 0 ? 'no readings' : `${dayReadings.length} readings`}
+            {reportRows.length === 0
+              ? 'no readings'
+              : `${reportRows.length} ${view === 'day' ? 'readings' : 'days'}`}
           </Text>
         </TouchableOpacity>
         {showReadings && (
         <>
         <View style={styles.chartHead}>
-          <Text style={styles.chartLabel}>Readings</Text>
+          <Text style={styles.chartLabel}>{view === 'day' ? 'Readings' : 'Daily averages'}</Text>
           <Text style={styles.chartAside}>
-            {dayReadings.length === 0
+            {reportRows.length === 0
               ? 'none recorded'
-              : `${dayReadings.length} on ${formatLongDate(selected)}`}
+              : view === 'day'
+                ? `${reportRows.length} on ${formatLongDate(selected)}`
+                : `${reportRows.length} days with data`}
           </Text>
         </View>
-        {dayReadings.length === 0 ? (
+        {reportRows.length === 0 ? (
           <Text style={styles.emptyNote}>
-            Nothing stored for this day yet. The ring samples on its own schedule —
-            check the monitoring interval in Settings.
+            Nothing stored for this {view === 'day' ? 'day' : view} yet. The ring samples on its
+            own schedule — check the monitoring interval in Settings.
           </Text>
         ) : (
-          dayReadings.map((r) => (
-            <View key={r.timestamp.getTime()} style={styles.readingRow}>
-              <Text style={styles.readingTime}>
-                {r.timestamp.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
-              </Text>
+          reportRows.map((r) => (
+            <View key={r.key} style={styles.readingRow}>
+              <Text style={styles.readingTime}>{r.when}</Text>
               <Text style={[styles.readingValue, { color: cfg.color }]}>
                 {cfg.unit === '°C' ? r.value.toFixed(1) : Math.round(r.value)}
                 <Text style={styles.readingUnit}> {cfg.unit}</Text>
@@ -308,6 +399,27 @@ function pickSamples(v: RingVitalsSyncResult, metric: ScalarMetric): { timestamp
     case 'temp': return v.raw.temp.map((s) => ({ timestamp: s.timestamp, value: s.tempCx10 / 10 }));
     case 'resp': return []; // ring doesn't ship this metric today
   }
+}
+
+/**
+ * Evenly spaced date ticks. A week labels every day; a month would overrun the
+ * axis, so it labels roughly one point a week plus the final day.
+ */
+function periodXLabels(series: { iso: string }[], week: boolean): string[] {
+  if (!series.length) return [];
+  const short = (iso: string, withDay: boolean): string => {
+    const [y, m, d] = iso.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    return withDay
+      ? dt.toLocaleDateString(undefined, { weekday: 'narrow' })
+      : `${d}/${m}`;
+  };
+  if (week) return series.map((p) => short(p.iso, true));
+  const step = Math.max(1, Math.ceil(series.length / 5));
+  const out = series.filter((_, i) => i % step === 0).map((p) => short(p.iso, false));
+  const last = short(series[series.length - 1].iso, false);
+  if (out[out.length - 1] !== last) out.push(last);
+  return out;
 }
 
 function formatLongDate(iso: string): string {

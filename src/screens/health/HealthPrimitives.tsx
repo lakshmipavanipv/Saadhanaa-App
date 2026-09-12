@@ -342,7 +342,8 @@ export const BandedChart: React.FC<BandedChartProps> = ({ cfg, data, baseline, x
             const heightPct = ((b.to - b.from) / yRange) * 100;
             const bg =
               b.tint === 'low'  ? HEALTH_COLORS.tintLow :
-              b.tint === 'warn' ? HEALTH_COLORS.tintWarn : HEALTH_COLORS.tintOk;
+              b.tint === 'warn' ? HEALTH_COLORS.tintWarn :
+              b.tint === 'fit'  ? HEALTH_COLORS.tintFit : HEALTH_COLORS.tintOk;
             return (
               <View
                 key={`band-${i}`}
