@@ -1,0 +1,86 @@
+# .easignore — what EAS Build excludes when uploading the project.
+#
+# When this file exists it REPLACES .gitignore for the upload, so it has to
+# carry everything .gitignore excludes. It is a copy of that file with one
+# line removed: google-services.json.
+#
+# Why: eas-cli applies .gitignore rules when it copies the project, not just
+# git's tracked-file list. google-services.json was committed with `git add -f`
+# and is present in `git archive HEAD`, yet never reached the worker —
+# prebuild failed with ENOENT on
+# /home/expo/workingdir/build/google-services.json. A force-added file that is
+# still listed in .gitignore gets stripped on the way up.
+#
+# .gitignore keeps its entry, so the real Firebase config still cannot be
+# committed to this public repo by accident.
+
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env
+.env*.local
+backend/local/.env
+backend/otp-service/.dev.vars
+backend/local/node_modules/
+backend/otp-service/node_modules/
+
+# Firebase configs — contain real OAuth client IDs and API keys.
+# Use google-services.example.json as a schema reference; copy it to
+# google-services.json and replace placeholder values with the file
+# downloaded from Firebase Console → Project Settings → Your Apps.
+GoogleService-Info.plist
+
+# typescript
+*.tsbuildinfo
+
+app-example
+
+# generated native folders
+/ios
+/android
+
+# build artifacts
+*.apk
+*.aab
+
+# nested empty repo
+/Saadhana App
+scripts/__pycache__/
+
+# Backend (server/) + worker secrets — never commit
+server/node_modules/
+server/.env
+server/firebase-service-account.json
+**/firebase-service-account*.json
+otp-worker/node_modules/
+otp-worker/.dev.vars
