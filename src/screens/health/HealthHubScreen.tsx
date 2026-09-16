@@ -177,8 +177,12 @@ export const HealthHubScreen: React.FC<any> = ({ navigation }) => {
         const asC = raw.map((s) => ({ timestamp: s.timestamp, temp: s.tempCx10 / 10 }));
         return computeMetric(asC, 'temp');
       })(),
-      // Ring doesn't ship a distinct resp-rate metric; derive from HR (~4-6x) — placeholder for now
-      resp:  { current: 14, baseline7d: 14, spark: [12, 13, 14, 13, 15, 14, 14] },
+      // Respiration is recovered from beat-to-beat intervals — see
+      // soulsync/analytics/Respiration.ts. The SR16 reports averaged heart rate
+      // on a timer and streams no R-R intervals, so there is nothing to run
+      // that on and the tile reads '—'. This was a hardcoded 14 with an
+      // invented spark, which looked like a measurement and was not one.
+      resp:  { current: null, baseline7d: null, spark: [] },
       stress: computeMetric(vitals.raw.stress, 'stress'),
       sleep:  sleepFromResult(vitals),
       exercise: { current: null, baseline7d: null, spark: [] },

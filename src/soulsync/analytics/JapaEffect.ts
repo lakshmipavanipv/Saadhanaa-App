@@ -306,15 +306,26 @@ export const computeJapaEffect = async (): Promise<JapaEffectSnapshot> => {
     points: durationPts, weight: 0.20,
   });
 
-  // ── Respiratory Rate (RR) estimate: derived from HRV peaks per minute ──
-  // Healthy resting RR is 12-20 breaths/min. Estimated from RMSSD via the
-  // standard formula RR ≈ 60 / (4 + RMSSD/30) — a simplification but
-  // gives ballpark numbers for the trend chart.
-  const rrFrom = (rmssd: number | null) =>
-    rmssd && rmssd > 0 ? Math.round(60 / (4 + rmssd / 30)) : null;
+  // ── Respiratory Rate (RR) ──
+  //
+  // This row previously read `RR ≈ 60 / (4 + RMSSD/30)`, described in the
+  // comment as "the standard formula". It is not a standard formula and no
+  // such relation exists: RMSSD is a magnitude in milliseconds and respiration
+  // is a frequency, and the mapping between them is not fixed — a rested
+  // person and a stressed one can breathe at the same rate with very different
+  // RMSSD. The expression also collapses: for any RMSSD above zero it can only
+  // return 1-15, so it read "15 br/min" for nearly every session regardless of
+  // how the user actually breathed.
+  //
+  // Respiration is recoverable from beat-to-beat intervals through respiratory
+  // sinus arrhythmia, which `analytics/Respiration.ts` implements. That needs
+  // the R-R interval series, not a single summary statistic. The SR16 streams
+  // no intervals, so both cells stay null and render as '—' until hardware
+  // that does arrives — at which point this becomes
+  // `estimateRespirationRate(rrMs)?.bpm ?? null` over each window.
   metrics.push(mkRow(
     'RR (resp. rate)', '🌬️', 'br/min',
-    rrFrom(baselineRmssd), rrFrom(japaRmssd),
+    null, null,
     true,   // lower (slower) breathing during japa is better
     0, 0,
   ));

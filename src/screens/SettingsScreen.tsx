@@ -15,6 +15,7 @@ import { useSadhana } from '../context';
 import { UserProfile } from '../types';
 import { COLORS, SPACING } from '../theme';
 import { RingDebugScreen } from './RingDebugScreen';
+import { RespirationProbeScreen } from './RespirationProbeScreen';
 import {
   vitalsPrefs, INTERVAL_CHOICES, SLEEP_INTERVAL_MIN, describeInterval, RING_MONITOR_INTERVALS,
   type VitalsPrefs,
@@ -34,6 +35,7 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
   } = useSadhana();
   const [editing, setEditing] = useState(false);
   const [showRingDebug, setShowRingDebug] = useState(false);
+  const [showRespProbe, setShowRespProbe] = useState(false);
 
 
   const confirmReset = () => {
@@ -125,6 +127,16 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
           <Text style={[styles.rowValue, { color: COLORS.gold }]}>Open ›</Text>
         </TouchableOpacity>
 
+        {/* Respiration probe — decides with a capture, not an argument,
+            whether {2,3,16} bytes 0/1 are beat-to-beat intervals. */}
+        <TouchableOpacity style={styles.ringRow} onPress={() => setShowRespProbe(true)}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowLabel}>🌬️ Respiration probe</Text>
+            <Text style={styles.rowHint}>Breathe to a pacer; check if the ring can give a real breathing rate</Text>
+          </View>
+          <Text style={[styles.rowValue, { color: COLORS.gold }]}>Open ›</Text>
+        </TouchableOpacity>
+
         {/* Vitals measurement cadence moved to Device Settings — recording
             window, sample interval, sleep window and japa live-link are ring
             behaviour, not profile preferences. */}
@@ -169,6 +181,12 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
       {showRingDebug && (
         <Modal visible transparent={false} animationType="slide" onRequestClose={() => setShowRingDebug(false)}>
           <RingDebugScreen onClose={() => setShowRingDebug(false)} />
+        </Modal>
+      )}
+
+      {showRespProbe && (
+        <Modal visible transparent={false} animationType="slide" onRequestClose={() => setShowRespProbe(false)}>
+          <RespirationProbeScreen onClose={() => setShowRespProbe(false)} />
         </Modal>
       )}
     </View>
