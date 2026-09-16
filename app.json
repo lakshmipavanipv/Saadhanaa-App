@@ -2,7 +2,7 @@
   "expo": {
     "name": "Body & Soul Ring",
     "slug": "sadhana-app",
-    "version": "1.0.110",
+    "version": "1.0.111",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "sadhana",
