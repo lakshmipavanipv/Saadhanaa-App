@@ -10,26 +10,23 @@ import { useTheme } from '../../ThemeContext';
 import {
   ScreenHeader, ViewSwitch, WeekStrip, HeroCard, BandedChart, RangeCard, AboutCard,
   type HealthView, type DayQuality, useBackToHealth } from './HealthPrimitives';
+import { useRange } from './rangeContext';
 import { STRESS_CONFIG, bandForValue } from './healthTokens';
 import { syncAllRingVitals, loadStoredVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
 import { vitalsRepo } from '../../soulsync/db/vitalsRepo';
+import { isoDayOf as isoDay } from '../../utils';
 
 const DAY_MS = 86_400_000;
 
-function isoDay(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${dd}`;
-}
 
 export const StressDetailScreen: React.FC<any> = ({ navigation }) => {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
   const cfg = STRESS_CONFIG;
 
-  const [view, setView] = useState<HealthView>('day');
-  const [selected, setSelected] = useState<string>(isoDay(new Date()));
+  // Range is shared app-wide, so a day chosen on Japa or Exercise is the
+  // day this report opens on. See screens/health/rangeContext.
+  const { view, setView, selected, setSelected } = useRange();
   const [vitals, setVitals] = useState<RingVitalsSyncResult | null>(null);
 
   // Stored stress history. The live sync result only carries what the ring

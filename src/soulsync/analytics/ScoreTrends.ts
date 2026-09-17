@@ -11,6 +11,7 @@
 import { getDB } from '../db/database';
 import { sleepRepo } from '../db/sleepRepo';
 import { computeCalmDivergence } from './CalmDivergence';
+import { estimatedWasoMin, restlessnessScore } from './sleepNightMath';
 
 export interface TrendPoint {
   date: string;          // YYYY-MM-DD
@@ -118,9 +119,12 @@ const dailySleepScore = async (dateStr: string): Promise<number | null> => {
   if (!r || r.total_sleep_min === 0) return null;
 
   const hours = r.total_sleep_min / 60;
-  const wasoMin = r.awakenings * 5;
-  const inBedMin = r.total_sleep_min + wasoMin;
-  const efficiency = inBedMin > 0 ? (r.total_sleep_min / inBedMin) * 100 : 0;
+  // Restlessness, from the shared night maths. It was called efficiency and
+  // computed as total/(total + awakenings*5) — a denominator rebuilt from
+  // the numerator plus a guess, so it always landed near 96%. See
+  // analytics/sleepNightMath.
+  const wasoMin = estimatedWasoMin(r.awakenings);
+  const efficiency = restlessnessScore(r.total_sleep_min, r.awakenings) ?? 0;
   const deepPct = (r.deep_sleep_min / r.total_sleep_min) * 100;
   const remPct  = (r.rem_sleep_min  / r.total_sleep_min) * 100;
 

@@ -7,40 +7,48 @@
  * Breathing is recoverable from the heartbeat: you speed up slightly on the
  * inhale and slow on the exhale (respiratory sinus arrhythmia), so the gaps
  * between beats wobble in time with the breath. `analytics/Respiration.ts`
- * already implements that recovery correctly. What it needs is the gaps
+ * implements that recovery and is correct. What it needs is the gaps
  * themselves — a beat-to-beat series, several samples per breath.
  *
- * `SadhanaRingService.buildSample()` reports `rrMs: []` because the SR16 was
- * believed to stream no such thing. But its continuous-HR notify carries more
- * than we read:
+ * WHAT THE FIRST CAPTURE SHOWED
  *
- *     // {2, 3, 16} continuous-HR notify — payload [minInterval, maxInterval, hr]
- *     const hr = frame.payload[2];
+ * This screen was written to examine `{2,3,16}`, the "continuous-HR notify"
+ * whose payload `SadhanaRingService` documents as [minInterval, maxInterval,
+ * hr] while reading only byte 2. On an SR16 on a finger, that frame never
+ * arrives — not once. The comment describes a frame this firmware does not
+ * send, and every plan built on recovering intervals from it was built on
+ * nothing.
  *
- * Bytes 0 and 1 are named in that comment and then discarded, and the naming
- * was never verified against a capture. They are single bytes, so two readings
- * both fit and cannot be told apart from the code alone:
+ * What the ring actually streams is `{2,36,0}`, six bytes, about every 2.6
+ * seconds:
  *
- *   • R-R intervals in 10 ms units → 30-200 covers 300-2000 ms
- *   • min/max heart rate in bpm    → 20-220
+ *     50 62 72 88 70 00
+ *     50 62 72 90 71 00
+ *     50 62 72 97 65 00
  *
- * This screen decides it with data instead of argument. It records every
- * {2,3,16} frame with a wall-clock timestamp while you breathe to a fixed
- * pace, then reports three things:
+ * Bytes 0-2 are frozen; byte 3 climbs; byte 4 drifts down through a plausible
+ * resting heart rate; byte 5 is always zero.
  *
- *   1. HOW FAST the frames arrive. Breathing at 0.15-0.40 Hz needs samples
- *      faster than ~1.25 s (Nyquist). If the ring pushes every five seconds,
- *      the question is closed no matter what the bytes mean.
- *   2. WHETHER bytes 0/1 move at all, and over what range. Constant bytes are
- *      not per-beat data.
- *   3. AN INDICATIVE RATE, by feeding the reconstructed series to the real
- *      estimator, so a correct answer near the paced rate is strong evidence.
+ * THE CADENCE IS THE ANSWER, NOT THE BYTES
  *
- * Breathe to the pacer (12 breaths/min) for at least 90 seconds. If the
- * estimate lands near 12, bytes 0/1 are intervals and respiration is solved
- * for every screen at once.
+ * A 2.6 s sample spacing puts the Nyquist ceiling at about 11.5 breaths per
+ * minute. Ordinary breathing, 12-20, sits above it and aliases: it is not
+ * that we have not decoded the right byte, it is that the rhythm cannot be
+ * represented in this stream at all. Only slow pranayama, below that ceiling,
+ * remains open.
  *
- * Nothing here is user-facing. Opened from Settings beside Ring Debug.
+ * SO THIS SCREEN ASSUMES NOTHING
+ *
+ * It records every frame, finds the dominant repeating one, reports each
+ * byte's range and how many distinct values it takes, and states the ceiling
+ * the observed cadence allows. The byte that moves most is the only candidate
+ * for a rhythm, and it gets handed to the real estimator. Presuming a frame
+ * identity is what produced the fabricated 14 on the Health hub; the fix is
+ * to let the capture say what is there.
+ *
+ * Breathe to the pacer (12 breaths/min) for at least 90 seconds.
+ *
+ * Nothing here is user-facing. Opened from Device Settings.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -53,12 +61,10 @@ import {
   requestRingPermissions,
   waitForBluetoothOn,
   readSr16DeviceId,
+  saveSr16DeviceId,
   type JieliFrame,
 } from '../soulsync/ring';
 import { estimateRespirationRate } from '../soulsync/analytics/Respiration';
-
-/** The frame under investigation. */
-const CAP_CMD = 0x02, CAP_KEY = 0x03, CAP_FLAG = 0x10;
 
 /** Paced breathing target. 12/min sits mid-band and is easy to hold. */
 const PACE_BPM = 12;
@@ -70,7 +76,10 @@ const MAX_USABLE_GAP_MS = 1250;
 /** Below this we tell the user to keep breathing rather than guess. */
 const MIN_SAMPLES = 40;
 
-interface Cap { t: number; b0: number; b1: number; hr: number }
+interface Cap { t: number; kind: string; bytes: number[] }
+
+/** Frame identity, e.g. "2/36/0". */
+const kindOf = (f: JieliFrame) => `${f.cmd}/${f.key}/${f.keyFlag}`;
 
 const HEX = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, '0')).join(' ');
 
@@ -81,31 +90,12 @@ const median = (xs: number[]): number => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
-type Reading = 'rr10ms' | 'bpm' | 'unknown';
-
-/**
- * Decide what bytes 0/1 most plausibly are, from their observed range.
- * Deliberately conservative: overlapping ranges report 'unknown' rather than
- * picking, because a confident wrong label here would send us down a month of
- * decoding the wrong field.
- */
-function readingOf(vals: number[]): Reading {
-  if (vals.length < 10) return 'unknown';
-  const lo = Math.min(...vals), hi = Math.max(...vals);
-  const asRr = lo >= 25 && hi <= 205;    // 250-2050 ms
-  const asBpm = lo >= 30 && hi <= 220;
-  if (asRr && !asBpm) return 'rr10ms';
-  if (asBpm && !asRr) return 'bpm';
-  return 'unknown';
-}
-
 export const RespirationProbeScreen = ({ onClose }: { onClose: () => void }) => {
   const [ring, setRing] = useState<SadhanaRing | null>(null);
   const [status, setStatus] = useState('Not connected');
   const [busy, setBusy] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [caps, setCaps] = useState<Cap[]>([]);
-  const [otherFrames, setOtherFrames] = useState(0);
   const [lastRaw, setLastRaw] = useState<string | null>(null);
   const [probeOut, setProbeOut] = useState<string[]>([]);
 
@@ -135,8 +125,30 @@ export const RespirationProbeScreen = ({ onClose }: { onClose: () => void }) => 
     try {
       if (!(await requestRingPermissions())) { setStatus('Bluetooth permission denied'); return; }
       if (!(await waitForBluetoothOn())) { setStatus('Bluetooth is off'); return; }
-      const id = await readSr16DeviceId();
-      if (!id) { setStatus('No saved ring — pair it first from Settings'); return; }
+      // Prefer the paired ring, but do not dead-end when nothing is saved:
+      // this screen is opened to answer a hardware question, and sending the
+      // user back to pair first is friction for no reason when we can find
+      // the ring ourselves. Anything the classifier did not recognise is
+      // ignored — connecting the probe to a television proves nothing.
+      let id = await readSr16DeviceId();
+      if (!id) {
+        setStatus('No saved ring — scanning…');
+        id = await new Promise<string | null>((resolve) => {
+          let best: { id: string; rssi: number } | null = null;
+          const stop = SadhanaRing.scan(
+            (c) => {
+              if (c.hint === 'other') return;
+              const rssi = c.rssi ?? -999;
+              if (!best || rssi > best.rssi) best = { id: c.id, rssi };
+            },
+            () => { /* surfaced by the timeout below */ },
+            { timeoutMs: 8000 }
+          );
+          setTimeout(() => { stop(); resolve(best ? best.id : null); }, 8200);
+        });
+        if (!id) { setStatus('No ring found. Wear it, keep it close, try again.'); return; }
+        await saveSr16DeviceId(id);
+      }
       setStatus('Connecting…');
       const r = await SadhanaRing.connect(id);
       ringRef.current = r;
@@ -154,24 +166,31 @@ export const RespirationProbeScreen = ({ onClose }: { onClose: () => void }) => 
     const r = ringRef.current;
     if (!r) return;
     setCaps([]);
-    setOtherFrames(0);
     setLastRaw(null);
     startedAt.current = Date.now();
 
     offFrameRef.current = r.onFrame((f: JieliFrame) => {
-      if (f.cmd === CAP_CMD && f.key === CAP_KEY && f.keyFlag === CAP_FLAG) {
-        setLastRaw(HEX(f.payload));
-        if (f.payload.length >= 3) {
-          setCaps((prev) => [...prev, {
-            t: Date.now(),
-            b0: f.payload[0],
-            b1: f.payload[1],
-            hr: f.payload[2],
-          }]);
-        }
-      } else {
-        setOtherFrames((n) => n + 1);
-      }
+      // Every frame is logged, not just the one under investigation. The
+      // opcode table is only partly decoded, so a channel we have never
+      // identified may be carrying exactly what respiration needs; that is
+      // invisible if we only print the frame we already suspect.
+      // Readable from a release build with: adb logcat -s ReactNativeJS:V
+      console.log(
+        `[RRPROBE] t=${Date.now() - startedAt.current} cmd=${f.cmd} key=${f.key} ` +
+        `flag=${f.keyFlag} len=${f.payload.length} hex=${HEX(f.payload)}`
+      );
+
+      // Record everything. The frame this screen was written to expect,
+      // {2,3,16}, never arrived from this firmware — the live stream is
+      // {2,36,0} — so presuming a frame identity here is exactly the mistake
+      // that produced the fabricated 14 in the first place. Whichever frame
+      // actually repeats is the stream, and the analysis below finds it.
+      setLastRaw(`${kindOf(f)}  ${HEX(f.payload)}`);
+      setCaps((prev) => [...prev, {
+        t: Date.now(),
+        kind: kindOf(f),
+        bytes: [...f.payload],
+      }]);
     });
 
     try {
@@ -220,81 +239,107 @@ export const RespirationProbeScreen = ({ onClose }: { onClose: () => void }) => 
   }, []);
 
   // ── Analysis ───────────────────────────────────────────────────────────
+  //
+  // Nothing here assumes which frame carries what. The dominant repeating
+  // frame is the stream; within it, the byte that moves most is the only
+  // candidate for a breathing signal. Both are found from the data.
   const analysis = useMemo(() => {
     if (caps.length < 2) return null;
+
+    const byKind = new Map<string, Cap[]>();
+    for (const c of caps) {
+      const list = byKind.get(c.kind) ?? [];
+      list.push(c);
+      byKind.set(c.kind, list);
+    }
+    const kinds = [...byKind.entries()].sort((a, b) => b[1].length - a[1].length);
+    const [kind, rows] = kinds[0];
+    if (rows.length < 3) return null;
+
     const gaps: number[] = [];
-    for (let i = 1; i < caps.length; i++) gaps.push(caps[i].t - caps[i - 1].t);
+    for (let i = 1; i < rows.length; i++) gaps.push(rows[i].t - rows[i - 1].t);
     const gap = median(gaps);
 
-    const b0 = caps.map((c) => c.b0);
-    const b1 = caps.map((c) => c.b1);
-    const hr = caps.map((c) => c.hr);
-    const spread = (xs: number[]) => Math.max(...xs) - Math.min(...xs);
-    const distinct = (xs: number[]) => new Set(xs).size;
+    const width = Math.max(...rows.map((r) => r.bytes.length));
+    const cols = Array.from({ length: width }, (_, i) =>
+      rows.map((r) => r.bytes[i]).filter((v) => v != null) as number[]
+    );
+    const stats = cols.map((vals, i) => ({
+      i,
+      min: Math.min(...vals),
+      max: Math.max(...vals),
+      distinct: new Set(vals).size,
+    }));
 
-    const reading = readingOf([...b0, ...b1]);
+    // The byte with the most distinct values is the only one that could be
+    // carrying a rhythm; a frozen byte is configuration, not a measurement.
+    const live = [...stats].sort((a, b) => b.distinct - a.distinct)[0];
 
-    // Reconstruct a millisecond series from the two bytes, under whichever
-    // reading the ranges support, and hand it to the real estimator.
-    let rrMs: number[] | null = null;
-    if (reading === 'rr10ms') rrMs = caps.map((c) => ((c.b0 + c.b1) / 2) * 10);
-    else if (reading === 'bpm') rrMs = caps.map((c) => 60_000 / Math.max(1, (c.b0 + c.b1) / 2));
+    // Highest breathing rate this cadence can represent at all (Nyquist).
+    const ceilingBpm = gap > 0 ? (1000 / gap / 2) * 60 : 0;
 
-    const est = rrMs && rrMs.length >= MIN_SAMPLES ? estimateRespirationRate(rrMs) : null;
+    const est = live && live.distinct > 3 && rows.length >= MIN_SAMPLES
+      ? estimateRespirationRate(rows.map((r) => r.bytes[live.i] * 10))
+      : null;
 
     return {
+      kind,
+      kinds: kinds.map(([k, v]) => `${k} ×${v.length}`),
       gap,
-      seconds: (caps[caps.length - 1].t - caps[0].t) / 1000,
-      b0: { min: Math.min(...b0), max: Math.max(...b0), spread: spread(b0), distinct: distinct(b0) },
-      b1: { min: Math.min(...b1), max: Math.max(...b1), spread: spread(b1), distinct: distinct(b1) },
-      hr: { min: Math.min(...hr), max: Math.max(...hr) },
-      reading,
+      ceilingBpm,
+      seconds: (rows[rows.length - 1].t - rows[0].t) / 1000,
+      count: rows.length,
+      stats,
+      live,
       est,
     };
   }, [caps]);
 
   const verdict = useMemo(() => {
     if (!analysis) return { tone: COLORS.muted, text: 'No frames captured yet.' };
-    if (caps.length < MIN_SAMPLES) {
-      return { tone: COLORS.warning, text: `Keep breathing — ${caps.length}/${MIN_SAMPLES} frames so far.` };
-    }
-    if (analysis.gap > MAX_USABLE_GAP_MS) {
+    const { gap, ceilingBpm, live, count } = analysis;
+
+    if (gap > MAX_USABLE_GAP_MS) {
       return {
         tone: COLORS.error,
-        text: `Frames arrive every ${(analysis.gap / 1000).toFixed(1)} s. Breathing needs faster than ${(MAX_USABLE_GAP_MS / 1000).toFixed(2)} s, so this channel cannot carry it — whatever the bytes mean.`,
+        text:
+          `Frames arrive every ${(gap / 1000).toFixed(1)} s. That caps what can be seen at ` +
+          `${ceilingBpm.toFixed(1)} breaths/min, and normal breathing is 12-20. ` +
+          `Ordinary breathing cannot be recovered from this stream at any sampling ` +
+          `rate this ring offers — slow pranayama below ${ceilingBpm.toFixed(0)}/min is the only case left open.`,
       };
     }
-    if (analysis.b0.distinct <= 2 && analysis.b1.distinct <= 2) {
-      return {
-        tone: COLORS.error,
-        text: 'Bytes 0 and 1 barely change. They are not per-beat values, so there is no wobble to read a breath from.',
-      };
+    if (!live || live.distinct <= 2) {
+      return { tone: COLORS.error, text: 'No byte in this frame changes. There is no rhythm here to read.' };
+    }
+    if (count < MIN_SAMPLES) {
+      return { tone: COLORS.warning, text: `Keep breathing — ${count}/${MIN_SAMPLES} frames so far.` };
     }
     if (analysis.est) {
       const near = Math.abs(analysis.est.bpm - PACE_BPM) <= 2.5;
       return {
         tone: near ? COLORS.success : COLORS.warning,
         text: near
-          ? `Estimate ${analysis.est.bpm.toFixed(1)} br/min against a paced ${PACE_BPM}. That is a match — bytes 0/1 carry beat-to-beat timing and respiration is recoverable on this hardware.`
-          : `Estimate ${analysis.est.bpm.toFixed(1)} br/min against a paced ${PACE_BPM}. Not a match yet — capture longer, or the bytes mean something else.`,
+          ? `Estimate ${analysis.est.bpm.toFixed(1)} br/min against a paced ${PACE_BPM} — a match. Byte ${live.i} carries the breath.`
+          : `Estimate ${analysis.est.bpm.toFixed(1)} br/min against a paced ${PACE_BPM}. Not a match; byte ${live.i} moves, but not with your breathing.`,
       };
     }
-    return {
-      tone: COLORS.warning,
-      text: 'Frames are fast enough and the bytes move, but no clear breathing rhythm stood above the noise yet. Keep going to 2 minutes.',
-    };
-  }, [analysis, caps.length]);
+    return { tone: COLORS.warning, text: 'Frames are fast enough and a byte moves, but no clear rhythm yet.' };
+  }, [analysis]);
 
   const exportCapture = useCallback(() => {
     const head = [
       `Saadhana Ring respiration probe`,
-      `frames=${caps.length} others=${otherFrames} medianGap=${analysis?.gap ?? '-'}ms`,
-      `reading=${analysis?.reading ?? '-'} pacedAt=${PACE_BPM}br/min`,
-      `t_ms,b0,b1,hr`,
+      `frames=${caps.length} kinds=${analysis?.kinds.join(' ') ?? '-'}`,
+      `stream=${analysis?.kind ?? '-'} medianGap=${analysis?.gap ?? '-'}ms ceiling=${analysis?.ceilingBpm.toFixed(1) ?? '-'}br/min`,
+      `pacedAt=${PACE_BPM}br/min`,
+      `t_ms,kind,bytes`,
     ].join('\n');
-    const rows = caps.map((c) => `${c.t - startedAt.current},${c.b0},${c.b1},${c.hr}`).join('\n');
+    const rows = caps
+      .map((c) => `${c.t - startedAt.current},${c.kind},${c.bytes.join(' ')}`)
+      .join('\n');
     void Share.share({ message: head + '\n' + rows });
-  }, [caps, otherFrames, analysis]);
+  }, [caps, analysis]);
 
   const paceScale = pace.interpolate({ inputRange: [0, 1], outputRange: [0.55, 1] });
 
@@ -336,19 +381,20 @@ export const RespirationProbeScreen = ({ onClose }: { onClose: () => void }) => 
         {/* ── Live numbers ────────────────────────────────────────────── */}
         {analysis ? (
           <View style={styles.card}>
-            <Text style={styles.cardHead}>{'{2,3,16} frames'}</Text>
+            <Text style={styles.cardHead}>What the ring actually sends</Text>
+            <Row k="Stream" v={`{${analysis.kind.replace(/\//g, ',')}}  ×${analysis.count}`} />
+            <Row k="All frames" v={analysis.kinds.join('  ')} />
             <Row k="Captured" v={`${caps.length}  (${analysis.seconds.toFixed(0)}s)`} />
             <Row k="Median gap" v={`${analysis.gap.toFixed(0)} ms`} />
-            <Row k="Other frames" v={String(otherFrames)} />
-            <Row k="byte 0" v={`${analysis.b0.min}–${analysis.b0.max}  (${analysis.b0.distinct} distinct)`} />
-            <Row k="byte 1" v={`${analysis.b1.min}–${analysis.b1.max}  (${analysis.b1.distinct} distinct)`} />
-            <Row k="byte 2 (hr)" v={`${analysis.hr.min}–${analysis.hr.max} bpm`} />
-            <Row k="Reads as" v={
-              analysis.reading === 'rr10ms' ? 'R-R intervals (×10 ms)'
-                : analysis.reading === 'bpm' ? 'heart rate (bpm)'
-                  : 'ambiguous'
-            } />
-            {lastRaw ? <Row k="Last payload" v={lastRaw} /> : null}
+            <Row k="Can show up to" v={`${analysis.ceilingBpm.toFixed(1)} br/min`} />
+            {analysis.stats.map((b) => (
+              <Row
+                key={b.i}
+                k={`byte ${b.i}${analysis.live && b.i === analysis.live.i ? ' ←moves' : ''}`}
+                v={b.min === b.max ? `${b.min} (fixed)` : `${b.min}–${b.max}  (${b.distinct} distinct)`}
+              />
+            ))}
+            {lastRaw ? <Row k="Last frame" v={lastRaw} /> : null}
           </View>
         ) : null}
 

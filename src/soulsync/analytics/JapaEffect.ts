@@ -21,6 +21,8 @@
 import { getDB } from '../db/database';
 import { ambientBaselineRepo } from '../db/ambientBaselineRepo';
 import { sleepRepo } from '../db/sleepRepo';
+import { restlessnessScore } from './sleepNightMath';
+import { isoDayOf } from '../../utils';
 
 // ─── Types ─────────────────────────────────────────────────────────
 
@@ -132,7 +134,10 @@ const noteFor = (score: number, hasJapa: boolean): string => {
 // ─── Main computation ─────────────────────────────────────────────
 
 export const computeJapaEffect = async (): Promise<JapaEffectSnapshot> => {
-  const today = new Date().toISOString().slice(0, 10);
+  // Local day, not UTC. toISOString() returns yesterday's date for the first
+  // 5.5 hours of every IST day, which attributed a pre-dawn japa session to
+  // the day before.
+  const today = isoDayOf(new Date());
   const db = await getDB();
 
   // 1. Get today's baseline (rest-of-day ambient — when NOT in a session)
@@ -243,9 +248,9 @@ export const computeJapaEffect = async (): Promise<JapaEffectSnapshot> => {
     if (sleeps.length > 0) {
       const last = sleeps[sleeps.length - 1];
       const hrs = last.total_sleep_min / 60;
-      const wasoMin = last.awakenings * 5;
-      const inBed = last.total_sleep_min + wasoMin;
-      const eff = inBed > 0 ? (last.total_sleep_min / inBed) * 100 : 0;
+      // Shared night maths — see analytics/sleepNightMath for why this is
+      // restlessness rather than the efficiency it used to claim to be.
+      const eff = restlessnessScore(last.total_sleep_min, last.awakenings) ?? 0;
       const deepPct = (last.deep_sleep_min / last.total_sleep_min) * 100;
       const remPct  = (last.rem_sleep_min  / last.total_sleep_min) * 100;
       const dur =
@@ -344,14 +349,20 @@ export const computeJapaEffect = async (): Promise<JapaEffectSnapshot> => {
     false, 0, 0,
   ));
 
-  // ── Recovery Speed: how fast HRV bounces back after stress.
-  //    Proxy: difference between session-end RMSSD and session-avg RMSSD.
-  //    Faster recovery = higher number. Default to today's avg as proxy.
-  const recoveryFrom = (rmssd: number | null) =>
-    rmssd != null ? Math.round(rmssd * 1.2) : null;
+  // ── Recovery speed ──
+  //
+  // This row printed `Math.round(rmssd * 1.2)` under the unit "/100". It was
+  // RMSSD in milliseconds inflated by twenty percent and relabelled as a score
+  // out of a hundred — so it could never disagree with the HRV row two lines
+  // above it, and the 1.2 had no derivation anywhere.
+  //
+  // Real recovery speed is how fast HRV returns to baseline after the session
+  // ends, which needs post-session telemetry this app does not yet record.
+  // Until it does, the row reports nothing rather than a dressed-up copy of
+  // a number already on screen.
   metrics.push(mkRow(
-    'Recovery speed', '⚡', '/100',
-    recoveryFrom(baselineRmssd), recoveryFrom(japaRmssd),
+    'Recovery speed', '⚡', '',
+    null, null,
     false, 0, 0,
   ));
 

@@ -17,6 +17,7 @@ import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, Animated, TextInput,
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
+import { RangeBar } from './health/RangeBar';
 import { useTheme } from '../ThemeContext';
 import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
@@ -24,7 +25,7 @@ import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
 import { soulActivityRepo } from '../services/soulActivityRepo';
 import { useSadhana } from '../context';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
-import { todayStr } from '../utils';
+import { todayStr, isoDayOf } from '../utils';
 import { PracticeStatsBox, SessionList, BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import { PracticeAssistant, PracticeCatalogItem } from '../components/PracticeAssistant';
@@ -313,11 +314,10 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
   const mshStyles = React.useMemo(() => makeMshStyles(palette), [palette]);
   const { showToast } = useSadhana();
   const soulsync = useSoulsyncSession();
-  const [filter, setFilter] = useState<Intent | 'all'>('all');
   const [selected, setSelected] = useState<Technique | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [logMin, setLogMin] = useState('');
-  const [logDate, setLogDate] = useState(new Date().toISOString().slice(0, 10));
+  const [logDate, setLogDate] = useState(isoDayOf(new Date()));
 
   const submitLog = async () => {
     const m = parseInt(logMin, 10);
@@ -403,9 +403,14 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
           </View>
         </View>
 
+        {/* Shared Day / Week / Month — the same control the health
+            reports use, on the same date. */}
+        <RangeBar />
+
         {/* Top stats — mirrors ExerciseScreen pattern (sync'd with Yoga):
               · Box A: meditation time today (solid gold progress bar)
               · Box B: sadhana depth score (HORIZONTAL DASHED bar) */}
+
         <PracticeStatsBox
           practice="meditation"
           minutesToday={minutesToday}
@@ -467,7 +472,7 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
           <View style={styles.logCard}>
             <View style={styles.logHandle} />
             <Text style={styles.logTitle}>Log past meditation</Text>
-            <Text style={styles.logHint}>Add minutes you've already practised.</Text>
+            <Text style={styles.logHint}>Add minutes you’ve already practised.</Text>
             <Text style={styles.logFieldLabel}>Minutes</Text>
             <TextInput
               style={styles.logInput}

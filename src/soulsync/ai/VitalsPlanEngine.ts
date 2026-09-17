@@ -140,7 +140,7 @@ const gatherInputs = async (dob?: string): Promise<PlanInputs> => {
   let stressScore: number | null = null;
   let sleepScore:  number | null = null;
   try {
-    const boxes = await computeHealthBoxes();
+    const boxes = await computeHealthBoxes({ dob });
     stressScore = boxes.stress;
     sleepScore  = boxes.sleep;
   } catch { /* DB not ready */ }

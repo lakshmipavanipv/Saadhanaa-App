@@ -45,6 +45,7 @@ import { RemindersScreen } from './screens/RemindersScreen';
 import { SideDrawer, type DrawerAction } from './components/SideDrawer';
 import { ThemePicker } from './components/ThemePicker';
 import { ThemeProvider, useTheme } from './ThemeContext';
+import { RangeProvider } from './screens/health/rangeContext';
 import { YogaMeditationWrapper } from './screens/YogaMeditationWrapper';
 import { AnxietyReliefPopup } from './soulsync/components/AnxietyReliefPopup';
 import { AggressionReliefPopup } from './soulsync/components/AggressionReliefPopup';
@@ -422,6 +423,8 @@ const AppContent = () => {
             setShowSettings(true);
           } else if (action.openModal === 'deviceSettings') {
             setShowDeviceSettings(true);
+          } else if (action.openModal === 'ringScan') {
+            setShowRingScan(true);
           } else if (action.openModal === 'ringDebug') {
             setShowRingDebug(true);
           } else if (action.openModal === 'aiInsights') {
@@ -591,7 +594,12 @@ export default function App() {
     <SafeAreaProvider>
       <ThemeProvider>
         <SadhanaProvider>
-          <AppContent />
+          {/* One Day/Week/Month range for the whole app. Sits above the
+              navigator so a day picked on any tab is the day every other tab
+              is showing. */}
+          <RangeProvider>
+            <AppContent />
+          </RangeProvider>
         </SadhanaProvider>
       </ThemeProvider>
     </SafeAreaProvider>

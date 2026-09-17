@@ -22,6 +22,8 @@ import { syncAllRingVitals, loadStoredVitals, type RingVitalsSyncResult } from '
 import { groupSleepSessions } from '../../soulsync/ring/ringVitalsSync';
 import { HEALTH_COLORS, type HealthMetric } from './healthTokens';
 
+import { isoDay as isoLocalDay } from './rangeContext';
+
 const DAY_MS = 86_400_000;
 
 interface TileSpec {
@@ -37,6 +39,12 @@ interface TileSpec {
   goodDelta?: 'lower' | 'higher';
   /** Full-width tile (span 2 columns). */
   wide?: boolean;
+  /**
+   * Shown in place of the baseline line when there is no reading, to say why.
+   * A bare em dash reads as a sync that failed and invites a pull-to-refresh
+   * that can never help; a metric this ring cannot measure should say so.
+   */
+  emptyNote?: string;
 }
 
 const TILES: TileSpec[] = [
@@ -47,9 +55,12 @@ const TILES: TileSpec[] = [
   // timed-monitoring command for it ({2,27,0} times out with every encoding
   // the SDK implies), so the channel produces no data on this hardware and a
   // permanently blank tile is worse than no tile.
-  { key: 'resp',  name: 'Respiration',  unit: '/min',route: 'MetricDetail', routeParams: { metric: 'resp' }, color: HEALTH_COLORS.resp },
+  { key: 'resp',  name: 'Respiration',  unit: '/min',route: 'MetricDetail', routeParams: { metric: 'resp' }, color: HEALTH_COLORS.resp, emptyNote: 'Ring sends no breath data · tap' },
   { key: 'sleep', name: 'Sleep',        unit: 'h',   route: 'SleepDetail',                                    color: HEALTH_COLORS.sleep },
-  { key: 'stress',name: 'Stress',       unit: '/100',route: 'StressDetail',                                   color: HEALTH_COLORS.stress, goodDelta: 'lower', wide: true },
+  // Sits beside Sleep rather than spanning the row. The full-width treatment
+  // gave Stress more weight than any other vital and left the grid ending on
+  // an odd, heavy block.
+  { key: 'stress',name: 'Stress',       unit: '/100',route: 'StressDetail',                                   color: HEALTH_COLORS.stress, goodDelta: 'lower' },
 ];
 
 // ── Derivation helpers ─────────────────────────────────────────────────────
@@ -185,6 +196,7 @@ export const HealthHubScreen: React.FC<any> = ({ navigation }) => {
       resp:  { current: null, baseline7d: null, spark: [] },
       stress: computeMetric(vitals.raw.stress, 'stress'),
       sleep:  sleepFromResult(vitals),
+      // No steps tile here: Health is vitals, and movement has its own tab.
       exercise: { current: null, baseline7d: null, spark: [] },
     } as Record<HealthMetric, { current: number | null; baseline7d: number | null; spark: number[] }>;
   }, [vitals]);
@@ -258,9 +270,11 @@ export const HealthHubScreen: React.FC<any> = ({ navigation }) => {
                 <Text style={styles.tileUnit}>{t.unit}</Text>
               </View>
               <Text style={styles.tileBase}>
-                {base == null
-                  ? '7d avg —'
-                  : `7d avg ${t.precision ? base.toFixed(t.precision) : Math.round(base)}`}
+                {cur == null && t.emptyNote
+                  ? t.emptyNote
+                  : base == null
+                    ? '7d avg —'
+                    : `7d avg ${t.precision ? base.toFixed(t.precision) : Math.round(base)}`}
                 {delta != null && (
                   <Text style={[
                     styles.tileDelta,
@@ -271,9 +285,11 @@ export const HealthHubScreen: React.FC<any> = ({ navigation }) => {
                   </Text>
                 )}
               </Text>
-              <View style={styles.sparkWrap}>
-                <MiniSpark values={d?.spark ?? []} color={t.color} />
-              </View>
+              {(d?.spark?.length ?? 0) > 0 && (
+                <View style={styles.sparkWrap}>
+                  <MiniSpark values={d.spark} color={t.color} />
+                </View>
+              )}
             </TouchableOpacity>
           );
         })}

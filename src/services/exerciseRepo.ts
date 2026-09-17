@@ -5,6 +5,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ExerciseEntry, BodyActivity } from '../types';
+import { isoDayOf } from '../utils';
 
 const KEY = 'soulsync.exercise.v1';
 
@@ -35,7 +36,7 @@ export const exerciseRepo = {
 
   /** Aggregate today's minutes across all body activities. */
   async todayMinutes(): Promise<number> {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = isoDayOf(new Date());
     const all = await load();
     return all
       .filter(e => e.date === today)
@@ -44,7 +45,7 @@ export const exerciseRepo = {
 
   /** Breakdown by activity for the given window (default last 7 days). */
   async breakdown(days: number = 7): Promise<{ activity: BodyActivity; minutes: number; count: number }[]> {
-    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+    const cutoff = isoDayOf(new Date(Date.now() - days * 86_400_000));
     const all = await load();
     const acc = new Map<BodyActivity, { minutes: number; count: number }>();
     for (const e of all) {

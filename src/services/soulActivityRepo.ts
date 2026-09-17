@@ -9,6 +9,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SoulActivity } from '../types';
+import { isoDayOf } from '../utils';
 
 export interface SoulEntry {
   id: string;
@@ -47,7 +48,7 @@ export const soulActivityRepo = {
 
   /** Sum of today's soul-activity minutes (across all activities). */
   async todayMinutes(): Promise<number> {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = isoDayOf(new Date());
     const all = await load();
     return all
       .filter(e => e.date === today)
@@ -56,7 +57,7 @@ export const soulActivityRepo = {
 
   /** Breakdown by activity for the given window (default 7 days). */
   async breakdown(days: number = 7): Promise<{ activity: SoulActivity; minutes: number; count: number }[]> {
-    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+    const cutoff = isoDayOf(new Date(Date.now() - days * 86_400_000));
     const all = await load();
     const acc = new Map<SoulActivity, { minutes: number; count: number }>();
     for (const e of all) {

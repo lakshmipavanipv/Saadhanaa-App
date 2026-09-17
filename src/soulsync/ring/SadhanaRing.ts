@@ -145,7 +145,7 @@ export class SadhanaRing {
    */
   async setDisplayText(text: string): Promise<void> {
     // No-op for now — logged so downstream code paths remain valid.
-    // eslint-disable-next-line no-console
+     
     console.log('[SadhanaRing] setDisplayText (stub — needs bitmap+CMD7):', text.slice(0, 2));
   }
 

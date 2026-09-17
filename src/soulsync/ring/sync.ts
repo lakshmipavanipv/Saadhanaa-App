@@ -371,7 +371,7 @@ export class SyncApi {
     }
 
     if (pages >= MAX_PAGES) {
-      // eslint-disable-next-line no-console
+       
       console.warn(`[sync] ${metric}: hit ${MAX_PAGES}-page cap — history may be truncated`);
     }
 

@@ -5,13 +5,13 @@ import {
   buildMoodTimeline, colorForMood,
   MoodTimelineSnapshot,
 } from '../analytics/MoodTimeline';
+import { todayStr } from '../../utils';
 
 interface Props {
   /** YYYY-MM-DD — defaults to today. */
   date?: string;
 }
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 export const MoodTimelineCard: React.FC<Props> = ({ date }) => {

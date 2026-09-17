@@ -16,6 +16,7 @@ import { MultiMetricTrendCard }  from '../soulsync/components/MultiMetricTrendCa
 import { StepsJapaCard }         from '../soulsync/components/StepsJapaCard';
 import { EmotionalSummaryCard }  from '../soulsync/components/EmotionalSummaryCard';
 import { AIInsightsCard }        from '../soulsync/components/AIInsightsCard';
+import { ExplainedSection }      from '../components/ExplainedSection';
 import { ScoreTrendsCard }       from '../soulsync/components/ScoreTrendsCard';
 import { SleepScoreCard }        from '../soulsync/components/SleepScoreCard';
 import { HealthDashboardCard }   from '../soulsync/components/HealthDashboardCard';
@@ -177,7 +178,14 @@ export const HistoryScreen = ({ navigation }: { navigation?: any } = {}) => {
             8. AI retrospective
             ───────────────────────────────────────────────────────── */}
 
-        <ScoreTrendsCard />
+        <ExplainedSection
+          icon="📈"
+          title="How your practice is trending"
+          plain="Whether your japa and your calm are rising or falling over the last few weeks."
+          defaultOpen
+        >
+          <ScoreTrendsCard />
+        </ExplainedSection>
 
         {/* Ring sync status pill — shows what came in from the SR16 this session */}
         {ringSyncStatus !== 'idle' && (
@@ -197,33 +205,52 @@ export const HistoryScreen = ({ navigation }: { navigation?: any } = {}) => {
           </View>
         )}
 
-        <SleepScoreCard variant="full" />
+        <ExplainedSection icon="😴" title="How well you slept" plain="Last night scored out of 100 — how long you slept, how much of it was deep, and how often you woke.">
+          <SleepScoreCard variant="full" />
+        </ExplainedSection>
 
-        <HealthDashboardCard />
+        <ExplainedSection icon="❤️" title="Your body's numbers today" plain="Today's heart rate, HRV and oxygen compared with what is normal for you.">
+          <HealthDashboardCard />
+        </ExplainedSection>
 
-        <MultiMetricTrendCard />
-        <StepsJapaCard days={30} />
+        <ExplainedSection icon="📊" title="Each vital over time" plain="The same readings drawn day by day, so you can see a change rather than a single number.">
+          <MultiMetricTrendCard />
+        </ExplainedSection>
+        <ExplainedSection icon="🚶" title="Walking and japa together" plain="Whether the days you move more are also the days you practise more.">
+          <StepsJapaCard days={30} />
+        </ExplainedSection>
 
-        <MoodTimelineCard />
-        <EmotionalSummaryCard />
+        <ExplainedSection icon="🌤️" title="How your mood moved" plain="What your body suggested about your mood through the day.">
+          <MoodTimelineCard />
+        </ExplainedSection>
+        <ExplainedSection icon="🫧" title="Moments worth noticing" plain="Points where your body reacted sharply — stress spikes or deep calm.">
+          <EmotionalSummaryCard />
+        </ExplainedSection>
 
-        <AIInsightsCard userName={userProfile?.name} mode="retrospective" />
+        <ExplainedSection
+          icon="🤖"
+          title="What this all adds up to"
+          plain="A short read of your last few weeks, in sentences rather than charts."
+          defaultOpen
+        >
+          <AIInsightsCard userName={userProfile?.name} mode="retrospective" />
+        </ExplainedSection>
 
         {/* Lifetime Stats */}
         <View style={styles.lifetimeCard}>
           <View style={styles.lifetimeStat}>
             <Text style={styles.lifetimeValue}>{totalMalas.toLocaleString()}</Text>
-            <Text style={styles.lifetimeLabel}>Total Malas</Text>
+            <Text style={styles.lifetimeLabel}>Malas ever</Text>
           </View>
           <View style={styles.lifetimeDivider} />
           <View style={styles.lifetimeStat}>
             <Text style={styles.lifetimeValue}>{totalJapas.toLocaleString()}</Text>
-            <Text style={styles.lifetimeLabel}>Total Japas</Text>
+            <Text style={styles.lifetimeLabel}>Japas ever</Text>
           </View>
           <View style={styles.lifetimeDivider} />
           <View style={styles.lifetimeStat}>
             <Text style={styles.lifetimeValue}>{history.length}</Text>
-            <Text style={styles.lifetimeLabel}>Sessions</Text>
+            <Text style={styles.lifetimeLabel}>Times you sat</Text>
           </View>
         </View>
 
@@ -244,7 +271,7 @@ export const HistoryScreen = ({ navigation }: { navigation?: any } = {}) => {
 
         {/* Trend Chart */}
         <View style={styles.chartCard}>
-          <Text style={styles.chartTitle}>{RANGE_LABELS[range]} — Malas</Text>
+          <Text style={styles.chartTitle}>Malas completed · {RANGE_LABELS[range].toLowerCase()}</Text>
           <View style={styles.barChart}>
             {trendData.map((bucket, i) => {
               const heightPx = (bucket.value / maxValue) * 140;
@@ -263,7 +290,7 @@ export const HistoryScreen = ({ navigation }: { navigation?: any } = {}) => {
 
         {/* Per-Deity Breakdown */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Total Japas by Deity</Text>
+          <Text style={styles.sectionTitle}>Which deity you chant most</Text>
           {deityStats.length === 0 ? (
             <Text style={styles.emptyText}>No sessions logged yet</Text>
           ) : (

@@ -17,11 +17,13 @@ import { useTheme } from '../../ThemeContext';
 import {
   ScreenHeader, ViewSwitch, WeekStrip,
   type HealthView, type DayQuality, useBackToHealth } from './HealthPrimitives';
+import { useRange } from './rangeContext';
 import { HEALTH_COLORS } from './healthTokens';
 import { syncAllRingVitals, loadStoredVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
 import { groupSleepSessions } from '../../soulsync/ring/ringVitalsSync';
 import { vitalsPrefs, type VitalsPrefs } from '../../soulsync/settings/vitalsPrefs';
 import { sleepModelToStage, type SleepSample } from '../../soulsync/ring/sync';
+import { isoDayOf as isoDay } from '../../utils';
 
 const DAY_MS = 86_400_000;
 const SLEEP_TARGET_H = 8;
@@ -33,12 +35,6 @@ const STAGE_COLORS = {
   wake:  '#F5C56B',
 } as const;
 
-function isoDay(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${dd}`;
-}
 
 /** A "night" bucket: samples between 18:00 and noon next day → wake date. */
 // Night grouping lives in ringVitalsSync (groupSleepSessions) so the screen
@@ -123,8 +119,9 @@ export const SleepDetailScreen: React.FC<any> = ({ navigation }) => {
     const unsub = vitalsPrefs.subscribe((p) => { if (!cancelled) setPrefs(p); });
     return () => { cancelled = true; unsub(); };
   }, []);
-  const [view, setView] = useState<HealthView>('day');
-  const [selected, setSelected] = useState<string>(isoDay(new Date()));
+  // Range is shared app-wide, so a day chosen on Japa or Exercise is the
+  // day this report opens on. See screens/health/rangeContext.
+  const { view, setView, selected, setSelected } = useRange();
   const [vitals, setVitals] = useState<RingVitalsSyncResult | null>(null);
 
   useEffect(() => {

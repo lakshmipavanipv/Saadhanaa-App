@@ -21,6 +21,7 @@ import { useTheme } from '../ThemeContext';
 import { syncAllRingVitals, type RingVitalsSyncResult } from '../soulsync/ring';
 import { SadhanaRing } from '../soulsync/ring/SadhanaRing';
 import { readSr16DeviceId } from '../soulsync/ring/japaCounter';
+import { isoDayOf } from '../utils';
 import {
   sleepModelToStage,
   type StepSample, type SleepSample, type HrSample, type HrvSample,
@@ -98,7 +99,7 @@ export const HealthScreen = () => {
 
   useEffect(() => { runSync(); }, []);
 
-  const todayLabel = new Date().toISOString().slice(0, 10).replace(/-/g, '/');
+  const todayLabel = isoDayOf(new Date()).replace(/-/g, '/');
 
   // ── Activity totals ──
   const activityToday = useMemo(() => {

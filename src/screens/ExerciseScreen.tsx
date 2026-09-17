@@ -20,6 +20,7 @@ import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, TextInput, Platform,
 } from 'react-native';
 import { COLORS, SPACING } from '../theme';
+import { RangeBar } from './health/RangeBar';
 import { useTheme } from '../ThemeContext';
 import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
@@ -30,7 +31,7 @@ import { useSadhana } from '../context';
 import { exerciseRepo } from '../services/exerciseRepo';
 import { routineRepo } from '../services/routineRepo';
 import { BodyActivity, ExerciseEntry } from '../types';
-import { todayStr } from '../utils';
+import { todayStr, isoDayOf } from '../utils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createDefaultRing } from '../soulsync/services/RingTelemetryService';
 import { TimePickerField } from '../components/TimePickerField';
@@ -74,7 +75,6 @@ export const ExerciseScreen = ({ navigation }: any) => {
   const { userProfile, showToast } = useSadhana();
   const goalMin = userProfile?.goals?.bodyMinutesPerDay ?? 30;
 
-  const [filter, setFilter] = useState<Category | 'all'>('all');
   const [selected, setSelected] = useState<WorkoutItem | null>(null);
   const [todayMin, setTodayMin] = useState(0);
   const [breakdown, setBreakdown] = useState<Awaited<ReturnType<typeof exerciseRepo.breakdown>>>([]);
@@ -102,7 +102,10 @@ export const ExerciseScreen = ({ navigation }: any) => {
   // hidden retroactively).
   const [plannedActivities, setPlannedActivities] = useState<Set<string>>(new Set(['walk']));
   // Calendar week strip — user can pick a day to view (display-only for now).
-  const [selectedDay, setSelectedDay] = useState<Date>(new Date());
+  // The local selectedDay is gone. It was read by nothing except the strip
+  // that set it, so tapping a day highlighted a circle and left every number
+  // on the screen showing today — a calendar that looked like it filtered and
+  // did not. The shared range replaces it, and other tabs follow it.
 
   const refresh = async () => {
     setTodayMin(await exerciseRepo.todayMinutes());
@@ -137,7 +140,7 @@ export const ExerciseScreen = ({ navigation }: any) => {
         })
         .catch(() => { /* silent — falls back to DB+pedometer */ });
       // 7-day step series (oldest first → today last)
-      const cutoff = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+      const cutoff = isoDayOf(new Date(Date.now() - 6 * 86400000));
       const rows = await db.getAllAsync<{ activity_date: string; step_count: number }>(
         `SELECT activity_date, step_count FROM daily_activity
          WHERE activity_date >= ? ORDER BY activity_date`,
@@ -145,7 +148,7 @@ export const ExerciseScreen = ({ navigation }: any) => {
       );
       const series: number[] = [];
       for (let i = 6; i >= 0; i--) {
-        const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+        const d = isoDayOf(new Date(Date.now() - i * 86400000));
         const r = rows.find(x => x.activity_date === d);
         series.push(r?.step_count ?? 0);
       }
@@ -157,7 +160,7 @@ export const ExerciseScreen = ({ navigation }: any) => {
     for (const act of ['walk','jog','run','cycle','swim','gym','hiit','yoga'] as BodyActivity[]) {
       const week: number[] = [];
       for (let i = 6; i >= 0; i--) {
-        const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+        const d = isoDayOf(new Date(Date.now() - i * 86400000));
         const mins = allEntries
           .filter(e => e.date === d && e.activity === act)
           .reduce((s, e) => s + e.durationMin, 0);
@@ -219,7 +222,10 @@ export const ExerciseScreen = ({ navigation }: any) => {
     return            EXERCISE_CATALOG.filter(i => ['walk', 'cycle', 'swim'].includes(i.id)).slice(0, 3);
   }, []);
 
-  const filtered = filter === 'all' ? EXERCISE_CATALOG : EXERCISE_CATALOG.filter(i => i.category === filter);
+  // The category filter was never wired to a control: `filter` was created as
+  // 'all' and no code ever changed it, so this branch only ever took the first
+  // path. Kept as the plain list until there is a picker to drive it.
+  const filtered = EXERCISE_CATALOG;
   const goalPct = Math.min(100, Math.round((todayMin / goalMin) * 100));
   const autoDetectCount = EXERCISE_CATALOG.filter(i => i.ringAutoDetect).length;
 
@@ -235,38 +241,19 @@ export const ExerciseScreen = ({ navigation }: any) => {
             </View>
             <PlanWellbeingButton navigation={navigation} preset="exercise" />
           </View>
-          {/* Week strip — Sun→Sat, tap to focus a day */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: SPACING.md }}>
-            {Array.from({ length: 7 }, (_, i) => {
-              const start = new Date(); start.setHours(0,0,0,0);
-              start.setDate(start.getDate() - start.getDay() + i);
-              const isSel = start.toDateString() === selectedDay.toDateString();
-              const isToday = start.toDateString() === new Date().toDateString();
-              const abbrs = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-              return (
-                <TouchableOpacity key={i} onPress={() => setSelectedDay(start)} style={{ alignItems: 'center', padding: 4 }}>
-                  <Text style={{ color: COLORS.muted, fontSize: 10, marginBottom: 4 }}>{abbrs[i]}</Text>
-                  <View style={{
-                    width: 32, height: 32, borderRadius: 16,
-                    backgroundColor: isSel ? COLORS.gold : 'transparent',
-                    borderWidth: isSel ? 0 : (isToday ? 1 : 0),
-                    borderColor: COLORS.gold,
-                    alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <Text style={{ color: isSel ? '#000' : COLORS.cream, fontSize: 14, fontWeight: isSel ? '700' : '500' }}>
-                      {start.getDate()}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
           <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: SPACING.sm }}>
             <TouchableOpacity style={styles.logBtn} onPress={() => { setLogActivity('walk'); setShowLog(true); }}>
               <Text style={styles.logBtnText}>+ Log past</Text>
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Shared Day / Week / Month — one date across Japa, Yoga, Meditate,
+            Exercise and the health reports. Sits below the header rather than
+            inside it: the header's inner View is a flex row, and dropping a
+            full-width segmented control in there squeezed it between the title
+            and the Plan button. */}
+        <RangeBar />
 
         {/* KPI: today's minutes / goal */}
         <View style={styles.kpiCard}>

@@ -22,7 +22,7 @@ const DRAWER_W = Math.min(320, SCREEN_W * 0.82);
 export interface DrawerAction {
   key: string;
   navigate?: string;    // bottom-tab route name
-  openModal?: 'settings' | 'ringDebug' | 'deviceSettings' | 'aiInsights' | 'themePicker';
+  openModal?: 'settings' | 'ringDebug' | 'ringScan' | 'deviceSettings' | 'aiInsights' | 'themePicker';
 }
 
 interface Props {
@@ -66,7 +66,10 @@ const SECTIONS: MenuSection[] = [
     items: [
       { icon: '💍', label: 'Device Settings', action: { key: 'device', openModal: 'deviceSettings' }, hint: 'All ring settings — like RWfit' },
       { icon: '⏰', label: 'Reminders & Notifications', action: { key: 'reminders', navigate: 'Reminders' }, hint: 'Alarms · sedentary · drink · DND · push' },
-      { icon: '📶', label: 'Bluetooth / Pair Ring', action: { key: 'ble', openModal: 'ringDebug' }, hint: 'Scan, connect, live BLE frames' },
+      // Points at the pairing screen, not Ring Debug. It opened the developer
+      // tool — a raw frame log with a flat device list — which is why pairing
+      // looked unchanged no matter how often the real screen was redesigned.
+      { icon: '📶', label: 'Bluetooth / Pair Ring', action: { key: 'ble', openModal: 'ringScan' }, hint: 'Scan, connect or unbind your ring' },
     ],
   },
   {

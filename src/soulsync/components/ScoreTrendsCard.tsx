@@ -9,8 +9,10 @@ import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { COLORS, SPACING } from '../../theme';
 import { computeScoreTrends, ScoreTrendsSnapshot, TrendPoint, ScoreKPI } from '../analytics/ScoreTrends';
+import { useChartWidth } from './useChartWidth';
 
-const CHART_W = Dimensions.get('window').width - 64;
+/** First frame only — replaced by the measured width on layout. */
+const CHART_W_FALLBACK = Dimensions.get('window').width - 64;
 
 interface ChartProps {
   title: string;
@@ -19,6 +21,10 @@ interface ChartProps {
 }
 
 const TrendChart: React.FC<ChartProps> = ({ title, color, data }) => {
+  // Measured, not guessed — see useChartWidth for why the old constant
+  // overflowed the card border.
+  const { width: measured, onLayout } = useChartWidth();
+  const chartW = measured > 0 ? measured : CHART_W_FALLBACK;
   const numeric = data.map(p => p.score ?? 0);
   if (numeric.every(v => v === 0)) {
     return (
@@ -29,14 +35,14 @@ const TrendChart: React.FC<ChartProps> = ({ title, color, data }) => {
     );
   }
   return (
-    <View style={styles.chartCard}>
+    <View style={styles.chartCard} onLayout={onLayout}>
       <Text style={[styles.chartTitle, { color }]}>{title}</Text>
       <LineChart
         data={{
           labels: data.filter((_, i) => i % 5 === 0).map(p => p.date.slice(5)),
           datasets: [{ data: numeric, color: () => color, strokeWidth: 2.2 }],
         }}
-        width={CHART_W}
+        width={chartW}
         height={110}
         bezier
         withDots={false}

@@ -32,7 +32,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, Easing,
-  ActivityIndicator, StatusBar, useWindowDimensions,
+  ActivityIndicator, StatusBar, useWindowDimensions, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, Path, RadialGradient, Stop } from 'react-native-svg';
@@ -42,6 +42,8 @@ import {
   requestRingPermissions,
   waitForBluetoothOn,
   saveSr16DeviceId,
+  clearSr16DeviceId,
+  readSr16DeviceId,
   type ScannedRing,
 } from '../soulsync/ring';
 
@@ -105,6 +107,8 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
    * would otherwise be unpairable with no way out.
    */
   const [showAll, setShowAll] = useState(false);
+  /** The ring already remembered, if any — the one Unbind would forget. */
+  const [bound, setBound] = useState<string | null>(null);
   const [connectedName, setConnectedName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -214,6 +218,40 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
       setError('Could not connect: ' + (e as Error).message);
     }
   }, []);
+
+  useEffect(() => { void readSr16DeviceId().then(setBound); }, [connectedName]);
+
+  /**
+   * Forget the paired ring.
+   *
+   * Unbinding lives here because this is the screen about which ring is
+   * yours. The Device Settings version asked for confirmation and then only
+   * closed the screen — the saved id was never cleared, so the app
+   * reconnected to the same ring moments later and the button appeared
+   * inert. There is no unbind opcode on this hardware: the pairing exists
+   * only as our stored id, so clearing it is the entire operation.
+   */
+  const unbind = useCallback(() => {
+    Alert.alert(
+      'Unbind this ring?',
+      'The app will forget ' + (bound ? bound.toUpperCase() : 'the paired ring') +
+      '. Nothing on the ring itself changes, and your history is kept — you can pair it again from this screen.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Unbind',
+          style: 'destructive',
+          onPress: async () => {
+            await clearSr16DeviceId();
+            setBound(null);
+            setConnectedName(null);
+            setVerified('pending');
+            void startScan();
+          },
+        },
+      ]
+    );
+  }, [bound, startScan]);
 
   // Start automatically — the user came here to pair.
   useEffect(() => {
@@ -411,6 +449,14 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
             <ActivityIndicator color={M.gold} />
             <Text style={styles.scanNoteTxt}>Listening for nearby rings…</Text>
           </View>
+        ) : null}
+
+        {/* Unbind — only offered when there is something to forget. */}
+        {bound ? (
+          <TouchableOpacity onPress={unbind} activeOpacity={0.7} style={styles.unbind}>
+            <Text style={styles.unbindTxt}>Unbind this ring</Text>
+            <Text style={styles.unbindId} numberOfLines={1}>{bound.toUpperCase()}</Text>
+          </TouchableOpacity>
         ) : null}
 
         {/* Quiet escape hatch */}
@@ -689,6 +735,15 @@ const styles = StyleSheet.create({
   again: { marginTop: SPACING.md, paddingVertical: 10 },
   againTxt: { color: M.body, fontSize: 14.5, textAlign: 'center' },
   againLink: { color: M.gold, fontWeight: '700' },
+
+  unbind: {
+    alignSelf: 'stretch', marginTop: SPACING.lg,
+    paddingVertical: 14, alignItems: 'center',
+    borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,122,133,0.35)',
+    backgroundColor: 'rgba(255,122,133,0.06)',
+  },
+  unbindTxt: { color: M.danger, fontSize: 14.5, fontWeight: '700' },
+  unbindId: { color: M.label, fontSize: 11, marginTop: 3, letterSpacing: 0.5 },
 
   list: { alignSelf: 'stretch', marginTop: SPACING.xl },
   listHead: {

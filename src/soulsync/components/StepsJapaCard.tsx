@@ -3,10 +3,16 @@ import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { COLORS, SPACING } from '../../theme';
 import { buildMetricTrend, pearson } from '../analytics/MetricTrends';
+import { useChartWidth } from './useChartWidth';
 
-const CHART_W = Dimensions.get('window').width - 64;
+/** First frame only — replaced by the measured width on layout. */
+const CHART_W_FALLBACK = Dimensions.get('window').width - 64;
 
 export const StepsJapaCard: React.FC<{ days?: number }> = ({ days = 30 }) => {
+  // Measured, not guessed — see useChartWidth for why the old constant
+  // overflowed the card border.
+  const { width: measured, onLayout } = useChartWidth(SPACING.md * 2);
+  const chartW = measured > 0 ? measured : CHART_W_FALLBACK;
   const [steps, setSteps] = useState<number[]>([]);
   const [malas, setMalas] = useState<number[]>([]);
   const [dates, setDates] = useState<string[]>([]);
@@ -49,7 +55,7 @@ export const StepsJapaCard: React.FC<{ days?: number }> = ({ days = 30 }) => {
   );
 
   return (
-    <View style={styles.card}>
+    <View style={styles.card} onLayout={onLayout}>
       <View style={styles.titleRow}>
         <Text style={styles.title}>Steps × Sadhana</Text>
         <Text style={styles.rChip}>r = {r.toFixed(2)}</Text>
@@ -68,7 +74,7 @@ export const StepsJapaCard: React.FC<{ days?: number }> = ({ days = 30 }) => {
             ],
             legend: ['Steps', 'Malas'],
           }}
-          width={CHART_W}
+          width={chartW}
           height={140}
           bezier
           withDots={false}

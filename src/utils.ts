@@ -10,6 +10,16 @@ const fmtDate = (d: Date): string =>
 
 export const todayStr = (): string => fmtDate(new Date());
 
+/**
+ * A Date as YYYY-MM-DD in LOCAL time.
+ *
+ * Use this anywhere a day is a storage key or a filter. `toISOString()` is
+ * UTC: east of Greenwich it returns yesterday's date for the first hours of
+ * every local day — in IST that is everything before 05:30, so "today's
+ * steps" and "today's practice" silently read the wrong day each morning.
+ */
+export const isoDayOf = (d: Date): string => fmtDate(d);
+
 export const getDaysUntil = (dateStr: string): number => {
   const target = parseLocal(dateStr);
   const today = new Date();

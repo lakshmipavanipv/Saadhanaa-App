@@ -14,18 +14,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal,
-} from 'react-native';
+ TextInput } from 'react-native';
 import { COLORS, SPACING } from '../theme';
+import { RangeBar } from './health/RangeBar';
 import { useTheme } from '../ThemeContext';
 import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
 // AddToPlanCta removed — Plan Your Wellbeing lives in the hamburger drawer.
 import { YogaPoseAnimation } from '../components/YogaPoseAnimation';
 import { createDefaultRing } from '../soulsync/services/RingTelemetryService';
-import { TextInput } from 'react-native';
+
 import { exerciseRepo } from '../services/exerciseRepo';
 import { useSadhana } from '../context';
-import { todayStr } from '../utils';
+import { todayStr, isoDayOf } from '../utils';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
 import { PracticeStatsBox, SessionList, BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
@@ -274,11 +275,10 @@ export const YogaScreen = ({ navigation }: any) => {
   // Soulsync session — same hook the Japa tab uses; live BPM/HRV streams
   // are surfaced as a wave graph + baseline card while a session is on.
   const soulsync = useSoulsyncSession();
-  const [filter, setFilter] = useState<Category | 'all'>('all');
   const [selected, setSelected] = useState<YogaItem | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [logMin, setLogMin] = useState('');
-  const [logDate, setLogDate] = useState(new Date().toISOString().slice(0, 10));
+  const [logDate, setLogDate] = useState(isoDayOf(new Date()));
 
   const submitLog = async () => {
     const m = parseInt(logMin, 10);
@@ -348,9 +348,14 @@ export const YogaScreen = ({ navigation }: any) => {
           </View>
         </View>
 
+        {/* Shared Day / Week / Month — the same control the health
+            reports use, on the same date. */}
+        <RangeBar />
+
         {/* Top stats — mirrors ExerciseScreen pattern:
               · Box A: yoga time today (solid gold progress bar)
               · Box B: sadhana depth score (HORIZONTAL DASHED bar) */}
+
         <PracticeStatsBox
           practice="yoga"
           minutesToday={minutesToday}
@@ -404,7 +409,7 @@ export const YogaScreen = ({ navigation }: any) => {
           <View style={styles.logCard}>
             <View style={styles.logHandle} />
             <Text style={styles.logTitle}>Log past yoga</Text>
-            <Text style={styles.logHint}>Add minutes you've already done.</Text>
+            <Text style={styles.logHint}>Add minutes you’ve already done.</Text>
             <Text style={styles.logFieldLabel}>Minutes</Text>
             <TextInput
               style={styles.logInput}

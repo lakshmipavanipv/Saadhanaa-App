@@ -15,8 +15,9 @@ import { buildEmotionalSummary } from '../analytics/EmotionalSummary';
 import { buildMoodTimeline } from '../analytics/MoodTimeline';
 import { getDB } from '../db/database';
 import { GemmaClient, GemmaRequest } from './GemmaClient';
+import { isoDayOf } from '../../utils';
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => isoDayOf(new Date());
 
 // ─── Snapshot shape sent to Gemma ──────────────────────────────────
 
@@ -88,7 +89,7 @@ export const buildInsightSnapshot = async (userName?: string): Promise<InsightSn
   let weeklyPctSum = 0;
   let weeklyPctN = 0;
   for (let i = 6; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+    const d = isoDayOf(new Date(Date.now() - i * 86_400_000));
     const day = await computeCalmDivergence(d);
     weeklyPctSum += day.divergencePct;
     weeklyPctN += 1;
@@ -118,7 +119,7 @@ export const buildInsightSnapshot = async (userName?: string): Promise<InsightSn
   let streak = 0;
   const cursor = new Date();
   for (const row of dayRows) {
-    const expected = cursor.toISOString().slice(0, 10);
+    const expected = isoDayOf(cursor);
     if (row.d === expected) {
       streak += 1;
       cursor.setDate(cursor.getDate() - 1);

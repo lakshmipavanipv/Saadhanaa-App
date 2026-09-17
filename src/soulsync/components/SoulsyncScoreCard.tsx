@@ -18,6 +18,7 @@ import { COLORS, SPACING } from '../../theme';
 import { ambientBaselineRepo } from '../db/ambientBaselineRepo';
 import { sessionSpiritualRepo } from '../db/sessionSpiritualRepo';
 import { computeHealthDashboard } from '../analytics/HealthDashboard';
+import { heartScore, lungScore, skinTempScore } from '../analytics/HealthScoreModel';
 
 interface ScorePack {
   overall: number | null;      // 0-100, null until the ring has measured something
@@ -59,20 +60,27 @@ export const computeScores = async (): Promise<ScorePack> => {
   //    "50/100"). Now each missing metric drops out and the surviving
   //    weights are renormalised, so the number always describes something
   //    that was actually measured — and stays null when nothing was.
-  const clamp = (n: number) => Math.max(0, Math.min(100, n));
+  // One model, not two. These four lines used to carry their own constants —
+  // (hrv/60)*100, bpm*1.8, (spo2-90)*10, |temp-36.6|*30 — while the Home tiles
+  // used HealthScoreModel, so the same body was scored two different ways on
+  // one screen and "Body Health" could disagree with "Heart" beside it.
+  // Everything now goes through the documented model.
+  const val = (n: number) => (n > 0 ? n : null);
   const parts: { score: number; weight: number }[] = [];
-  const add = (raw: number, score: () => number, weight: number) => {
-    if (raw > 0) parts.push({ score: clamp(score()), weight });
+  const push = (sc: { value: number | null }, weight: number) => {
+    if (sc.value != null) parts.push({ score: sc.value, weight });
   };
 
-  add(hrv.today,   () => (hrv.today / 60) * 100, 0.4);              // 60ms = perfect
-  add(bpm.today,   () => 100 - Math.max(0, bpm.today - 60) * 1.8, 0.3);
-  add(spo2.today,  () => (spo2.today - 90) * 10, 0.2);              // 100% = perfect
-  add(tempC.today, () => 100 - Math.abs(tempC.today - 36.6) * 30, 0.1);
+  push(heartScore({ restingBpm: val(bpm.today), rmssd: val(hrv.today), age: null }), 0.6);
+  push(lungScore(val(spo2.today)), 0.3);
+  push(skinTempScore(val(tempC.today), val(tempC.baseline)), 0.1);
 
-  const weightSum = parts.reduce((s, p) => s + p.weight, 0);
+  // A metric the ring never measured contributes nothing and the surviving
+  // weights renormalise, so the number always describes something that was
+  // actually measured — and stays null when nothing was.
+  const weightSum = parts.reduce((s2, p) => s2 + p.weight, 0);
   const dayBaseline = weightSum > 0
-    ? Math.round(parts.reduce((s, p) => s + p.score * p.weight, 0) / weightSum)
+    ? Math.round(parts.reduce((s2, p) => s2 + p.score * p.weight, 0) / weightSum)
     : null;
 
   // ── JAPA EFFECT: how the body responds DURING / AFTER sadhana sessions.

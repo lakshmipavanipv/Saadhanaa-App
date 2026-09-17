@@ -10,6 +10,7 @@
 import { ambientBaselineRepo } from '../db/ambientBaselineRepo';
 import { telemetryRepo } from '../db/telemetryRepo';
 import { getDB } from '../db/database';
+import { isoDayOf } from '../../utils';
 
 export type MetricDirection = 'up' | 'down' | 'flat';
 export interface MetricRow {
@@ -105,7 +106,7 @@ const computeDepthScore = async (): Promise<{ score: number | null; samples: num
  */
 const computeSteps = async (mode: 'today' | 'baseline'): Promise<number> => {
   const db = await getDB();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = isoDayOf(new Date());
   try {
     if (mode === 'today') {
       const row = await db.getFirstAsync<{ n: number }>(

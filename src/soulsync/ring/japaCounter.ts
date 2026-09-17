@@ -43,6 +43,17 @@ const RECONNECT_FAST_ATTEMPTS = 8;
 export const saveSr16DeviceId = (id: string): Promise<void> =>
   Storage.set(STORAGE_KEY, { id, savedAt: Date.now() });
 
+/**
+ * Forget the paired ring.
+ *
+ * The Device Unbind button asked for confirmation and then called onClose()
+ * and nothing else — the saved id survived, so the app reconnected to the
+ * same ring seconds later and unbinding appeared to do nothing. Clearing the
+ * record is the whole of what unbinding means on this hardware: there is no
+ * unbind opcode, the pairing lives only on our side.
+ */
+export const clearSr16DeviceId = (): Promise<void> => Storage.set(STORAGE_KEY, null);
+
 export const readSr16DeviceId = async (): Promise<string | null> => {
   const rec = await Storage.get<{ id: string; savedAt: number } | null>(STORAGE_KEY, null);
   return rec?.id ?? null;
@@ -195,7 +206,7 @@ export class JapaRingCounter {
     // is nothing left for a fallback to rescue.
     if (this.unknownFrameLogs < 8) {
       this.unknownFrameLogs++;
-      // eslint-disable-next-line no-console
+       
       console.log(
         `[JapaRingCounter] ignoring non-tap frame {${frame.cmd},${frame.key},${frame.keyFlag}}`
       );
@@ -218,7 +229,7 @@ export class JapaRingCounter {
     if (this.lastRingCount === null) {
       this.lastRingCount = ringCount;
       this.tapCount += 1;
-      // eslint-disable-next-line no-console
+       
       console.log(`[JapaRingCounter] baseline set at ${ringCount}, counting this tap`);
       try { this.events.onTap(); } catch { /* isolate */ }
       return;
@@ -227,7 +238,7 @@ export class JapaRingCounter {
     this.lastRingCount = ringCount;
     if (this.ringCountLogs < 8) {
       this.ringCountLogs++;
-      // eslint-disable-next-line no-console
+       
       console.log(`[JapaRingCounter] ring absolute count=${ringCount} delta=${delta}`);
     }
 
@@ -277,6 +288,18 @@ export class JapaRingCounter {
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     this.reconnectAttempts = 0;
     void this.connect();
+  }
+
+  /**
+   * Buzz the ring. Used to mark a completed mala on the finger rather than
+   * only on screen — during japa the eyes are usually closed and the phone is
+   * face down, so a toast nobody sees is not feedback.
+   *
+   * Best-effort by design: some firmware nacks the opcode, and a failed
+   * confirmation must never interrupt counting.
+   */
+  async buzz(pulses: number = 1): Promise<void> {
+    try { await this.ring?.device.vibrate(pulses); } catch { /* firmware nacked; harmless */ }
   }
 
   getTapCount(): number { return this.tapCount; }

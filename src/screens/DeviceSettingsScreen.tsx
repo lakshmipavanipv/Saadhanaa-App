@@ -15,11 +15,12 @@
 
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Switch,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Switch, Modal,
 } from 'react-native';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../theme';
 import { useTheme } from '../ThemeContext';
 import { VitalsMeasurementSection } from './SettingsScreen';
+import { RespirationProbeScreen } from './RespirationProbeScreen';
 import { SadhanaRing } from '../soulsync/ring/SadhanaRing';
 import { readSr16DeviceId } from '../soulsync/ring/japaCounter';
 import type { BatteryStatus, FirmwareInfo } from '../soulsync/ring/device';
@@ -52,6 +53,7 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
   // matters more than it did: the drawer's Color Theme entry has been removed
   // as a duplicate, so this is the only way to switch themes.
   const [ring, setRing] = useState<SadhanaRing | null>(null);
+  const [showRespProbe, setShowRespProbe] = useState(false);
 
   const soon = (feature: string) =>
     Alert.alert(feature, 'Requires opcode we haven\'t verified live yet. Coming soon.');
@@ -105,7 +107,9 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
   );
 
   const handleFindDevice = async () => {
-    if (!ring) return soon('Find Ring');
+    // Not "coming soon" — the feature works, there is simply no ring attached.
+    // Telling the user a working feature is unbuilt sends them away for good.
+    if (!ring) return Alert.alert('Find Ring', 'Connect your ring first, then tap this to make it buzz.');
     try {
       await ring.device.findDevice(1);
       Alert.alert('Find Ring', 'Ring should buzz now (opcode 0xDF).');
@@ -115,7 +119,7 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
   };
 
   const handleBuzzTest = async (pulses: number) => {
-    if (!ring) return soon('Buzz Test');
+    if (!ring) return Alert.alert('Vibration test', 'Connect your ring first, then tap this to buzz it.');
     try {
       await ring.device.vibrate(pulses);
     } catch (e) {
@@ -144,8 +148,10 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
    * configured on the Reminders screen, which does persist it.
    */
   const rows: Row[] = [
-    // Pairing first: nothing else on this screen means anything until it works.
-    { icon: '🔗', iconBg: '#7C3AED', label: 'Connect / upgrade ring', value: 'Bluetooth', onPress: onOpenPair },
+    // Pairing has moved to Settings → Saadhana Ring, which is where someone
+    // wanting to connect a ring actually looks. The status card above keeps
+    // its Scan / Pair button so this screen can still recover when the link
+    // drops; what is gone is the duplicate entry in this list.
     { icon: '📳', iconBg: '#eab308', label: 'Vibration test', value: 'Buzz 1× · 2× · 3×', onPress: () => Alert.alert(
       'Buzz the ring',
       'Sends a vibration to the ring.',
@@ -158,6 +164,10 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
     ) },
     { icon: '🔎', iconBg: '#0ea5e9', label: 'Find Ring (Buzz)', onPress: handleFindDevice },
     { icon: '🩺', iconBg: '#ef4444', label: 'Health Monitoring', onPress: () => ring?.device.setHealthMonitorMaster(true).then(() => Alert.alert('Monitor ON')).catch(() => soon('Health Monitoring')) },
+    // A ring diagnostic belongs on the ring's own screen. It was reachable
+    // only from profile Settings beside Ring Debug — where a developer would
+    // look, and not where anyone else would.
+    { icon: '🌬️', iconBg: '#8BD3C7', label: 'Respiration probe', value: 'Can the ring measure breath?', onPress: () => setShowRespProbe(true) },
     { icon: '📏', iconBg: '#f97316', label: 'Unit Format', value: unit, onPress: () => handleSetUnit(unit === 'Metric' ? 'Imperial' : 'Metric') },
     { icon: '🎨', iconBg: '#22c55e', label: 'Color Theme', value: mode === 'dark' ? 'Dark' : 'Light', onPress: toggleTheme },
     { icon: '🚀', iconBg: '#22c55e', label: 'Firmware Upgrade', onPress: () => Alert.alert('Firmware', 'Over-the-air update needs the Jieli RCSP challenge/response handshake, which is not implemented yet.') },
@@ -232,6 +242,12 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
           window, sample interval, sleep window and the japa live link are all
           device behaviour rather than profile preferences. */}
       <VitalsMeasurementSection />
+
+      {showRespProbe && (
+        <Modal visible transparent={false} animationType="slide" onRequestClose={() => setShowRespProbe(false)}>
+          <RespirationProbeScreen onClose={() => setShowRespProbe(false)} />
+        </Modal>
+      )}
     </ScrollView>
   );
 };

@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { exerciseRepo } from '../../services/exerciseRepo';
 import { soulActivityRepo } from '../../services/soulActivityRepo';
 import { getDB } from '../db/database';
+import { isoDayOf } from '../../utils';
 
 export interface Recommendation {
   id: string;
@@ -44,7 +45,7 @@ interface DailySignals {
   recoverySlow:       boolean;   // HRV not returning to baseline
 }
 
-const todayDateStr = () => new Date().toISOString().slice(0, 10);
+const todayDateStr = () => isoDayOf(new Date());
 
 // ─── Gather the signals ───────────────────────────────────────────
 

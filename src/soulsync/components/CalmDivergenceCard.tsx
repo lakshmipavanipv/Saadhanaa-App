@@ -4,11 +4,17 @@ import { LineChart } from 'react-native-chart-kit';
 import { COLORS, SPACING } from '../../theme';
 import { computeCalmDivergence, DivergenceSnapshot } from '../analytics/CalmDivergence';
 import { buildSleepCorrelationMatrix, CorrelationMatrix } from '../analytics/SleepArchitecture';
+import { useChartWidth } from './useChartWidth';
+import { todayStr } from '../../utils';
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
-const CHART_W = Dimensions.get('window').width - 64;
+/** First frame only — replaced by the measured width on layout. */
+const CHART_W_FALLBACK = Dimensions.get('window').width - 64;
 
 export const CalmDivergenceCard: React.FC = () => {
+  // Measured, not guessed — see useChartWidth for why the old constant
+  // overflowed the card border.
+  const { width: measured, onLayout } = useChartWidth(SPACING.md * 2);
+  const chartW = measured > 0 ? measured : CHART_W_FALLBACK;
   const [div, setDiv] = useState<DivergenceSnapshot | null>(null);
   const [mat, setMat] = useState<CorrelationMatrix | null>(null);
 
@@ -38,7 +44,7 @@ export const CalmDivergenceCard: React.FC = () => {
   };
 
   return (
-    <View style={styles.card}>
+    <View style={styles.card} onLayout={onLayout}>
       <Text style={styles.title}>Calm Divergence</Text>
       <Text style={styles.subtitle}>
         Ambient baseline (gold) vs. Japa heart-rate (citron)
@@ -53,7 +59,7 @@ export const CalmDivergenceCard: React.FC = () => {
               { data: fillForward(lineB), color: () => '#d6e040',   strokeWidth: 2 },
             ],
           }}
-          width={CHART_W}
+          width={chartW}
           height={170}
           bezier
           withDots={false}

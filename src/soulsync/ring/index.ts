@@ -80,6 +80,7 @@ export {
 export {
   JapaRingCounter,
   saveSr16DeviceId,
+  clearSr16DeviceId,
   readSr16DeviceId,
   type TapHandler,
   type CounterEvents,

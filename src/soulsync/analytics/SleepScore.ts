@@ -15,6 +15,7 @@
 
 import { getDB } from '../db/database';
 import { sleepRepo, SleepRow } from '../db/sleepRepo';
+import { estimatedWasoMin, restlessnessScore } from './sleepNightMath';
 
 export interface SleepSubScore {
   label: string;
@@ -152,9 +153,12 @@ interface NightStats {
 const computeNightStats = async (row: SleepRow): Promise<NightStats> => {
   const totalMin = row.total_sleep_min;
   const hours = totalMin / 60;
-  const wasoMin = row.awakenings * 5;
-  const inBedMin = totalMin + wasoMin;
-  const efficiency = inBedMin > 0 ? (totalMin / inBedMin) * 100 : 0;
+  // Restlessness, from the shared night maths. It was called efficiency and
+  // computed as total/(total + awakenings*5) — a denominator rebuilt from
+  // the numerator plus a guess, so it always landed near 96%. See
+  // analytics/sleepNightMath.
+  const wasoMin = estimatedWasoMin(row.awakenings);
+  const efficiency = restlessnessScore(totalMin, row.awakenings) ?? 0;
   const deepPct = totalMin > 0 ? (row.deep_sleep_min / totalMin) * 100 : 0;
   const remPct  = totalMin > 0 ? (row.rem_sleep_min  / totalMin) * 100 : 0;
   const deepHours = row.deep_sleep_min / 60;

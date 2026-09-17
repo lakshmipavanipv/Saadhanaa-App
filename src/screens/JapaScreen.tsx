@@ -10,9 +10,11 @@ import {
   TextInput,
   Platform,
   AppState,
+  Vibration,
 } from 'react-native';
 import { useSadhana } from '../context';
-import { todayStr, japasToSeconds, formatSadhanaTime } from '../utils';
+import { todayStr, formatSadhanaTime, isoDayOf } from '../utils';
+import { japaMinutesOnDate } from '../soulsync/analytics/JapaTime';
 import { COLORS, SPACING, FONT_SIZES } from '../theme';
 import { useTheme } from '../ThemeContext';
 import { Mala } from '../components/Mala';
@@ -33,6 +35,7 @@ import { showNum } from '../services/vitalsDisplay';
 import { vitalsScheduler } from '../soulsync/ring/vitalsScheduler';
 import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
 import { PracticeStatsBox, BeforeAfterVitals } from '../components/PracticeStats';
+import { RangeBar } from './health/RangeBar';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import {
   requestBlePermissions,
@@ -69,7 +72,7 @@ const SadhanaPathSheet: React.FC<{
   const { palette } = useTheme();
   const spSheetStyles = React.useMemo(() => makeSpSheetStyles(palette), [palette]);
   const [name, setName] = useState('');
-  const [steps, setSteps] = useState<Array<{ deity: string; malas: number }>>([]);
+  const [steps, setSteps] = useState<{ deity: string; malas: number }[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [newDeity, setNewDeity] = useState('');
   const [newMalas, setNewMalas] = useState('1');
@@ -480,7 +483,7 @@ const DepthTrendModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ 
         const lbls: string[] = [];
         for (let i = 13; i >= 0; i--) {
           const d = new Date(Date.now() - i * 86400000);
-          const ds = d.toISOString().slice(0, 10);
+          const ds = isoDayOf(d);
           const r = await db.getFirstAsync<{ v: number | null }>(
             `SELECT AVG(depth_score) AS v FROM session_spiritual
              WHERE start_time BETWEEN ? AND ?`,
@@ -605,6 +608,15 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   const [scannedDevices, setScannedDevices] = useState<ScannedDevice[]>([]);
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [connection, setConnection] = useState<CounterConnection | null>(null);
+  /**
+   * Measured japa minutes for today, from session start/end times.
+   * Null when nothing was timed — see analytics/JapaTime for why that is a
+   * dash rather than a number derived from the bead count.
+   */
+  const [showDeityTotals, setShowDeityTotals] = useState(false);
+  const [japaTime, setJapaTime] = useState<{ minutes: number | null; sessions: number; live: boolean }>(
+    { minutes: null, sessions: 0, live: false }
+  );
   const stopScanRef = useRef<(() => void) | null>(null);
   const tapRef = useRef<() => void>(() => {});
 
@@ -741,6 +753,16 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
       }
       showToast(`🪷 1 mala saved for ${activeDeity.name}`);
 
+      // Confirm the mala on the finger, not only on screen. Japa is done with
+      // the eyes closed and the phone face down, so a toast is feedback the
+      // practitioner never receives. Buzz the ring when it is the one
+      // counting; fall back to the phone so the 108th bead is always felt.
+      if (sr16CounterRef.current?.isConnected()) {
+        void sr16CounterRef.current.buzz(1);
+      } else {
+        Vibration.vibrate(120);
+      }
+
       // ── Sadhana Path auto-advance ──
       if (s.activePath?.steps?.length) {
         const step = s.activePath.steps[s.activeStepIndex];
@@ -779,6 +801,16 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   }, []);  // Stable — reads all state from tapStateRef.current
 
   // ── Intercept Soulsync toggle: when stopping, compute score + popup ──
+  useEffect(() => {
+    let alive = true;
+    const tick = () => { void japaMinutesOnDate(todayStr()).then((r) => { if (alive) setJapaTime(r); }); };
+    tick();
+    // A live session grows; re-read it each minute so the figure moves while
+    // the user sits rather than jumping only when they stop.
+    const id = setInterval(tick, 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, [malas, count]);
+
   const handleSoulsyncToggle = useCallback(async () => {
     if (soulsync.state.active) {
       await soulsync.stop();
@@ -1094,17 +1126,39 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
           </View>
         </View>
 
+        {/* Shared Day / Week / Month — the same control the health
+            reports use, on the same date. */}
+        <RangeBar />
+
         {/* ─── Top stats — same pattern as Yoga / Meditation:
               • Time today + japa count today
               • Sadhana Depth Score with horizontal dashed bar ─── */}
         {(() => {
           const today = todayStr();
+
+          // Today is counted from today's rows only, plus whatever is on the
+          // bead counter right now. History carries a date per row, so the
+          // daily figure never inherits yesterday's.
           const todayHistoryJapas = history
             .filter(h => h.date === today)
             .reduce((s, h) => s + h.japas, 0);
           const todayJapas = todayHistoryJapas + (malas * 108 + count);
-          const todaySec = japasToSeconds(todayJapas);
-          const todayMin = Math.round(todaySec / 60);
+          // Measured, not derived. japasToSeconds(count) only ever restated
+          // the count in minutes; it could not disagree with the number beside
+          // it however long the practice actually took.
+          const todayMin = japaTime.minutes;
+
+          // Lifetime totals, kept apart from the daily ones. The selected
+          // deity's own total answers "how far am I with this deity"; the
+          // all-deity total answers "how much japa have I ever done". Both
+          // used to be buried in the per-deity pills, where they sat beside
+          // today's practice with nothing to distinguish them.
+          const deityLifetime = history
+            .filter(h => selectedDeity && h.deityId === selectedDeity.id)
+            .reduce((s, h) => s + h.japas, 0)
+            + (selectedDeity ? malas * 108 + count : 0);
+          const allLifetime = history.reduce((s, h) => s + h.japas, 0) + (malas * 108 + count);
+
           return (
             <PracticeStatsBox
               practice="japa"
@@ -1112,6 +1166,11 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
               goalMinutes={20}
               depthScore={japaDepthScore}
               subMetric={{ label: 'JAPA COUNT TODAY', value: todayJapas.toLocaleString() }}
+              kpis={[
+                { label: selectedDeity ? `${selectedDeity.name} total` : 'Deity total', value: deityLifetime.toLocaleString() },
+                { label: 'All japa', value: allLifetime.toLocaleString() },
+                { label: 'Malas today', value: Math.floor(todayJapas / 108).toLocaleString() },
+              ]}
               compact
               onOpenTrend={() => setShowDepthTrend(true)}
             />
@@ -1124,65 +1183,60 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
             shown below the Soul Sync trends so it doesn't compete with the
             primary "Pick a Sadhana" entry point. */}
 
-        {/* ─── Quick deity strip ───
-             Persistent horizontal row of the user's added deities with
-             their live counts. Tap a chip to switch — ring taps will then
-             count against that deity. Long-press cycles to the next one
-             (mimics the on-ring counter-mode deity-selector we can't build
-             without custom firmware). */}
-        {deities.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={{ marginHorizontal: SPACING.md, marginBottom: SPACING.sm }}
-            contentContainerStyle={{ paddingRight: SPACING.md }}
-          >
-            {deities.map((d) => {
-              const prog = deityProgress[d.id] ?? { count: 0, malas: 0 };
-              const isSelected = selectedDeity?.id === d.id;
-              return (
-                <TouchableOpacity
-                  key={d.id}
-                  onPress={() => setSelectedDeity(d)}
-                  onLongPress={() => {
-                    // Cycle to next deity in the list.
-                    const idx = deities.findIndex((x) => x.id === d.id);
-                    const next = deities[(idx + 1) % deities.length];
-                    if (next) setSelectedDeity(next);
-                  }}
-                  style={{
-                    marginRight: SPACING.sm,
-                    paddingVertical: SPACING.sm,
-                    paddingHorizontal: SPACING.md,
-                    borderRadius: 20,
-                    borderWidth: 1.5,
-                    borderColor: isSelected ? COLORS.gold : COLORS.border,
-                    backgroundColor: isSelected ? 'rgba(212, 160, 23, 0.15)' : COLORS.cardBg,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}
-                >
-                  <DeityIcon
-                    deityId={d.id}
-                    icon={d.icon}
-                    size={20}
-                    color={isSelected ? COLORS.gold : COLORS.cream}
-                  />
-                  <View style={{ marginLeft: SPACING.xs }}>
-                    <Text style={{
-                      color: isSelected ? COLORS.gold : COLORS.cream,
-                      fontSize: FONT_SIZES.sm,
-                      fontWeight: isSelected ? '700' : '500',
-                    }}>{d.name}</Text>
-                    <Text style={{ color: COLORS.muted, fontSize: FONT_SIZES.xs }}>
-                      {prog.malas} mala · {prog.count} bead
-                    </Text>
+        {/* Per-deity lifetime totals, collapsed.
+            The pills that used to sit here showed one running total per
+            deity, always open, always beside today's practice. With five or
+            six deities added that is a wall of lifetime numbers above the
+            bead counter. Same information, behind one tap, and clearly marked
+            as lifetime rather than today. */}
+        {deities.length > 0 && (() => {
+          const totals = deities
+            .map((d) => ({
+              d,
+              japas: history.filter((h) => h.deityId === d.id).reduce((s2, h) => s2 + h.japas, 0)
+                + (selectedDeity?.id === d.id ? malas * 108 + count : 0),
+            }))
+            .filter((r) => r.japas > 0)
+            .sort((a, b) => b.japas - a.japas);
+          if (!totals.length) return null;
+          const grand = totals.reduce((s2, r) => s2 + r.japas, 0);
+          return (
+            <View style={styles.deityTotals}>
+              <TouchableOpacity
+                style={styles.deityTotalsHead}
+                onPress={() => setShowDeityTotals((v) => !v)}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.deityTotalsTitle}>
+                  Japa by deity · {totals.length}
+                </Text>
+                <Text style={styles.deityTotalsChev}>{showDeityTotals ? '▴' : '▾'}</Text>
+              </TouchableOpacity>
+              {showDeityTotals && totals.map(({ d, japas }) => (
+                <View key={d.id} style={styles.deityTotalRow}>
+                  <DeityIcon deityId={d.id} icon={d.icon} size={18} color={COLORS.gold} />
+                  <Text style={styles.deityTotalName} numberOfLines={1}>{d.name}</Text>
+                  <View style={styles.deityTotalBarTrack}>
+                    <View style={[styles.deityTotalBarFill, { width: `${Math.round((japas / grand) * 100)}%` }]} />
                   </View>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        )}
+                  <Text style={styles.deityTotalValue}>{japas.toLocaleString()}</Text>
+                </View>
+              ))}
+            </View>
+          );
+        })()}
+
+        {/* The quick deity strip was removed here.
+            It was a horizontal row of oval pills, one per deity, each
+            repeating that deity's running mala and bead totals. Three
+            problems: the dropdown immediately below already switches deity,
+            so the pills were a second control for the same job; the running
+            totals they showed are lifetime figures, which do not belong
+            beside today's practice; and with several deities added the row
+            pushed the bead counter itself below the fold. The totals now live
+            in the stats box above, where the cumulative and the daily numbers
+            sit side by side and can be told apart. */}
+
 
         {/* ─── #2 · UNIFIED SADHANA SELECTOR ───
              ONE dropdown that lists all existing deities + sandhya +
@@ -1365,7 +1419,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
                 </View>
                 <View style={{ flex: 1, marginLeft: SPACING.sm }}>
                   <Text style={styles.deityListName}>{d.name}</Text>
-                  <Text style={styles.deityListMantra} numberOfLines={1}>"{d.mantra}"</Text>
+                  <Text style={styles.deityListMantra} numberOfLines={1}>“{d.mantra}”</Text>
                   <View style={styles.deityListBarTrack}>
                     <View style={[styles.deityListBarFill, { width: `${Math.min(100, totalForDeity * 4)}%` }]} />
                   </View>
@@ -1799,7 +1853,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>Log past japas</Text>
             <Text style={{ fontSize: 12, color: COLORS.muted, marginBottom: SPACING.md }}>
-              Enter malas or japas you've already done. They'll be added to your history & dashboard.
+              Enter malas or japas you’ve already done. They’ll be added to your history & dashboard.
             </Text>
 
             <Text style={styles.fieldLabel}>Deity</Text>
@@ -2393,6 +2447,36 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
     paddingVertical: SPACING.md,
     alignItems: 'center',
   },
+  // Per-deity lifetime totals — collapsed list under the stats box.
+  deityTotals: {
+    marginHorizontal: SPACING.md, marginBottom: SPACING.sm,
+    backgroundColor: COLORS.cardBg, borderRadius: 14,
+    borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden',
+  },
+  deityTotalsHead: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm + 2,
+  },
+  deityTotalsTitle: {
+    color: COLORS.muted, fontSize: FONT_SIZES.xs, fontWeight: '700',
+    letterSpacing: 0.8, textTransform: 'uppercase',
+  },
+  deityTotalsChev: { color: COLORS.gold, fontSize: FONT_SIZES.base, fontWeight: '700' },
+  deityTotalRow: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    paddingHorizontal: SPACING.md, paddingBottom: SPACING.sm,
+  },
+  deityTotalName: { color: COLORS.cream, fontSize: FONT_SIZES.sm, width: 78 },
+  deityTotalBarTrack: {
+    flex: 1, height: 6, borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.07)', overflow: 'hidden',
+  },
+  deityTotalBarFill: { height: '100%', backgroundColor: COLORS.gold, borderRadius: 3 },
+  deityTotalValue: {
+    color: COLORS.cream, fontSize: FONT_SIZES.sm, fontWeight: '700',
+    minWidth: 54, textAlign: 'right',
+  },
+
   closeBtnText: {
     color: C.cream,
     fontSize: 14,

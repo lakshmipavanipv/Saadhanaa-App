@@ -38,7 +38,7 @@ import { exerciseRepo } from '../services/exerciseRepo';
 import { soulActivityRepo } from '../services/soulActivityRepo';
 import { routineRepo } from '../services/routineRepo';
 import { WeekSparkline } from './WeekSparkline';
-import { todayStr } from '../utils';
+import { todayStr, isoDayOf } from '../utils';
 
 type Practice = 'yoga' | 'meditation' | 'japa';
 
@@ -46,7 +46,7 @@ type Practice = 'yoga' | 'meditation' | 'japa';
 
 const dayStr = (offsetDays: number): string => {
   const d = new Date(Date.now() - offsetDays * 86_400_000);
-  return d.toISOString().slice(0, 10);
+  return isoDayOf(d);
 };
 
 const colorForScore = (s: number): string => {
@@ -66,6 +66,15 @@ interface StatsBoxProps {
   /** Optional second metric shown inside the time tile — used on the
    *  Japa screen to surface "japa count today" alongside the minutes. */
   subMetric?: { label: string; value: string | number };
+  /**
+   * Lifetime figures, shown as one quiet strip along the bottom of the box.
+   *
+   * These are deliberately separated from the hero numbers rather than mixed
+   * in with them: today's practice and an all-time total answer different
+   * questions, and a screen that shows them in the same weight invites the
+   * reader to mistake one for the other.
+   */
+  kpis?: { label: string; value: string | number }[];
   /** Compact single-box layout — used by the Japa screen so the bead
    *  counter fits on the same fold without scrolling.  Renders the
    *  three KPIs (time / sub-metric / depth) on one row with both bars
@@ -79,7 +88,7 @@ interface StatsBoxProps {
 }
 
 export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
-  practice, minutesToday, goalMinutes, depthScore, subMetric, compact, onOpenTrend,
+  practice, minutesToday, goalMinutes, depthScore, subMetric, kpis, compact, onOpenTrend,
 }) => {
   const { palette } = useTheme();
   const statBoxStyles = React.useMemo(() => makeStatBoxStyles(palette), [palette]);
@@ -140,7 +149,7 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
             {subMetric && (
               <View style={statBoxStyles.compactRightStat}>
                 <Text style={statBoxStyles.compactRightValue}>{subMetric.value}</Text>
-                <Text style={statBoxStyles.compactRightLabel}>japas today</Text>
+                <Text style={statBoxStyles.compactRightLabel}>{subMetric.label.toLowerCase()}</Text>
               </View>
             )}
           </View>
@@ -149,7 +158,13 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
           <View style={[statBoxStyles.progressTrack, { height: 10, marginTop: 6 }]}>
             <View style={[statBoxStyles.progressFill, { width: `${goalPct}%` }]} />
           </View>
-          <Text style={statBoxStyles.compactHeroPct}>{goalPct}% of today&apos;s goal</Text>
+          {/* When nothing was timed, "0% of today's goal" reads as a failure
+              to practise rather than an absence of measurement. Say which. */}
+          <Text style={statBoxStyles.compactHeroPct}>
+            {minutesToday == null
+              ? 'Not timed — start a session to measure it'
+              : `${goalPct}% of today's goal`}
+          </Text>
 
           {/* Depth score block — tappable to open the trend modal */}
           {onOpenTrend ? (
@@ -157,6 +172,20 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
               {DepthRow}
             </TouchableOpacity>
           ) : DepthRow}
+
+          {/* Lifetime strip. One hairline row inside the existing box rather
+              than a card of its own — this fold already has to hold the bead
+              counter. */}
+          {kpis && kpis.length > 0 && (
+            <View style={statBoxStyles.kpiRow}>
+              {kpis.map((k, i) => (
+                <View key={k.label} style={[statBoxStyles.kpiCell, i > 0 && statBoxStyles.kpiCellDivided]}>
+                  <Text style={statBoxStyles.kpiValue} numberOfLines={1}>{k.value}</Text>
+                  <Text style={statBoxStyles.kpiLabel} numberOfLines={1}>{k.label}</Text>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
       </View>
     );
@@ -556,6 +585,21 @@ const makeStatBoxStyles = (C: typeof COLORS) => StyleSheet.create({
   compactHeroValue: { fontSize: 44, color: C.cream, fontWeight: '800', lineHeight: 48 },
   compactHeroGoal:  { fontSize: 14, color: C.muted, fontWeight: '600' },
   compactHeroPct:   { fontSize: 12, color: C.cream, fontWeight: '600', marginTop: 4 },
+
+  // Lifetime strip. Sits inside the box under a hairline, at label weight, so
+  // it reads as reference rather than as another headline number.
+  kpiRow: {
+    flexDirection: 'row', alignItems: 'stretch',
+    marginTop: 10, paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border,
+  },
+  kpiCell: { flex: 1, paddingHorizontal: 6 },
+  kpiCellDivided: { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: C.border },
+  kpiValue: { color: C.cream, fontSize: 14, fontWeight: '700', letterSpacing: -0.2 },
+  kpiLabel: {
+    color: C.muted, fontSize: 9, fontWeight: '700',
+    letterSpacing: 0.7, textTransform: 'uppercase', marginTop: 2,
+  },
   compactRightStat: { alignItems: 'flex-end', justifyContent: 'flex-start', paddingLeft: SPACING.md },
   compactRightValue: { fontSize: 22, color: C.cream, fontWeight: '800', lineHeight: 26 },
   compactRightLabel: { fontSize: 10, color: C.muted, fontWeight: '700', marginTop: 2 },

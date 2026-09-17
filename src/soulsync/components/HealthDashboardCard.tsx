@@ -6,9 +6,9 @@ import { computeHealthDashboard, HealthDashboardSnapshot, MetricRow } from '../a
 import { computeCalmDivergence } from '../analytics/CalmDivergence';
 import { buildSleepCorrelationMatrix, CorrelationMatrix } from '../analytics/SleepArchitecture';
 import { sessionSpiritualRepo } from '../db/sessionSpiritualRepo';
+import { todayStr } from '../../utils';
 
 const CHART_W = Dimensions.get('window').width - 64;
-const todayStr = () => new Date().toISOString().slice(0, 10);
 
 interface WeekTrendPoint { date: string; divergencePct: number }
 

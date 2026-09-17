@@ -73,7 +73,7 @@ const COMPANION_FRESHNESS_MS = 6 * 60 * 60 * 1000;   // 6 h
 const LIVE_WINDOW_MS = 10_000;   // how long a metric stays armed
 const LIVE_GAP_MS = 20_000;      // idle between windows
 /** Metrics rotated through the cycler, in order. */
-const LIVE_CYCLE: Array<'hrv' | 'spo2'> = ['hrv', 'spo2'];
+const LIVE_CYCLE: ('hrv' | 'spo2')[] = ['hrv', 'spo2'];
 
 export interface SadhanaRingServiceOpts {
   /** If given, connect to this deviceId; otherwise pick strongest ring in a scan. */
@@ -307,7 +307,7 @@ export class SadhanaRingService implements RingService {
     if (raw === undefined || raw < lo || raw > hi) {
       if (!this.livePushSeen.has(metric) && this.pushLogs < 6) {
         this.pushLogs++;
-        // eslint-disable-next-line no-console
+         
         console.log(
           `[SadhanaRing] live ${metric} push not decoded — payload ${Array.from(payload).join(',')}`
         );
@@ -376,7 +376,7 @@ export class SadhanaRingService implements RingService {
     } catch (e) {
       // A refused or timed-out window is not worth surfacing — the next one
       // will try again, and the stored history keeps the UI populated.
-      // eslint-disable-next-line no-console
+       
       console.log(`[SadhanaRing] live ${metric} window failed: ${(e as Error).message}`);
     }
 

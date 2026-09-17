@@ -9,6 +9,7 @@ import {
   Easing,
 } from 'react-native';
 import { useSadhana } from '../context';
+import { japaMinutesOnDate } from '../soulsync/analytics/JapaTime';
 import { Storage } from '../storage';
 import {
   todayStr,
@@ -19,7 +20,6 @@ import {
   getUpcomingFestivals,
   getDaysUntil,
   getTodayFest,
-  japasToSeconds,
   formatSadhanaTime,
   formatTimeUntil,
   nextOccurrenceOfTime,
@@ -158,7 +158,12 @@ export const DashboardScreen = ({ navigation }: any) => {
     exerciseRepo.todayMinutes().then(setTodayBodyMin);
     (async () => {
       try {
-        setHealthBoxes(await computeHealthBoxes());
+        // Age and sex change these scores materially — HRV norms nearly halve
+        // between 25 and 60 — so the profile goes in rather than letting the
+        // model fall back to a cohort midpoint.
+        setHealthBoxes(await computeHealthBoxes({
+          dob: userProfile?.dob, gender: userProfile?.gender,
+        }));
         const c = await computeScores();
         setCommitmentScore(c.overall);
         setScorePack({
@@ -176,7 +181,10 @@ export const DashboardScreen = ({ navigation }: any) => {
         ));
       } catch { /* */ }
     })();
-  }, [_tick]);
+    // The profile is part of this: it arrives from storage after first paint,
+    // and without it here the scores would be computed once against a cohort
+    // midpoint and never recomputed when the real age and sex turn up.
+  }, [_tick, userProfile?.dob, userProfile?.gender]);
 
   useEffect(() => {
     Storage.get<Record<string, FestReminder>>('festReminders', {}).then(setFestReminders);
@@ -204,11 +212,30 @@ export const DashboardScreen = ({ navigation }: any) => {
     [history]
   );
 
-  // ── Measured prayer time (from Soulsync sessions with real start/end) ──
-  // For history entries without timing data, we fall back to the 6-sec
-  // per-japa estimate. So `sadhanaSeconds` = estimate of TOTAL time across
-  // every entry (manual, app, ring). If/when measured session data exists,
-  // we ADDITIONALLY surface it as a confirmation row below the hero.
+  /**
+   * Measured sadhana time for TODAY, from session start/end times.
+   *
+   * Two faults were stacked here. `sadhanaSeconds` came from
+   * `japasToSeconds(totalJapas)` — the japa count restated at six seconds a
+   * bead, which is not a measurement and cannot disagree with the count. And
+   * the measured figure that did exist summed `session_spiritual` with no date
+   * filter, so it was a lifetime total being printed under the word "today".
+   * Between them the Home card claimed 137 minutes of sadhana on a day with
+   * one mala, and the Commitment Score was built on it.
+   *
+   * Now: measured, today only, null when nothing was timed.
+   */
+  const [todaySoulMin, setTodaySoulMin] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const tick = () => {
+      void japaMinutesOnDate(todayStr()).then((r) => { if (alive) setTodaySoulMin(r.minutes); });
+    };
+    tick();
+    const id = setInterval(tick, 60_000);   // a live session keeps growing
+    return () => { alive = false; clearInterval(id); };
+  }, [history]);
+
   const [measuredSeconds, setMeasuredSeconds] = useState<number>(0);
   useEffect(() => {
     let cancelled = false;
@@ -231,7 +258,9 @@ export const DashboardScreen = ({ navigation }: any) => {
     return () => { cancelled = true; };
   }, [history]);
 
-  const sadhanaSeconds = japasToSeconds(totalJapas);
+  // Measured only. Zero means nothing was timed today, which the UI says in
+  // words rather than showing a confident-looking number.
+  const sadhanaSeconds = (todaySoulMin ?? 0) * 60;
   // Total deities the user has added to their sadhana — shown on the
   // dashboard. Previously this only counted deities with history or
   // in-progress beads, so newly-added deities were invisible until first use.

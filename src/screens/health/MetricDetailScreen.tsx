@@ -17,8 +17,10 @@ import { useTheme } from '../../ThemeContext';
 import {
   ScreenHeader, ViewSwitch, WeekStrip, HeroCard, BandedChart, RangeCard, AboutCard,
   type HealthView, type DayQuality, useBackToHealth } from './HealthPrimitives';
+import { useRange } from './rangeContext';
 import { METRIC_CONFIG, qualityForValue, type HealthMetric } from './healthTokens';
 import { syncAllRingVitals, loadStoredVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
+import { isoDayOf as isoDay } from '../../utils';
 
 type ScalarMetric = Exclude<HealthMetric, 'sleep' | 'stress' | 'exercise'>;
 
@@ -31,12 +33,6 @@ const VIEW_DAYS: Record<HealthView, number> = { day: 1, week: 7, month: 30 };
 const isScalar = (m: string): m is ScalarMetric =>
   m === 'hr' || m === 'hrv' || m === 'spo2' || m === 'temp' || m === 'resp';
 
-function isoDay(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${dd}`;
-}
 
 export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
   const { palette } = useTheme();
@@ -45,8 +41,9 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
   const metric: ScalarMetric = isScalar(route?.params?.metric) ? route.params.metric : 'hr';
   const cfg = METRIC_CONFIG[metric];
 
-  const [view, setView] = useState<HealthView>('day');
-  const [selected, setSelected] = useState<string>(isoDay(new Date()));
+  // Range is shared app-wide, so a day chosen on Japa or Exercise is the
+  // day this report opens on. See screens/health/rangeContext.
+  const { view, setView, selected, setSelected } = useRange();
   const [vitals, setVitals] = useState<RingVitalsSyncResult | null>(null);
   // Stored history, read straight from vitals_sample. The screen used to
   // render only whatever the last live sync happened to return, so anything
