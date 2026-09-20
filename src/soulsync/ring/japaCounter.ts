@@ -298,8 +298,41 @@ export class JapaRingCounter {
    * Best-effort by design: some firmware nacks the opcode, and a failed
    * confirmation must never interrupt counting.
    */
-  async buzz(pulses: number = 1): Promise<void> {
-    try { await this.ring?.device.vibrate(pulses); } catch { /* firmware nacked; harmless */ }
+  /**
+   * Mark a completed mala on the ring itself.
+   *
+   * Buzz if there is a motor; otherwise blink the LED, which this ring does
+   * have. Japa is done with the eyes closed and the phone face down, so a
+   * toast is feedback the practitioner never receives — a flash on the finger
+   * is the closest this hardware can get to a bead reaching the guru bead.
+   *
+   * Returns false when the ring can do neither, so the caller falls back to
+   * the phone immediately rather than after a reply timeout.
+   */
+  async signalMala(): Promise<boolean> {
+    if (!this.ring) return false;
+
+    // Try the motor first, always. There is no capability flag for "has a
+    // motor" — only one for adjustable intensity — so the only honest test is
+    // to send the command and see whether the ring accepts it. A previous
+    // version read the intensity flag as presence, concluded this ring had no
+    // motor, and skipped the buzz on hardware that vibrates.
+    if (await this.buzz(1)) return true;
+
+    // LED as the fallback signal on rings that cannot buzz.
+    if (this.ring.caps?.hasLEDLight) {
+      try { await this.ring.device.blinkLed(2); return true; }
+      catch { /* fall through to the phone */ }
+    }
+    return false;
+  }
+
+  async buzz(pulses: number = 1): Promise<boolean> {
+    if (!this.ring) return false;
+    // Whether it buzzed is decided by the ring accepting the command, not by
+    // a flag: false here means the firmware refused, not that we assumed.
+    try { await this.ring.device.vibrate(pulses); return true; }
+    catch { return false; }
   }
 
   getTapCount(): number { return this.tapCount; }

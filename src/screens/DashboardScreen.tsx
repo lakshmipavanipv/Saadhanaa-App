@@ -25,7 +25,7 @@ import {
   nextOccurrenceOfTime,
   formatShortDate,
 } from '../utils';
-import { COLORS, SPACING } from '../theme';
+import { COLORS, SPACING, DRAWER_CLEARANCE } from '../theme';
 import { useTheme } from '../ThemeContext';
 import { AIInsightsCard } from '../soulsync/components/AIInsightsCard';
 import { SolutionMatrixCard } from '../soulsync/components/SolutionMatrixCard';
@@ -37,6 +37,7 @@ import { computeSleepScore } from '../soulsync/analytics/SleepScore';
 import { routineRepo } from '../services/routineRepo';
 import { showNum, barPct, NO_DATA_COLOR } from '../services/vitalsDisplay';
 import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
+import { BuildStamp } from '../components/BuildStamp';
 import { computeHealthBoxes } from '../soulsync/analytics/HealthScores';
 import { SaadhanaScoreCard } from '../soulsync/components/SaadhanaScoreCard';
 import { useEmotionalState } from '../soulsync/hooks/useEmotionalState';
@@ -548,6 +549,10 @@ export const DashboardScreen = ({ navigation }: any) => {
           <BodySoulLogo width={240} />
           <Text style={styles.personalLine}>{getPersonalLine(userProfile?.name)}</Text>
           <Text style={styles.date}>{formatDate(todayStr())}</Text>
+          {/* Which bundle is actually running. "Published" and "installed"
+              are different things, and this is the only way to tell them
+              apart from the phone. See components/BuildStamp. */}
+          <BuildStamp />
           {/* Top-right, matching where Exercise/Yoga/Meditation/Japa put it.
               Absolutely positioned rather than placed in a row so the centred
               brand logo keeps its own layout. */}
@@ -630,36 +635,29 @@ export const DashboardScreen = ({ navigation }: any) => {
             );
           })()}
 
-          <Text style={[styles.sadhanaHeroSource, { textAlign: 'center', marginTop: SPACING.sm }]}>
-            ⏱ {formatSadhanaTime(sadhanaSeconds + todayBodyMin * 60)} total today
-            {measuredSeconds > 0 && ` · ${formatSadhanaTime(measuredSeconds)} ring-timed`}
-          </Text>
+          {/*
+            ONE line under the score, not three.
+
+            There were three, and they overlapped: a total-time line, a
+            "Today: N malas · X min" line, and a storytelling line that
+            restated the score in words. Three sentences about the same day
+            made the hero the tallest thing on the screen and the score the
+            hardest part of it to find.
+
+            What survives is the day in facts — what was done, and how long it
+            took — because that is the part the other two were built on.
+          */}
           <Text style={styles.sadhanaHeroToday}>
             {todayCount === 0 && todayBodyMin === 0
               ? (todayRoutine.length === 0
-                  // v68: brand-new user with no plan yet — welcome them, don't
-                  // guilt-trip about "no workout" before they've planned anything.
-                  ? '🌱 Welcome — set up your daily practice in the Plan tab to begin.'
-                  : '🌅 No exercise or soul work done yet today — gentle start awaits 🙏')
-              : `🌅 Today: ${todayCount > 0 ? `${todayCount} mala${todayCount !== 1 ? 's' : ''}` : 'no japa yet'}${todayBodyMin > 0 ? ` · ${todayBodyMin} min movement` : ''}`}
+                  ? 'Set up your daily practice in Plan to begin.'
+                  : 'Nothing recorded yet today.')
+              : [
+                  todayCount > 0 ? `${todayCount} mala${todayCount === 1 ? '' : 's'}` : null,
+                  todayBodyMin > 0 ? `${todayBodyMin} min movement` : null,
+                  `${formatSadhanaTime(sadhanaSeconds + todayBodyMin * 60)} in all`,
+                ].filter(Boolean).join(' · ')}
           </Text>
-
-          {/* v48: storytelling line — small narrative that turns numbers
-              into encouragement. Drives the "achievable + measurable"
-              part of the SMART model that the UX assessment flagged. */}
-          {(() => {
-            const score = commitmentScore ?? 0;
-            const story = (todayCount === 0 && todayBodyMin === 0)
-              ? (todayRoutine.length === 0
-                  ? '💛 Plan your well-being to begin your journey.'
-                  : '💛 Tap the Plan tab to set today\'s small goal.')
-              : score >= 80
-                ? '✨ You are landing on a beautiful streak — keep the gentle rhythm.'
-                : score >= 60
-                  ? '🪷 One more session today will take you into the green band.'
-                  : '🌱 A 10-min walk + 1 mala japa lifts this score noticeably.';
-            return <Text style={styles.sadhanaHeroStory}>{story}</Text>;
-          })()}
         </View>
 
         {/* ── 2. 4 BEAUTIFUL HEALTH BOXES (with realistic fallback) ── */}
@@ -969,7 +967,10 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   container: { flex: 1, backgroundColor: C.deep },
   scroll: { paddingBottom: 80 },
   header: {
-    paddingHorizontal: SPACING.md,
+    // Padded on both sides, not just the left: this header centres its
+    // content, so clearing the drawer button on one side only would shift the
+    // title off-centre instead of moving it out from under the button.
+    paddingHorizontal: DRAWER_CLEARANCE,
     paddingTop: SPACING.lg,
     paddingBottom: SPACING.md,
     alignItems: 'center',

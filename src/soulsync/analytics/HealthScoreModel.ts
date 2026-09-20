@@ -79,7 +79,7 @@ const mk = (value: number | null, basis: string): Score =>
  * table of thresholds and inventing a curve through them would add precision
  * the sources do not support. Anchors must be sorted by `x` ascending.
  */
-function piecewise(x: number, anchors: readonly [number, number][]): number {
+export function piecewise(x: number, anchors: readonly [number, number][]): number {
   if (x <= anchors[0][0]) return anchors[0][1];
   const last = anchors[anchors.length - 1];
   if (x >= last[0]) return last[1];

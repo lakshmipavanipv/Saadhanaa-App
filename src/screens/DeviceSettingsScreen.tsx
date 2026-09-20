@@ -21,6 +21,7 @@ import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../theme';
 import { useTheme } from '../ThemeContext';
 import { VitalsMeasurementSection } from './SettingsScreen';
 import { RespirationProbeScreen } from './RespirationProbeScreen';
+import { ThemePicker } from '../components/ThemePicker';
 import { SadhanaRing } from '../soulsync/ring/SadhanaRing';
 import { readSr16DeviceId } from '../soulsync/ring/japaCounter';
 import type { BatteryStatus, FirmwareInfo } from '../soulsync/ring/device';
@@ -42,7 +43,7 @@ interface Row {
 }
 
 export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) => {
-  const { palette, mode, toggle: toggleTheme } = useTheme();
+  const { palette, mode } = useTheme();
   const [connected, setConnected] = useState(false);
   const [battery, setBattery] = useState<BatteryStatus | null>(null);
   const [fw, setFw] = useState<FirmwareInfo | null>(null);
@@ -54,6 +55,7 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
   // as a duplicate, so this is the only way to switch themes.
   const [ring, setRing] = useState<SadhanaRing | null>(null);
   const [showRespProbe, setShowRespProbe] = useState(false);
+  const [showThemePicker, setShowThemePicker] = useState(false);
 
   const soon = (feature: string) =>
     Alert.alert(feature, 'Requires opcode we haven\'t verified live yet. Coming soon.');
@@ -169,7 +171,19 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
     // look, and not where anyone else would.
     { icon: '🌬️', iconBg: '#8BD3C7', label: 'Respiration probe', value: 'Can the ring measure breath?', onPress: () => setShowRespProbe(true) },
     { icon: '📏', iconBg: '#f97316', label: 'Unit Format', value: unit, onPress: () => handleSetUnit(unit === 'Metric' ? 'Imperial' : 'Metric') },
-    { icon: '🎨', iconBg: '#22c55e', label: 'Color Theme', value: mode === 'dark' ? 'Dark' : 'Light', onPress: toggleTheme },
+    /*
+     * Opens the picker rather than toggling.
+     *
+     * This row called toggleTheme, which flips between exactly two values.
+     * That was fine while Dark and Light were the only themes; once Techno
+     * existed it became the reason nobody could reach it — the drawer's Color
+     * Theme entry had been removed as redundant with this row, so the picker
+     * was opened by nothing at all and a third theme was unreachable from
+     * anywhere in the app.
+     */
+    { icon: '🎨', iconBg: '#22c55e', label: 'Color Theme',
+      value: mode === 'techno' ? 'Techno' : mode === 'dark' ? 'Dark' : 'Light',
+      onPress: () => setShowThemePicker(true) },
     { icon: '🚀', iconBg: '#22c55e', label: 'Firmware Upgrade', onPress: () => Alert.alert('Firmware', 'Over-the-air update needs the Jieli RCSP challenge/response handshake, which is not implemented yet.') },
     { icon: '🔄', iconBg: '#eab308', label: 'Restore factory settings', onPress: handleFactoryReset, destructive: true },
     { icon: '⏻', iconBg: '#ef4444', label: 'Device Shutdown', onPress: handleShutdown, destructive: true },
@@ -242,6 +256,10 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
           window, sample interval, sleep window and the japa live link are all
           device behaviour rather than profile preferences. */}
       <VitalsMeasurementSection />
+
+      {showThemePicker && (
+        <ThemePicker visible onClose={() => setShowThemePicker(false)} />
+      )}
 
       {showRespProbe && (
         <Modal visible transparent={false} animationType="slide" onRequestClose={() => setShowRespProbe(false)}>

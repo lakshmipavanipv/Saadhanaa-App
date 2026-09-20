@@ -9,6 +9,7 @@ import { telemetryRepo } from '../db/telemetryRepo';
 import { peakRepo } from '../db/peakRepo';
 import { ambientIngestion } from '../services/AmbientIngestion';
 import { estimateRespirationRate } from '../analytics/Respiration';
+import { finaliseSessionDepth, type SessionKind, type SessionDepth } from '../analytics/SadhanaDepth';
 
 const MAX_WAVE_SAMPLES = 90; // ~90s on the wave at a time
 
@@ -54,6 +55,12 @@ export interface SoulsyncSessionState {
  */
 const RR_WINDOW_MAX = 600;
 
+export interface SessionMeta {
+  practice: SessionKind;
+  deityId?: string | null;
+  deityName?: string | null;
+}
+
 export const useSoulsyncSession = () => {
   const [state, setState] = useState<SoulsyncSessionState>({
     active: false,
@@ -87,6 +94,16 @@ export const useSoulsyncSession = () => {
   // session does not grow this without bound; the estimator only needs a
   // few minutes and prefers recent beats anyway.
   const rrWindowRef = useRef<number[]>([]);
+  /**
+   * What this sitting IS — the practice, and the deity when there is one.
+   *
+   * Held for the whole session rather than passed to `stop()`, because the
+   * screen can change underneath a running session (the user switches deity
+   * mid-mala, or walks to another tab) and the sitting belongs to what it was
+   * started as. It is written to the row at `start()` too, so a session that
+   * is never stopped cleanly is still identifiable.
+   */
+  const metaRef = useRef<SessionMeta>({ practice: 'japa' });
 
   const handleSample = useCallback(async (s: RingSample) => {
     if (!sessionIdRef.current || !calcRef.current) return;
@@ -193,8 +210,9 @@ export const useSoulsyncSession = () => {
     return () => clearInterval(hud);
   }, [state.active]);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (meta: SessionMeta = { practice: 'japa' }) => {
     if (state.active) return;
+    metaRef.current = meta;
 
     const id = uuid();
     sessionIdRef.current = id;
@@ -219,6 +237,9 @@ export const useSoulsyncSession = () => {
       mala_count: 0,
       session_avg_bpm: null,
       hrv_peaks_registered: 0,
+      practice: meta.practice,
+      deity_id: meta.deityId ?? null,
+      deity_name: meta.deityName ?? null,
     });
 
     ambientIngestion.pause();
@@ -253,8 +274,20 @@ export const useSoulsyncSession = () => {
     });
   }, [state.active, handleSample]);
 
-  const stop = useCallback(async () => {
-    if (!state.active || !sessionIdRef.current) return;
+  /**
+   * End the sitting and score it.
+   *
+   * The depth score is computed HERE, once, and written to the session row —
+   * not recomputed whenever a screen asks. The baseline it is measured against
+   * is the one that existed at the time, and a sitting that read 72 today must
+   * still read 72 in six months, after the practitioner's rolling normal has
+   * moved on.
+   *
+   * Returns the finished report so the caller can show it immediately instead
+   * of re-reading what it just wrote.
+   */
+  const stop = useCallback(async (): Promise<SessionDepth | null> => {
+    if (!state.active || !sessionIdRef.current) return null;
     const id = sessionIdRef.current;
 
     await ringRef.current?.stop();
@@ -269,6 +302,16 @@ export const useSoulsyncSession = () => {
 
     sessionIdRef.current = null;
     calcRef.current = null;
+
+    // Scored before the state reset so a failure here cannot leave the session
+    // looking active. A sitting that cannot be scored is still a sitting: the
+    // row keeps its times and its malas, and the report says why it is blank.
+    let depth: SessionDepth | null = null;
+    try {
+      depth = await finaliseSessionDepth(id, metaRef.current);
+    } catch (e) {
+      console.warn('[soulsync] depth scoring failed', e);
+    }
 
     setState({
       active: false,
@@ -285,6 +328,8 @@ export const useSoulsyncSession = () => {
       liveSkinTempC: null,
       liveRespirationBpm: null,
     });
+
+    return depth;
   }, [state.active]);
 
   /** Called from outside whenever the user completes a full mala. */

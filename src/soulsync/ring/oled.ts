@@ -1,6 +1,31 @@
 /**
  * OledApi — push a bitmap image to the ring's OLED via CMD 7 file transfer.
  *
+ * ⚠️ THIS DOES NOT WORK ON THIS RING, AND THE REASON IS STRUCTURAL.
+ *
+ * Tested against the hardware on 2026-09-17: the INIT frame {7,3,0} is never
+ * acknowledged and the send times out. No chunk is ever transmitted, so the
+ * attempt is harmless — but it is also futile, and it held the command queue
+ * for six seconds on every connection until the call site was removed.
+ *
+ * The wire format below was inferred by analogy with OtaApi rather than
+ * captured, and the analogy was wrong. Searching the decompiled RWfit app for
+ * how it actually pushes an image to a Jieli device: there is no CMD 7 image
+ * command in the SDK's command helper at all. `CustomJLDialActivity` converts
+ * the picture with `com.jieli.bmp_convert.BmpConvert` and then transfers it
+ * over the **Jieli RCSP** channel (`com.jieli.jl_bt_ota`, services
+ * ae00/ae01/ae02) — the same authenticated path firmware updates use, gated
+ * by the challenge/response in `libjl_ota_auth.so`.
+ *
+ * So writing to this display needs RCSP authentication we do not hold. That
+ * is a different and much larger problem than a wrong opcode, and no amount
+ * of guessing at CMD 7 payloads will reach it.
+ *
+ * Kept, rather than deleted, because the bitmap rendering and packing are
+ * correct and independently useful — and because the next person to wonder
+ * whether the ring's screen can be written to deserves this note instead of
+ * repeating the experiment.
+ *
  * The SR16 OLED is a 96×64 monochrome display (per firmware capabilities).
  * We pack 1-bit-per-pixel column-major so the byte layout matches what most
  * SSD1306-family drivers expect. Each page (8 pixels tall) is written left→right,
@@ -24,6 +49,7 @@
 
 import type { SadhanaRing } from './SadhanaRing';
 import { crc16arc } from './codec';
+import { VELVUE_LOGO_96x64 } from './assets/velvueLogo';
 import {
   OP_FILE_OTA_7_3_0,
   OP_FILE_OTA_7_4_0,
@@ -167,6 +193,24 @@ export interface BitmapUploadOpts {
 
 export class OledApi {
   constructor(private readonly ring: SadhanaRing) {}
+
+  /**
+   * Show the Velvue logo on the ring's display.
+   *
+   * The bitmap is pre-rendered at build time (see assets/velvueLogo.ts) in the
+   * exact packing `Bitmap96x64` produces, so it goes straight out with no
+   * conversion on the device.
+   *
+   * NOTE ON THE CHANNEL. This rides {7,3,0}/{7,4,0}/{7,4,48}, which are
+   * different opcodes from the firmware uploader's {7,1,0}/{7,8,0}/{7,11,0} —
+   * and nothing here ever sends {7,12,0} REBOOT. A malformed bitmap cannot be
+   * mistaken for a firmware image; the worst case is that the ring ignores it.
+   */
+  async showLogo(): Promise<void> {
+    const bmp = new Bitmap96x64();
+    bmp.buf.set(VELVUE_LOGO_96x64);
+    await this.sendBitmap(bmp);
+  }
 
   /** Push a raw 96×64 monochrome bitmap buffer to the OLED. */
   async sendBitmap(bitmap: Bitmap96x64, opts: BitmapUploadOpts = {}): Promise<void> {

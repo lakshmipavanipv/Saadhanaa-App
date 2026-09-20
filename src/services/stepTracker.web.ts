@@ -14,3 +14,6 @@ export const startStepTracking = async (
 ): Promise<() => void> => {
   return () => {};
 };
+
+export const resetTodaySteps = async (): Promise<void> => {};
+export const repairInflatedSteps = async (): Promise<void> => {};

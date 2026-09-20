@@ -1,98 +1,133 @@
 /**
- * SessionScorePopup — full-screen modal that appears when the user stops
- * a Soulsync session. Shows the freshly-computed Saadhana Score for today
- * (which reflects the just-ended session) and offers a shortcut into the
- * Insights tab for trend history.
+ * SessionScorePopup — the report card shown the moment a Soul Sync sitting
+ * ends.
  *
- * Triggered from JapaScreen after `soulsync.stop()` completes and the
- * post-session JapaEffect snapshot is calculated.
+ * WHAT CHANGED
+ *
+ * It used to show `computeJapaEffect()`: everything that had happened TODAY,
+ * pooled. So finishing a second sitting showed a number partly made of the
+ * first one, and a strong evening practice could appear to have lowered the
+ * score. It also always showed a number — a session with no HRV reading scored
+ * zero on HRV, which is indistinguishable from a body that did not respond.
+ *
+ * It now shows the sitting that just ended, scored on its own, against the
+ * body the practitioner brought to it. When it cannot be scored it says so and
+ * says why.
+ *
+ * WHY THE COMPONENTS ARE ON THE POPUP
+ *
+ * A single number at the end of a practice is either believed or dismissed,
+ * and neither is useful. Showing the measured parts beside it — each with the
+ * figure behind it — lets the practitioner see WHICH part moved, which is the
+ * only thing they can act on next time.
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView } from 'react-native';
 import { COLORS, SPACING } from '../../theme';
-import { JapaEffectSnapshot } from '../analytics/JapaEffect';
+import { depthBand, type SessionDepth } from '../analytics/SadhanaDepth';
 
 interface Props {
   visible: boolean;
-  snapshot: JapaEffectSnapshot | null;
+  depth: SessionDepth | null;
   onClose: () => void;
   onViewInsights?: () => void;
 }
 
-const colorFor = (score: number): string => {
-  if (score >= 80) return '#3ddc84';
-  if (score >= 60) return '#FFB800';
-  if (score >= 40) return '#FFD54F';
-  return '#ff8c42';
-};
+export const SessionScorePopup: React.FC<Props> = ({ visible, depth, onClose, onViewInsights }) => {
+  if (!depth) return null;
 
-const tierFor = (score: number): { label: string; emoji: string } => {
-  if (score >= 90) return { label: 'PROFOUND',    emoji: '✨' };
-  if (score >= 75) return { label: 'STRONG',      emoji: '🌟' };
-  if (score >= 60) return { label: 'GOOD',        emoji: '🙂' };
-  if (score >= 40) return { label: 'MILD',        emoji: '🌱' };
-  if (score >= 20) return { label: 'RESTLESS',    emoji: '🌿' };
-  return                  { label: 'BRIEF',       emoji: '🪷' };
-};
-
-export const SessionScorePopup: React.FC<Props> = ({ visible, snapshot, onClose, onViewInsights }) => {
-  if (!snapshot) return null;
-  const c = colorFor(snapshot.score);
-  const tier = tierFor(snapshot.score);
+  const scored = depth.score != null;
+  const band = scored ? depthBand(depth.score as number) : null;
+  const accent = band?.color ?? COLORS.muted;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={styles.card}>
-          {/* Tier badge */}
-          <View style={[styles.tierBadge, { backgroundColor: c + '22', borderColor: c }]}>
-            <Text style={[styles.tierBadgeText, { color: c }]}>
-              {tier.emoji} {tier.label}
-            </Text>
-          </View>
+        <View style={[styles.card, { borderColor: accent + '66' }]}>
+          {/* The breakdown makes this taller than the old single number, and a
+              report whose bottom half is off-screen on a small phone is a
+              report that does not exist. */}
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollBody}
+            bounces={false}
+          >
+            {band && (
+              <View style={[styles.tierBadge, { backgroundColor: accent + '22', borderColor: accent }]}>
+                <Text style={[styles.tierBadgeText, { color: accent }]}>
+                  {band.emoji} {band.label.toUpperCase()}
+                </Text>
+              </View>
+            )}
 
-          <Text style={styles.label}>Saadhana Score</Text>
+            <Text style={styles.label}>Sadhana Depth</Text>
 
-          {/* Big score */}
-          <View style={styles.scoreRow}>
-            <Text style={[styles.scoreBig, { color: c }]}>{snapshot.score}</Text>
-            <Text style={styles.scoreOutOf}>/ 100</Text>
-          </View>
+            {scored ? (
+              <View style={styles.scoreRow}>
+                <Text style={[styles.scoreBig, { color: accent }]}>{depth.score}</Text>
+                <Text style={styles.scoreOutOf}>/ 100</Text>
+              </View>
+            ) : (
+              <Text style={styles.noScore}>Not scored</Text>
+            )}
 
-          {/* Note */}
-          <Text style={styles.note}>{snapshot.note}</Text>
+            <Text style={styles.note}>{scored ? depth.note : depth.whyBlank}</Text>
 
-          {/* Session summary */}
-          <View style={styles.summaryRow}>
-            <SummaryStat label="Sessions" value={String(snapshot.sessionCount)} />
-            <View style={styles.summaryDivider} />
-            <SummaryStat label="Minutes"  value={String(snapshot.japaMinutes)} />
-            <View style={styles.summaryDivider} />
-            <SummaryStat label="Logged"   value="✓ Insights" />
-          </View>
+            {/* What the sitting was, in facts rather than scores. True whether
+                or not a score could be computed. */}
+            <View style={styles.summaryRow}>
+              <SummaryStat label="Minutes" value={String(Math.round(depth.durationMin))} />
+              <View style={styles.summaryDivider} />
+              <SummaryStat
+                label="Avg BPM"
+                value={depth.sessionBpm != null ? String(Math.round(depth.sessionBpm)) : '—'}
+              />
+              <View style={styles.summaryDivider} />
+              <SummaryStat
+                label="Avg HRV"
+                value={depth.sessionRmssd != null ? `${Math.round(depth.sessionRmssd)}ms` : '—'}
+              />
+            </View>
 
-          {/* Top 3 metric highlights (HRV / BPM / Duration) */}
-          <View style={styles.highlightBlock}>
-            {snapshot.metrics
-              .filter(m => m.weight > 0)
-              .slice(0, 3)
-              .map(m => (
-                <View key={m.label} style={styles.highlightRow}>
-                  <Text style={styles.highlightEmoji}>{m.emoji}</Text>
-                  <Text style={styles.highlightLabel}>{m.label}</Text>
-                  <Text style={[styles.highlightPts, { color: colorFor(m.points) }]}>
-                    {m.points}/100
-                  </Text>
-                </View>
-              ))}
-          </View>
+            {scored && (
+              <View style={styles.breakdown}>
+                {depth.components.map((c) => {
+                  const has = c.points != null;
+                  const col = has ? depthBand(c.points as number).color : COLORS.muted;
+                  return (
+                    <View key={c.key} style={styles.compRow}>
+                      <View style={styles.compHead}>
+                        <Text style={styles.compLabel}>{c.label}</Text>
+                        <Text style={[styles.compPts, { color: col }]}>
+                          {has ? Math.round(c.points as number) : '—'}
+                        </Text>
+                      </View>
+                      <View style={styles.track}>
+                        <View style={[styles.fill, {
+                          width: `${has ? (c.points as number) : 0}%`,
+                          backgroundColor: has ? col : 'transparent',
+                        }]} />
+                      </View>
+                      <Text style={styles.compDetail}>{c.detail}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
 
-          {/* Buttons */}
+            {scored && depth.confidence < 0.999 && (
+              <Text style={styles.confidence}>
+                {Math.round(depth.confidence * 100)}% of the model had a reading behind it.
+                Missing measures were left out, not counted as zero.
+              </Text>
+            )}
+          </ScrollView>
+
           <View style={styles.btnRow}>
             {onViewInsights && (
               <TouchableOpacity style={styles.secondaryBtn} onPress={onViewInsights}>
-                <Text style={styles.secondaryBtnText}>📈 View in Insights</Text>
+                <Text style={styles.secondaryBtnText}>📈 Insights</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity style={styles.primaryBtn} onPress={onClose}>
@@ -101,7 +136,7 @@ export const SessionScorePopup: React.FC<Props> = ({ visible, snapshot, onClose,
           </View>
 
           <Text style={styles.foot}>
-            This score has been added to your daily progress in Insights.
+            Saved to this sitting. It will not change afterwards.
           </Text>
         </View>
       </View>
@@ -127,92 +162,71 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 420,
+    maxHeight: '86%',
     backgroundColor: COLORS.darkBg,
     borderRadius: 20,
     padding: SPACING.lg,
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 184, 0, 0.4)',
     alignItems: 'center',
   },
+  scrollBody: { alignItems: 'center', paddingBottom: SPACING.sm },
+
   tierBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: SPACING.md,
+    paddingHorizontal: 12, paddingVertical: 4,
+    borderRadius: 12, borderWidth: 1, marginBottom: SPACING.md,
   },
   tierBadgeText: { fontSize: 11, fontWeight: '700', letterSpacing: 1.5 },
 
   label: {
-    fontSize: 11,
-    color: COLORS.muted,
-    fontWeight: '700',
-    letterSpacing: 2,
-    textTransform: 'uppercase',
+    fontSize: 11, color: COLORS.muted, fontWeight: '700',
+    letterSpacing: 2, textTransform: 'uppercase',
   },
-  scoreRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 6 },
-  scoreBig: { fontSize: 72, fontWeight: '700', lineHeight: 76 },
-  scoreOutOf: { fontSize: 18, color: COLORS.muted, marginLeft: 6 },
+
+  scoreRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 4, gap: 6 },
+  scoreBig: { fontSize: 62, fontWeight: '700', letterSpacing: -2 },
+  scoreOutOf: { fontSize: 15, color: COLORS.muted, fontWeight: '600' },
+  noScore: { fontSize: 22, color: COLORS.muted, fontWeight: '700', marginTop: 8 },
 
   note: {
-    fontSize: 13,
-    color: COLORS.cream,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    lineHeight: 19,
-    marginTop: SPACING.sm,
-    marginBottom: SPACING.md,
-    paddingHorizontal: SPACING.sm,
+    fontSize: 13, color: COLORS.cream, lineHeight: 19,
+    textAlign: 'center', marginTop: SPACING.sm,
   },
 
   summaryRow: {
-    flexDirection: 'row',
-    width: '100%',
-    backgroundColor: COLORS.cardBg,
-    borderRadius: 10,
+    flexDirection: 'row', alignItems: 'center',
+    width: '100%', marginTop: SPACING.md,
     paddingVertical: SPACING.sm,
-    marginTop: SPACING.sm,
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border,
   },
-  summaryDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.08)' },
-  summaryValue: { fontSize: 16, color: COLORS.gold, fontWeight: '700' },
-  summaryLabel: {
-    fontSize: 9, color: COLORS.muted, fontWeight: '600',
-    letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 2,
-  },
+  summaryDivider: { width: 1, height: 24, backgroundColor: COLORS.border },
+  summaryValue: { color: COLORS.cream, fontSize: 16, fontWeight: '700' },
+  summaryLabel: { color: COLORS.muted, fontSize: 10, marginTop: 2 },
 
-  highlightBlock: {
-    width: '100%',
-    marginTop: SPACING.md,
-    paddingTop: SPACING.sm,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+  breakdown: { width: '100%', marginTop: SPACING.md, gap: 11 },
+  compRow: { width: '100%' },
+  compHead: { flexDirection: 'row', alignItems: 'baseline' },
+  compLabel: { color: COLORS.cream, fontSize: 12.5, fontWeight: '600', flex: 1 },
+  compPts: { fontSize: 13, fontWeight: '700' },
+  track: { height: 5, borderRadius: 3, backgroundColor: COLORS.border, marginTop: 5, overflow: 'hidden' },
+  fill: { height: '100%', borderRadius: 3 },
+  compDetail: { color: COLORS.muted, fontSize: 10.5, lineHeight: 15, marginTop: 4 },
+
+  confidence: {
+    color: COLORS.muted, fontSize: 10.5, lineHeight: 15,
+    marginTop: SPACING.md, textAlign: 'center',
   },
-  highlightRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 },
-  highlightEmoji: { fontSize: 14, width: 22 },
-  highlightLabel: { flex: 1, fontSize: 12, color: COLORS.cream },
-  highlightPts: { fontSize: 13, fontWeight: '700' },
 
   btnRow: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md, width: '100%' },
   secondaryBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    alignItems: 'center',
+    flex: 1, paddingVertical: 12, borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.border, alignItems: 'center',
   },
   secondaryBtnText: { color: COLORS.cream, fontSize: 13, fontWeight: '600' },
   primaryBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: COLORS.gold,
-    alignItems: 'center',
+    flex: 1, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: COLORS.gold, alignItems: 'center',
   },
-  primaryBtnText: { color: COLORS.deep, fontSize: 13, fontWeight: '700' },
+  primaryBtnText: { color: '#1a1206', fontSize: 13, fontWeight: '700' },
 
-  foot: {
-    fontSize: 10, color: COLORS.muted, fontStyle: 'italic',
-    textAlign: 'center', marginTop: SPACING.sm,
-  },
+  foot: { color: COLORS.muted, fontSize: 10, marginTop: SPACING.sm, textAlign: 'center' },
 });

@@ -28,9 +28,32 @@ interface Watermark {
   savedAt: number;  // wall-clock ms
 }
 
+/** Beads the ring counted in one of its hourly snapshots. */
+export interface JapaBackfillBucket {
+  /** When the ring recorded them. Its own clock, not the moment of the sync. */
+  at: Date;
+  beads: number;
+}
+
 export interface JapaHistorySyncResult {
   /** New taps attributable since the last sync. 0 on first-ever run. */
   delta: number;
+  /**
+   * The same beads, split across the hours the ring recorded them in.
+   *
+   * WHY THIS IS RETURNED AND NOT JUST THE TOTAL
+   *
+   * The caller used to get one number and credit all of it to today. Beads
+   * counted on Sunday, synced on Tuesday, became Tuesday's — so a reconnect
+   * after a few days away inflated the day you happened to reconnect on, and
+   * the days you actually practised stayed empty.
+   *
+   * The ring stores hourly snapshots of a rising accumulator, so the
+   * difference between two consecutive snapshots IS the beads counted in that
+   * hour, and the later snapshot's timestamp is when. That is enough to file
+   * them on the right day, which is all the app needs.
+   */
+  buckets: JapaBackfillBucket[];
   /** Latest count reported by the ring (running total, ever). */
   latestCount: number;
   /** When the ring recorded that latest count. Null if no samples. */
@@ -43,6 +66,7 @@ export interface JapaHistorySyncResult {
 
 const empty = (): JapaHistorySyncResult => ({
   delta: 0,
+  buckets: [],
   latestCount: 0,
   lastTapAt: null,
   firstRun: false,
@@ -93,6 +117,7 @@ export async function syncJapaHistory(): Promise<JapaHistorySyncResult> {
     // First-ever sync: seed the watermark; don't back-fill history.
     return {
       delta: 0,
+      buckets: [],
       latestCount: latest.count,
       lastTapAt: latest.timestamp,
       firstRun: true,
@@ -103,8 +128,26 @@ export async function syncJapaHistory(): Promise<JapaHistorySyncResult> {
   // Treat that as "start clean" — no phantom taps from a rollover.
   const delta = latest.count > prev.count ? latest.count - prev.count : 0;
 
+  /*
+   * Split the delta across the hours it was actually counted in.
+   *
+   * Each snapshot carries the accumulator as of its own timestamp, so the rise
+   * from one to the next is that interval's beads. Only the part above the
+   * watermark is new: a snapshot entirely below it was already credited on a
+   * previous sync, and one that straddles it contributes only its upper part.
+   */
+  const buckets: JapaBackfillBucket[] = [];
+  let running = prev.count;
+  for (const sample of sorted) {
+    if (sample.count <= running) continue;      // already counted, or flat
+    const beads = sample.count - running;
+    running = sample.count;
+    if (beads > 0) buckets.push({ at: sample.timestamp, beads });
+  }
+
   return {
     delta,
+    buckets,
     latestCount: latest.count,
     lastTapAt: latest.timestamp,
     firstRun: false,

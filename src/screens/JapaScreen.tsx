@@ -14,14 +14,20 @@ import {
 } from 'react-native';
 import { useSadhana } from '../context';
 import { todayStr, formatSadhanaTime, isoDayOf } from '../utils';
-import { japaMinutesOnDate } from '../soulsync/analytics/JapaTime';
-import { COLORS, SPACING, FONT_SIZES } from '../theme';
+import { recordJapaTap, type JapaTapSource } from '../soulsync/db/japaTimeRepo';
+import { COLORS, SPACING, FONT_SIZES, DRAWER_CLEARANCE } from '../theme';
 import { useTheme } from '../ThemeContext';
 import { Mala } from '../components/Mala';
 import { RingSpinner } from '../components/RingSpinner';
-import { PulseHighlight } from '../components/PulseHighlight';
 import { SessionScorePopup } from '../soulsync/components/SessionScorePopup';
-import { computeJapaEffect, JapaEffectSnapshot } from '../soulsync/analytics/JapaEffect';
+import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
+import {
+  japaTotals, japaLifetime, rangeWindow, rangeLabel, type DeityTotal,
+} from '../soulsync/analytics/JapaTotals';
+import { useRange } from './health/rangeContext';
+import { SessionDepthReport } from '../soulsync/components/SessionDepthReport';
+import { JapaGoalCard } from '../soulsync/components/JapaGoalCard';
+import type { SessionDepth } from '../soulsync/analytics/SadhanaDepth';
 import { DeityScreen } from './DeityScreen';
 import { DeityIcon } from '../components/DeityIcon';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
@@ -34,7 +40,8 @@ import { getDB } from '../soulsync/db/database';
 import { showNum } from '../services/vitalsDisplay';
 import { vitalsScheduler } from '../soulsync/ring/vitalsScheduler';
 import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
-import { PracticeStatsBox, BeforeAfterVitals } from '../components/PracticeStats';
+import { PracticeHeader } from '../components/PracticeHeader';
+import { BeforeAfterVitals } from '../components/PracticeStats';
 import { RangeBar } from './health/RangeBar';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import {
@@ -45,6 +52,7 @@ import {
   CounterConnection,
 } from '../services/ble';
 import { JapaRingCounter, readSr16DeviceId, syncJapaHistory } from '../soulsync/ring';
+import { planBackfill, recordBackfilledBeads } from '../soulsync/ring/japaBackfill';
 import { useIsFocused } from '@react-navigation/native';
 
 const BEADS = 108;
@@ -466,80 +474,11 @@ const makeVitalStyles = (C: typeof COLORS) => StyleSheet.create({
 });
 const vitalStyles = makeVitalStyles(COLORS);
 
-// ─── Depth Score Trend Modal ─────────────────────────────────────
+// The Sadhana Depth trend modal that lived here has moved to the Insights tab
+// (soulsync/components/SadhanaDepthCard), where it can show day / week / month
+// and break the score down by deity. A modal hanging off the top of the Japa
+// screen could only ever show one fixed window of one practice.
 
-const DepthTrendModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ visible, onClose }) => {
-  const { palette } = useTheme();
-  const depthTrendStyles = React.useMemo(() => makeDepthTrendStyles(palette), [palette]);
-  const [series, setSeries] = useState<number[]>([0,0,0,0,0,0,0]);
-  const [labels, setLabels] = useState<string[]>(['','','','','','','']);
-
-  useEffect(() => {
-    if (!visible) return;
-    (async () => {
-      try {
-        const db = await getDB();
-        const vals: number[] = [];
-        const lbls: string[] = [];
-        for (let i = 13; i >= 0; i--) {
-          const d = new Date(Date.now() - i * 86400000);
-          const ds = isoDayOf(d);
-          const r = await db.getFirstAsync<{ v: number | null }>(
-            `SELECT AVG(depth_score) AS v FROM session_spiritual
-             WHERE start_time BETWEEN ? AND ?`,
-            [ds + 'T00:00:00', ds + 'T23:59:59']
-          );
-          vals.push(r?.v != null ? Math.round(r.v * 10) / 10 : 0);
-          lbls.push(['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()].charAt(0));
-        }
-        setSeries(vals);
-        setLabels(lbls);
-      } catch { /* no data */ }
-    })();
-  }, [visible]);
-
-  const peak = Math.max(0, ...series);
-  const avg = series.filter(x => x > 0).reduce((s, x) => s + x, 0) /
-              Math.max(1, series.filter(x => x > 0).length);
-
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={depthTrendStyles.overlay}>
-        <View style={depthTrendStyles.card}>
-          <View style={depthTrendStyles.handle} />
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={depthTrendStyles.title}>🪷 Sadhana Depth · 14-day trend</Text>
-            <TouchableOpacity onPress={onClose}><Text style={{ color: COLORS.muted, fontSize: 20 }}>✕</Text></TouchableOpacity>
-          </View>
-          <Text style={depthTrendStyles.subtitle}>
-            Peak {peak ? peak.toFixed(1) : '—'} · Avg {avg ? avg.toFixed(1) : '—'} / 10
-          </Text>
-          <View style={{ marginTop: SPACING.md }}>
-            <WeekSparkline values={series.slice(7)} labels={labels.slice(7)} height={70} showPeak />
-          </View>
-          <Text style={depthTrendStyles.subSection}>Previous 7 days</Text>
-          <WeekSparkline values={series.slice(0, 7)} labels={labels.slice(0, 7)} height={56} />
-          <Text style={depthTrendStyles.helper}>
-            The depth score blends your in-session BPM drop, HRV gain,
-            session duration and consistency. Higher = your body went
-            deeper into the parasympathetic state during japa.
-          </Text>
-        </View>
-      </View>
-    </Modal>
-  );
-};
-
-const makeDepthTrendStyles = (C: typeof COLORS) => StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  card: { backgroundColor: C.darkBg, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: SPACING.md, paddingBottom: SPACING.xl },
-  handle: { width: 40, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: SPACING.sm },
-  title: { color: C.cream, fontSize: 18, fontWeight: '800', flex: 1 },
-  subtitle: { color: C.gold, fontSize: 12, fontWeight: '700', marginTop: 4 },
-  subSection: { color: C.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.2, marginTop: SPACING.md, marginBottom: 4 },
-  helper: { color: C.muted, fontSize: 11, fontStyle: 'italic', marginTop: SPACING.md, lineHeight: 15 },
-});
-const depthTrendStyles = makeDepthTrendStyles(COLORS);
 
 export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   const { palette } = useTheme();
@@ -547,7 +486,6 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   const depthStyles = React.useMemo(() => makeDepthStyles(palette), [palette]);
   const vitalStyles = React.useMemo(() => makeVitalStyles(palette), [palette]);
   const spSheetStyles = React.useMemo(() => makeSpSheetStyles(palette), [palette]);
-  const depthTrendStyles = React.useMemo(() => makeDepthTrendStyles(palette), [palette]);
   const {
     selectedDeity, setSelectedDeity, deities, setDeities, saveSession, showToast,
     deityProgress, updateProgress, history,
@@ -557,7 +495,6 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   // Inline reminder-time picker for the deity list
   const [pickingDeityId, setPickingDeityId] = useState<string | null>(null);
   // Deities breakdown collapsed by default — tap header to expand.
-  const [deitiesExpanded, setDeitiesExpanded] = useState(false);
 
   // ── Lifetime totals (across all history + in-progress) ───────────
   const lifetimeJapas = React.useMemo(() => {
@@ -588,19 +525,27 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   const [activeStepMalas, setActiveStepMalas] = useState<number>(0);       // malas done at current step
 
   // Sadhana Depth Score for the top stats box (live from JapaEffect).
-  // Stays null until the user has logged a session today
-  // (same pattern as Yoga / Meditation).
-  const [japaDepthScore, setJapaDepthScore] = useState<number | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const snap = await computeJapaEffect();
-        if (!cancelled && snap?.score != null) setJapaDepthScore(snap.score);
-      } catch { /* keep dummy */ }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  /**
+   * Counts up every time a sitting ends, so the depth report at the bottom of
+   * this screen re-reads. The score itself is no longer held here — it belongs
+   * to a session, not to the screen, and it is written to the session row when
+   * the sitting stops.
+   */
+  const [depthEpoch, setDepthEpoch] = useState(0);
+
+  /*
+   * EVERY mala figure on this screen comes from these two, and nothing else.
+   *
+   * `history` is the only store with dates on it, so it is the only one that
+   * can answer a question about a day, a week or a month. The bead graphic,
+   * the daily tile and the deity breakdown each used to sum a different store
+   * their own way, which is why they disagreed — see analytics/JapaTotals.
+   */
+  const { view, selected } = useRange();
+  const window = React.useMemo(() => rangeWindow(view, selected), [view, selected]);
+  const rangeTotals = React.useMemo(
+    () => japaTotals(history, window.from, window.to), [history, window]);
+  const lifetime = React.useMemo(() => japaLifetime(history), [history]);
 
   // ── BLE state ──
   const [showBleModal, setShowBleModal] = useState(false);
@@ -608,17 +553,8 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   const [scannedDevices, setScannedDevices] = useState<ScannedDevice[]>([]);
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [connection, setConnection] = useState<CounterConnection | null>(null);
-  /**
-   * Measured japa minutes for today, from session start/end times.
-   * Null when nothing was timed — see analytics/JapaTime for why that is a
-   * dash rather than a number derived from the bead count.
-   */
-  const [showDeityTotals, setShowDeityTotals] = useState(false);
-  const [japaTime, setJapaTime] = useState<{ minutes: number | null; sessions: number; live: boolean }>(
-    { minutes: null, sessions: 0, live: false }
-  );
   const stopScanRef = useRef<(() => void) | null>(null);
-  const tapRef = useRef<() => void>(() => {});
+  const tapRef = useRef<(source?: JapaTapSource) => void>(() => {});
 
   // Debounce BLE taps so a single button press doesn't double-count
   const lastTapAtRef = useRef(0);
@@ -675,7 +611,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
 
   // Post-session score modal state
   const [showScoreModal, setShowScoreModal] = useState(false);
-  const [sessionSnap, setSessionSnap] = useState<JapaEffectSnapshot | null>(null);
+  const [sessionDepth, setSessionDepth] = useState<SessionDepth | null>(null);
   // Deity manager modal (replaces removed Deities tab)
   const [showDeityManager, setShowDeityManager] = useState(false);
   // "+ Sadhana ▾" action sheet (deity / sandhya / sadhana path)
@@ -685,7 +621,6 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   // Unified Sadhana picker — replaces the standalone deity dropdown.
   const [showSadhanaPicker, setShowSadhanaPicker] = useState(false);
   // Sadhana Depth Score trend modal
-  const [showDepthTrend, setShowDepthTrend] = useState(false);
   // Loaded sadhana paths (cached when the picker opens)
   const [sadhanaPaths, setSadhanaPaths] = useState<any[]>([]);
   useEffect(() => {
@@ -707,7 +642,20 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
     activePath, activeStepIndex, activeStepMalas,
   };
 
-  const tap = useCallback(() => {
+  /**
+   * One bead.
+   *
+   * Every route into japa counting ends here — the mala on screen, the ring's
+   * own counter, the legacy BLE clicker, and the backfill of taps the ring
+   * made while the phone was away. That is deliberate: the bead is timed in
+   * exactly one place, so the screen and the ring can never disagree about how
+   * long a sitting took.
+   *
+   * @param source Which finger moved. Only 'sync' is treated differently —
+   *   those beads are counted but not timed, because they all arrive stamped
+   *   with the moment of the sync rather than when they happened.
+   */
+  const tap = useCallback((source: JapaTapSource = 'app') => {
     const s = tapStateRef.current;
     // If the user hasn't explicitly picked a deity yet, fall back to the
     // first one in their list. This is how physical ring taps become
@@ -721,6 +669,12 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
     if (!s.selectedDeity) {
       setSelectedDeity(activeDeity);
     }
+
+    // Timed here rather than at the call sites: this is the first point at
+    // which the bead is known to count. A tap with no deity to attribute it to
+    // returned above, and timing one would inflate the day with practice the
+    // app never recorded.
+    recordJapaTap(source);
     setPopBead(s.count);
     setTimeout(() => setPopBead(-1), 280);
 
@@ -757,11 +711,13 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
       // the eyes closed and the phone face down, so a toast is feedback the
       // practitioner never receives. Buzz the ring when it is the one
       // counting; fall back to the phone so the 108th bead is always felt.
-      if (sr16CounterRef.current?.isConnected()) {
-        void sr16CounterRef.current.buzz(1);
-      } else {
-        Vibration.vibrate(120);
-      }
+      // Signal on the finger: motor if the ring has one, LED blink if not,
+      // phone as the last resort. Decided from the ring's own capability
+      // flags rather than hardcoded, so different hardware needs no change.
+      void (async () => {
+        const signalled = await sr16CounterRef.current?.signalMala();
+        if (!signalled) Vibration.vibrate(120);
+      })();
 
       // ── Sadhana Path auto-advance ──
       if (s.activePath?.steps?.length) {
@@ -801,42 +757,19 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   }, []);  // Stable — reads all state from tapStateRef.current
 
   // ── Intercept Soulsync toggle: when stopping, compute score + popup ──
-  useEffect(() => {
-    let alive = true;
-    const tick = () => { void japaMinutesOnDate(todayStr()).then((r) => { if (alive) setJapaTime(r); }); };
-    tick();
-    // A live session grows; re-read it each minute so the figure moves while
-    // the user sits rather than jumping only when they stop.
-    const id = setInterval(tick, 60_000);
-    return () => { alive = false; clearInterval(id); };
-  }, [malas, count]);
+  // The japa-time figure used to be re-read here on a throttle, for a caption
+  // that has since moved into JapaGoalCard. The card owns that read now — one
+  // component, one query — so a screen-level poll would only be a second copy
+  // of the same number going stale at a different rate.
 
-  const handleSoulsyncToggle = useCallback(async () => {
-    if (soulsync.state.active) {
-      await soulsync.stop();
-      setHintMode('none');
-      // Wait briefly so the DB finalisation (avg_bpm, end_time) lands
-      await new Promise(r => setTimeout(r, 600));
-      try {
-        const snap = await computeJapaEffect();
-        setSessionSnap(snap);
-        setShowScoreModal(true);
-      } catch (e) {
-        console.warn('[JapaScreen] score popup failed', e);
-      }
-    } else {
-      try {
-        await soulsync.start();
-      } catch (e) {
-        // start() rethrows when the ring is unreachable, having already
-        // unwound the half-open session. Tell the user rather than failing
-        // silently under a button that appears to do nothing.
-        showToast(`Soulsync needs the ring — ${(e as Error).message}`);
-        return;
-      }
-      setHintMode('none');
-    }
-  }, [soulsync, showToast]);
+  /*
+   * The stop/start handler that lived here is gone with the toggle it served.
+   * SoulsyncSessionBar owns both ends of a sitting now — it starts the session
+   * with the practice and deity attached, and on stop it takes the scored
+   * report straight from `stop()` and shows it. Keeping a second handler that
+   * did the same thing was how the Japa tab drifted from the other three in
+   * the first place.
+   */
 
   const reset = () => {
     setCount(0);
@@ -905,7 +838,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
         onTap: () => {
           // Debug: always count the frame, even if the main tap handler skips it.
           setSr16Events((n) => n + 1);
-          tapRef.current?.();
+          tapRef.current?.('ring');
         },
         onConnected: () => {
           setSr16Status('connected');
@@ -956,20 +889,12 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
     return () => sub.remove();
   }, [isFocused, startSr16Counter]);
 
-  const reconnectSr16 = useCallback(async () => {
-    // Force teardown + reconnect. Used by the status pill tap.
-    if (sr16CounterRef.current) {
-      await sr16CounterRef.current.stop().catch(() => {});
-      sr16CounterRef.current = null;
-    }
-    setSr16Events(0);
-    const r = await startSr16Counter();
-    if (r === 'error') {
-      showToast('Ring connect failed — is Ring Debug still open? Close it and retry.');
-    } else if (r === 'no-pair') {
-      showToast('No ring paired yet.');
-    }
-  }, [startSr16Counter, showToast]);
+  /*
+   * `reconnectSr16` went with the status pill that called it. Nothing else
+   * used it, and it did nothing the automatic path does not already do — the
+   * counter retries on focus, on the app coming forward, and on a backoff
+   * timer that never gives up.
+   */
 
   // Full teardown only on screen unmount (not on tab blur) so background taps
   // keep counting while the user is on other tabs.
@@ -1018,15 +943,42 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
         try {
           const res = await syncJapaHistory();
           if (cancelled) return;
-          if (!res.delta || res.delta <= 0) return;
-          // Cap the batch so a wildly stale watermark doesn't fire thousands
-          // of taps at once — 10 malas (1080 beads) is a very generous cap.
-          const applied = Math.min(res.delta, 1080);
-          for (let i = 0; i < applied; i++) tapRef.current?.();
+          if (!res.buckets.length) return;
+
+          /*
+           * Filed on the days the ring counted them, NOT on today.
+           *
+           * This used to fire `res.delta` taps through the live counter, every
+           * one stamped with the moment of the sync — so beads counted on
+           * Sunday and synced on Tuesday became Tuesday's. The day you
+           * reconnected on was inflated and the days you practised stayed
+           * empty.
+           */
+          const deity = tapStateRef.current.selectedDeity ?? deities[0] ?? null;
+          const plan = planBackfill(res.buckets, tapStateRef.current.count);
+
+          await recordBackfilledBeads(res.buckets);
+
+          for (const day of plan.malasByDate) {
+            if (!deity) break;
+            saveSession({
+              deity: deity.name,
+              deityId: deity.id,
+              malas: day.malas,
+              japas: day.japas,
+              date: day.date,          // the day it was completed, not today
+            });
+          }
+
+          // Whatever did not make a mala goes back on the counter, where it
+          // would have been had the phone been present.
+          setCount(plan.remainder);
+          if (deity) updateProgress(deity.id, plan.remainder, 0);
+
+          const days = plan.malasByDate.length;
           showToast(
-            applied === res.delta
-              ? `📿 ${applied} ring tap${applied === 1 ? '' : 's'} synced`
-              : `📿 ${applied} synced (${res.delta - applied} skipped, cap)`
+            `📿 ${plan.beads} ring bead${plan.beads === 1 ? '' : 's'} synced` +
+            (days > 1 ? ` across ${days} days` : '')
           );
         } finally {
           japaSyncBusyRef.current = false;
@@ -1093,7 +1045,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
           const now = Date.now();
           if (now - lastTapAtRef.current < 300) return;
           lastTapAtRef.current = now;
-          tapRef.current();
+          tapRef.current('ring');
         },
         () => {
           setConnection(null);
@@ -1113,66 +1065,88 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   return (
     <View style={[styles.container, { backgroundColor: palette.deep }]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* ─── Header (title only — lifetime pill removed in v43) ─── */}
-        <View style={styles.header}>
-          {/* Same row pattern Exercise uses: title flexes, Plan button sits
-              top-right, so the control lands in the same spot on every tab. */}
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>Japa Counter</Text>
-              <Text style={styles.subtitle}>1 Mala = 108 Japas</Text>
-            </View>
-            <PlanWellbeingButton navigation={navigation} preset="japa" />
-          </View>
-        </View>
+        <PracticeHeader
+          title="📿 Japa"
+          subtitle="1 Mala = 108 Japas"
+          preset="japa"
+          navigation={navigation}
+          screenPadsHorizontally
+          onSynced={() => setDepthEpoch((n) => n + 1)}
+        />
 
-        {/* Shared Day / Week / Month — the same control the health
-            reports use, on the same date. */}
-        <RangeBar />
+        {/* Shared Day / Week / Month — the same control the health reports
+            use, on the same date. `flush` because this screen's ScrollView
+            already pads 16; without it the control stacked a second 16 and
+            came out narrower than the Sadhana selector below. */}
+        <RangeBar flush />
+
+        {/* The same Soul Sync bar the Exercise tab uses, in the same place —
+            directly under the range control, above the practice box. Japa had
+            its own toggle buried further down past the bead counter, so the
+            one control that has to be pressed BEFORE sitting was the last
+            thing on the screen you reached. */}
+        <SoulsyncSessionBar
+          practice="japa"
+          deityId={selectedDeity?.id ?? null}
+          deityName={selectedDeity?.name ?? null}
+          session={soulsync}
+          flush
+          onSessionEnd={() => { setHintMode('none'); setDepthEpoch((n) => n + 1); }}
+          onViewInsights={() => navigation?.navigate?.('History')}
+        />
 
         {/* ─── Top stats — same pattern as Yoga / Meditation:
               • Time today + japa count today
               • Sadhana Depth Score with horizontal dashed bar ─── */}
+        {/* ─── The japa box ───
+             Built to read like the Exercise tab's walk box: target with a
+             filled bar, a graph that follows the Day / Week / Month control,
+             and the totals along the bottom.
+
+             What stood here was PracticeStatsBox — a different visual language
+             for the same shape of idea, so knowing how to read the walk box
+             taught you nothing about this one. Its "SADHANA DEPTH SCORE" row
+             has moved to the bottom of the screen, where it belongs to a
+             sitting rather than to a day. */}
         {(() => {
           const today = todayStr();
 
-          // Today is counted from today's rows only, plus whatever is on the
-          // bead counter right now. History carries a date per row, so the
-          // daily figure never inherits yesterday's.
-          const todayHistoryJapas = history
-            .filter(h => h.date === today)
-            .reduce((s, h) => s + h.japas, 0);
-          const todayJapas = todayHistoryJapas + (malas * 108 + count);
-          // Measured, not derived. japasToSeconds(count) only ever restated
-          // the count in minutes; it could not disagree with the number beside
-          // it however long the practice actually took.
-          const todayMin = japaTime.minutes;
+          /*
+           * TODAY IS TODAY'S ROWS. NOTHING ELSE.
+           *
+           * This read `todayHistoryJapas + (malas * 108 + count)` and reported
+           * 418 japa on a day with 21 beads on it.
+           *
+           * `malas` is not today's malas. It is restored from
+           * `deityProgress[deity].malas` — that deity's RUNNING TOTAL, going
+           * back to whenever it was first counted. And every one of those
+           * malas was already written into `history` at the moment it
+           * completed. So the expression added the deity's whole history to
+           * today's, twice over: once as history rows, once as `malas * 108`.
+           *
+           * A completed mala is in `history` with the date it was finished.
+           * That is the only place today's figure comes from now.
+           */
+          const todayMalas = rangeTotals.malas;
 
-          // Lifetime totals, kept apart from the daily ones. The selected
-          // deity's own total answers "how far am I with this deity"; the
-          // all-deity total answers "how much japa have I ever done". Both
-          // used to be buried in the per-deity pills, where they sat beside
-          // today's practice with nothing to distinguish them.
-          const deityLifetime = history
-            .filter(h => selectedDeity && h.deityId === selectedDeity.id)
-            .reduce((s, h) => s + h.japas, 0)
-            + (selectedDeity ? malas * 108 + count : 0);
-          const allLifetime = history.reduce((s, h) => s + h.japas, 0) + (malas * 108 + count);
+          // Lifetime malas is history alone, for the same reason: `malas`
+          // duplicates rows that are already in it.
+          const lifetimeMalas = lifetime.malas;
+          // Deities actually practised, not deities added to the list — a name
+          // on a list is not a sadhana that happened.
+          const deityCount = new Set(
+            history.filter(h => h.malas > 0 || h.japas > 0).map(h => h.deityId)
+          ).size;
 
           return (
-            <PracticeStatsBox
-              practice="japa"
-              minutesToday={todayMin}
-              goalMinutes={20}
-              depthScore={japaDepthScore}
-              subMetric={{ label: 'JAPA COUNT TODAY', value: todayJapas.toLocaleString() }}
-              kpis={[
-                { label: selectedDeity ? `${selectedDeity.name} total` : 'Deity total', value: deityLifetime.toLocaleString() },
-                { label: 'All japa', value: allLifetime.toLocaleString() },
-                { label: 'Malas today', value: Math.floor(todayJapas / 108).toLocaleString() },
-              ]}
-              compact
-              onOpenTrend={() => setShowDepthTrend(true)}
+            <JapaGoalCard
+              malasToday={todayMalas}
+              lifetimeMalas={lifetimeMalas}
+              deityCount={deityCount}
+              deityName={selectedDeity?.name ?? null}
+              beadTick={count + malas * 108}
+              onDetails={() => navigation?.navigate?.('JapaHistoryDetail')}
+              onOpenPlan={() => navigation?.navigate?.('Plan', { preset: 'japa' })}
             />
           );
         })()}
@@ -1182,49 +1156,6 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
         {/* Deities breakdown moved to the very bottom of this screen in v43 —
             shown below the Soul Sync trends so it doesn't compete with the
             primary "Pick a Sadhana" entry point. */}
-
-        {/* Per-deity lifetime totals, collapsed.
-            The pills that used to sit here showed one running total per
-            deity, always open, always beside today's practice. With five or
-            six deities added that is a wall of lifetime numbers above the
-            bead counter. Same information, behind one tap, and clearly marked
-            as lifetime rather than today. */}
-        {deities.length > 0 && (() => {
-          const totals = deities
-            .map((d) => ({
-              d,
-              japas: history.filter((h) => h.deityId === d.id).reduce((s2, h) => s2 + h.japas, 0)
-                + (selectedDeity?.id === d.id ? malas * 108 + count : 0),
-            }))
-            .filter((r) => r.japas > 0)
-            .sort((a, b) => b.japas - a.japas);
-          if (!totals.length) return null;
-          const grand = totals.reduce((s2, r) => s2 + r.japas, 0);
-          return (
-            <View style={styles.deityTotals}>
-              <TouchableOpacity
-                style={styles.deityTotalsHead}
-                onPress={() => setShowDeityTotals((v) => !v)}
-                activeOpacity={0.75}
-              >
-                <Text style={styles.deityTotalsTitle}>
-                  Japa by deity · {totals.length}
-                </Text>
-                <Text style={styles.deityTotalsChev}>{showDeityTotals ? '▴' : '▾'}</Text>
-              </TouchableOpacity>
-              {showDeityTotals && totals.map(({ d, japas }) => (
-                <View key={d.id} style={styles.deityTotalRow}>
-                  <DeityIcon deityId={d.id} icon={d.icon} size={18} color={COLORS.gold} />
-                  <Text style={styles.deityTotalName} numberOfLines={1}>{d.name}</Text>
-                  <View style={styles.deityTotalBarTrack}>
-                    <View style={[styles.deityTotalBarFill, { width: `${Math.round((japas / grand) * 100)}%` }]} />
-                  </View>
-                  <Text style={styles.deityTotalValue}>{japas.toLocaleString()}</Text>
-                </View>
-              ))}
-            </View>
-          );
-        })()}
 
         {/* The quick deity strip was removed here.
             It was a horizontal row of oval pills, one per deity, each
@@ -1267,49 +1198,22 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
           <Text style={styles.chevron}>▾</Text>
         </TouchableOpacity>
 
-        {/* ─── SR16 ring counter status pill ─── */}
-        <TouchableOpacity
-          onPress={reconnectSr16}
-          activeOpacity={0.75}
-          style={{
-            alignSelf: 'center',
-            flexDirection: 'row', alignItems: 'center', gap: 8,
-            paddingHorizontal: 12, paddingVertical: 6,
-            marginBottom: 8, borderRadius: 999,
-            backgroundColor:
-              sr16Status === 'connected' ? 'rgba(123,228,184,0.14)' :
-              sr16Status === 'connecting' ? 'rgba(245,197,107,0.14)' :
-                                             'rgba(255,255,255,0.05)',
-            borderWidth: 1,
-            borderColor:
-              sr16Status === 'connected' ? 'rgba(123,228,184,0.4)' :
-              sr16Status === 'connecting' ? 'rgba(245,197,107,0.4)' :
-                                             'rgba(255,255,255,0.15)',
-          }}
-        >
-          <View style={{
-            width: 8, height: 8, borderRadius: 4,
-            backgroundColor:
-              sr16Status === 'connected' ? '#7BE4B8' :
-              sr16Status === 'connecting' ? '#F5C56B' : '#7C8CA3',
-          }} />
-          <Text style={{ fontSize: 12, color: palette.cream, fontWeight: '600' }}>
-            {sr16Status === 'connected' ? `Ring · ${sr16Events} tap${sr16Events === 1 ? '' : 's'}` :
-             sr16Status === 'connecting' ? 'Ring connecting…' :
-                                            'Ring off · tap to retry'}
-          </Text>
-          {sr16LastError && sr16Status === 'off' ? (
-            <Text style={{ fontSize: 10, color: palette.muted, marginLeft: 4 }} numberOfLines={1}>
-              {sr16LastError.length > 32 ? sr16LastError.slice(0, 32) + '…' : sr16LastError}
-            </Text>
-          ) : null}
-        </TouchableOpacity>
+        {/* The "Ring off · tap to retry" pill that stood here is gone. It sat
+            between the Sadhana selector and the bead counter, pushing the
+            counter — the reason the screen exists — a row further down, to
+            report a state the user can do nothing useful about: the counter
+            reconnects on its own whenever the tab is focused or the app comes
+            forward, so tapping it only did what was already happening. */}
 
         {/* ─── #4 · THE JAPA MALA ─── */}
         <Mala
           count={count}
-          malas={malas}
-          onTap={tap}
+          /* The window's completed malas, NOT this deity's running total.
+             The graphic used to show `deityProgress[id].malas` — a lifetime
+             figure with no dates in it — so it read 5 on a day with 1 and
+             never moved when the range changed. */
+          malas={rangeTotals.malas}
+          onTap={() => tap('app')}
           popBead={popBead}
           beadColor={selectedDeity?.malaColor}
           beadHighlight={selectedDeity?.malaHighlight}
@@ -1339,33 +1243,9 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
           Tap the center bead · 1 mala (108 beads) saves automatically
         </Text>
 
-        {/* ─── #5 · START SOULSYNC ─── */}
-
-        <PulseHighlight
-          active={hintMode !== 'none'}
-          tooltip={hintMode === 'start'
-            ? '👉 Tap here to track this session for your Saadhana Score'
-            : hintMode === 'stop'
-              ? '👉 Tap here to stop and see your Saadhana Score'
-              : undefined}
-        >
-          <View style={styles.soulsyncRow}>
-            <TouchableOpacity
-              style={[styles.soulsyncBtn, soulsync.state.active && styles.soulsyncBtnOn]}
-              onPress={handleSoulsyncToggle}
-            >
-              <View style={[styles.soulsyncDot, soulsync.state.active && styles.soulsyncDotOn]} />
-              <Text style={[styles.soulsyncText, soulsync.state.active && styles.soulsyncTextOn]}>
-                {soulsync.state.active ? '◉ Soulsync recording' : 'Start Soulsync session'}
-              </Text>
-            </TouchableOpacity>
-            {soulsync.state.active && (
-              <Text style={styles.peakCount}>
-                ✨ {soulsync.state.peaksRegistered} peak{soulsync.state.peaksRegistered === 1 ? '' : 's'}
-              </Text>
-            )}
-          </View>
-        </PulseHighlight>
+        {/* The Soulsync toggle that stood here has moved to the top of the
+            screen, beside the range control, matching every other practice
+            tab. See the SoulsyncSessionBar above. */}
 
         {/* ─── #6 · TRENDS — live heart + lung while active, before/after table on stop ─── */}
         <LiveVitalsTrends
@@ -1380,28 +1260,24 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
               Sits at the very bottom of the screen so the primary "Pick a
               Sadhana" + counter + soulsync flow stays uncluttered above. ─── */}
         <View style={styles.deitiesBlock}>
-          <TouchableOpacity
-            style={styles.deitiesHeader}
-            onPress={() => setDeitiesExpanded(v => !v)}
-            activeOpacity={0.7}
-          >
+          {/* Always open. It was collapsed by default behind a "tap to expand",
+              so the per-deity figures — the ones most likely to be checked
+              against the total above them — were the one thing on the screen
+              you had to ask for. A list of three rows does not need a door. */}
+          <View style={styles.deitiesHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.deitiesTitle}>
-                Overall Deity Breakdown {deitiesExpanded ? '▾' : '▸'}
-              </Text>
+              <Text style={styles.deitiesTitle}>Deity Breakdown</Text>
               <Text style={styles.deitiesSubtitle}>
-                {deitiesExpanded
-                  ? 'Tap a deity to switch · tap ⏰ to set reminder'
-                  : `${deities.length} active · ${deities.reduce(
-                      (s, d) => s + (deityProgress[d.id]?.malas || 0) + d.totalMalas, 0,
-                    )} total malas · tap to expand`}
+                {`${deities.length} active · ${rangeTotals.malas} malas ${rangeLabel(view).toLowerCase()} · tap a deity to switch`}
               </Text>
             </View>
-            <Text style={styles.deitiesChevron}>{deitiesExpanded ? '−' : '+'}</Text>
-          </TouchableOpacity>
+          </View>
 
-          {deitiesExpanded && deities.map(d => {
-            const totalForDeity = (deityProgress[d.id]?.malas || 0) + d.totalMalas;
+          {deities.map(d => {
+            /* From the dated rows, for the window on screen. It was
+               `deityProgress[id].malas + d.totalMalas` — the same lifetime
+               count added to itself, so every deity read exactly double. */
+            const totalForDeity = rangeTotals.byDeity.find((x: DeityTotal) => x.deityId === d.id)?.malas ?? 0;
             const isActive = selectedDeity?.id === d.id;
             return (
               <TouchableOpacity
@@ -1461,6 +1337,14 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
             );
           })()}
         </View>
+
+        {/* ─── Sadhana Depth — the sitting that just ended ───
+             At the BOTTOM, after the practice, beside the deity totals. It
+             used to sit at the top as a daily average, above the bead counter,
+             where it asked the reader to watch a number that nothing they were
+             about to do could move. */}
+        <SessionDepthReport practice="japa" refreshKey={depthEpoch} />
+
       </ScrollView>
 
       {/* Deity manager modal (replaces removed Deities tab) */}
@@ -1520,7 +1404,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
                 <>
                   <Text style={styles.picSectionLabel}>🪷  DEITIES · {deities.length}</Text>
                   {deities.map(d => {
-                    const total = (deityProgress[d.id]?.malas || 0) + d.totalMalas;
+                    const total = rangeTotals.byDeity.find((x: DeityTotal) => x.deityId === d.id)?.malas ?? 0;
                     const isActive = selectedDeity?.id === d.id;
                     return (
                       <TouchableOpacity
@@ -1692,22 +1576,6 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
         onSaved={() => { setShowSadhanaPathSheet(false); showToast('✓ Sadhana Path saved'); }}
       />
 
-      {/* Sadhana Depth Score trend */}
-      <DepthTrendModal
-        visible={showDepthTrend}
-        onClose={() => setShowDepthTrend(false)}
-      />
-
-      {/* Saadhana Score popup — shown after a Soulsync session stops */}
-      <SessionScorePopup
-        visible={showScoreModal}
-        snapshot={sessionSnap}
-        onClose={() => setShowScoreModal(false)}
-        onViewInsights={() => {
-          setShowScoreModal(false);
-          navigation?.navigate?.('History');
-        }}
-      />
 
       {/* Deity Picker Modal */}
       <Modal visible={showPicker} transparent animationType="slide">
@@ -1916,6 +1784,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
 };
 
 const makeStyles = (C: typeof COLORS) => StyleSheet.create({
+
   container: {
     flex: 1,
     backgroundColor: C.deep,
@@ -1926,6 +1795,8 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
     paddingBottom: 100,
   },
   header: {
+    // Both sides, to keep the title centred while clearing the ☰ button.
+    paddingHorizontal: DRAWER_CLEARANCE,
     marginBottom: SPACING.lg,
     alignItems: 'center',
   },

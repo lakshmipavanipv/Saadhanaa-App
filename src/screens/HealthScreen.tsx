@@ -16,7 +16,7 @@ import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Dimensions,
 } from 'react-native';
 import { LineChart, BarChart } from 'react-native-chart-kit';
-import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../theme';
+import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS, DRAWER_CLEARANCE } from '../theme';
 import { useTheme } from '../ThemeContext';
 import { syncAllRingVitals, type RingVitalsSyncResult } from '../soulsync/ring';
 import { SadhanaRing } from '../soulsync/ring/SadhanaRing';
@@ -104,7 +104,11 @@ export const HealthScreen = () => {
   // ── Activity totals ──
   const activityToday = useMemo(() => {
     const s0 = today0(), s1 = today1();
-    const day = steps.filter((x) => x.timestamp.getTime() >= s0 && x.timestamp.getTime() <= s1);
+    // The ring's running daily total is excluded: it already contains the
+    // hourly records, so summing both counts the day twice. See decodeSteps.
+    const day = steps.filter(
+      (x) => !x.isDailyTotal && x.timestamp.getTime() >= s0 && x.timestamp.getTime() <= s1,
+    );
     return {
       steps: day.reduce((s, x) => s + x.steps, 0),
       distanceKm: day.reduce((s, x) => s + x.distanceKm, 0),
@@ -607,7 +611,7 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   container: { flex: 1, backgroundColor: C.deep },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingTop: SPACING.xl + SPACING.md, paddingLeft: 56, paddingRight: SPACING.md,
+    paddingTop: SPACING.xl + SPACING.md, paddingLeft: SPACING.md, paddingRight: DRAWER_CLEARANCE,
     paddingBottom: 4,
   },
   title: { color: C.cream, fontSize: FONT_SIZES['3xl'], fontWeight: '700' },

@@ -16,6 +16,7 @@ import {
   OP_HEALTH_2_1_0,
   OP_HEALTH_2_4_16,
   OP_HEALTH_2_7_0,
+  OP_HEALTH_2_102_0,
   OP_HEALTH_2_14_0,
   OP_HEALTH_2_15_0,
   OP_HEALTH_2_17_0,
@@ -24,6 +25,7 @@ import {
   OP_HEALTH_2_11_16,
   OP_HEALTH_2_99_16,
   OP_INFO_6_5_0,
+  OP_INFO_6_4_16,
   lookupOpcode,
 } from './opcodes.generated';
 import type { JieliFrame } from './codec';
@@ -68,7 +70,15 @@ export interface Capabilities {
   pushMsgSwitchValue: number;
   hasFunc2GirlCareGernal: boolean;
   hasAlarm: boolean;
-  hasVibrationLevel: boolean;   // isSupportMotoVibrationLevel — the "does it have a motor" flag
+  /**
+   * Whether the motor's INTENSITY can be set — `isSupportMotoVibrationLevel`.
+   *
+   * NOT "does it have a motor". A ring with a fixed-strength motor reports
+   * false here and still vibrates perfectly well, which is the case on this
+   * SR16: the flag reads false and the device owner confirms it buzzes. The
+   * old name invited exactly the wrong conclusion, and code acted on it.
+   */
+  supportsVibrationLevel: boolean;
   raw: Uint8Array;
 }
 
@@ -158,7 +168,7 @@ function parseCapabilitiesV2(payload: Uint8Array): Capabilities {
     pushMsgSwitchValue: stepTargetBytes,
     hasFunc2GirlCareGernal: bit(need(21), 0),
     hasAlarm: bit(need(22), 0),
-    hasVibrationLevel: bit(need(29), 1),  // isSupportMotoVibrationLevel is bit1 of byte[32]-like offset; verified false on this ring
+    supportsVibrationLevel: bit(need(29), 1),
     raw: b.slice(),
   };
 }
@@ -185,8 +195,27 @@ export class DeviceApi {
   }
 
   /**
-   * Push the phone's current wall clock to the ring.
-   * Wire payload (confirmed from capture): [yy%100, mm, dd, hh, mm, ss].
+   * Push the phone's current wall clock to the ring, so the ring's own clock
+   * and everything it timestamps match the user's local time.
+   *
+   * VERIFIED against RWfit's `CmdHelper.v(Date)`
+   * (`mlkit_vision_common/p.java:820`, logged by the SDK as `getDateCmdJL`),
+   * which builds exactly:
+   *
+   *     b3.g((byte) -11, new byte[]{ 2, 1, 0,
+   *          year - 2000, month, day, hour, minute, second });
+   *
+   * {2,1,0} with sendMsgId 0xF5 is OP_HEALTH_2_1_0 here — a match on all four
+   * bytes, so this is the real command and not a guess.
+   *
+   * LOCAL TIME, DELIBERATELY. The ring stores wall-clock time with no zone —
+   * see ring/sync.ts, which reads history back as local fields for exactly
+   * this reason. Sending UTC would put the ring's display out by the offset
+   * (5½ hours in IST) and misdate every reading it records. RWfit uses
+   * `Calendar.getInstance()`, which is local, and so does this.
+   *
+   * Month is 1-12 and the hour is 0-23: the source reads `calendar.get(2) + 1`
+   * and `calendar.get(11)`, which is HOUR_OF_DAY rather than the 12-hour field.
    */
   async setDateTime(when: Date = new Date()): Promise<void> {
     const payload = new Uint8Array([
@@ -201,12 +230,132 @@ export class DeviceApi {
   }
 
   /**
+   * Tell the ring a call is ringing, answered or over, so it can show the
+   * caller on its display.
+   *
+   * ═════════════════════════════════════════════════════════════════════
+   * WHERE THIS WIRE FORMAT COMES FROM
+   * ═════════════════════════════════════════════════════════════════════
+   *
+   * Not inferred. Read out of the reference app's own call handler —
+   * `q0.c()` in the decompiled RWfit, which builds the frame byte by byte and
+   * hands it to sendMsgId 71. That id maps to OP_INFO_6_4_16 in the opcode
+   * table generated from the same APK, so the {6,4,16} triple is the app's,
+   * not a guess.
+   *
+   * This matters because the last thing pushed to this ring's display — the
+   * logo, through the OLED bitmap path — WAS inferred, and it failed: the
+   * write timed out and took the BLE link down with it. A display command is
+   * only worth sending when its bytes came from something that works.
+   *
+   *   [0]      state: 0 ringing · 1 answered · 2 ended
+   *   [1..4]   time, epoch seconds, LITTLE-endian
+   *   [5]      length of the number, in bytes
+   *   [6..]    number, UTF-8
+   *   [..]     caller name, UTF-8, to the end of the payload
+   *
+   * The ring scrolls the name itself when it is too wide for the display;
+   * there is no scroll flag to set. Nothing here controls that.
+   *
+   * THE TIME IS LOCAL WALL-CLOCK, NOT UTC
+   *
+   * The source adds the zone's raw offset (plus an hour in DST) to the
+   * calendar before taking its millis, which yields local wall-clock seconds
+   * dressed as an epoch. That is the same convention `setDateTime` uses and
+   * which this ring is known to accept — sending true UTC here would put the
+   * call an offset away in the ring's own log.
+   *
+   * WHEN THE NAME IS BLANK
+   *
+   * The reference app clears the name when it merely repeats the number, and
+   * so does this: a ring showing "9876543210" twice is worse than showing it
+   * once.
+   */
+  async notifyCall(
+    opts: { number: string; name?: string; state?: 'ringing' | 'answered' | 'ended'; at?: Date },
+  ): Promise<void> {
+    const state = opts.state ?? 'ringing';
+    const code = state === 'ringing' ? 0 : state === 'answered' ? 1 : 2;
+
+    const number = (opts.number ?? '').trim();
+    let name = (opts.name ?? '').trim();
+    if (name.replace(/\s/g, '') === number.replace(/\s/g, '')) name = '';
+
+    const enc = new TextEncoder();
+    // The ring's display is small and the frame is not unbounded; the
+    // reference app truncates by BYTES, which is what matters for a name with
+    // non-Latin characters in it.
+    const numBytes = enc.encode(number).slice(0, 32);
+    const nameBytes = enc.encode(name).slice(0, 64);
+
+    const when = opts.at ?? new Date();
+    // Local wall-clock seconds — see the note above.
+    const localSecs = Math.floor(
+      (when.getTime() - when.getTimezoneOffset() * 60_000) / 1000,
+    );
+
+    const payload = new Uint8Array(6 + numBytes.length + nameBytes.length);
+    payload[0] = code & 0xff;
+    payload[1] = localSecs & 0xff;
+    payload[2] = (localSecs >> 8) & 0xff;
+    payload[3] = (localSecs >> 16) & 0xff;
+    payload[4] = (localSecs >> 24) & 0xff;
+    payload[5] = numBytes.length & 0xff;
+    payload.set(numBytes, 6);
+    payload.set(nameBytes, 6 + numBytes.length);
+
+    await this.ring.queue.send(OP_INFO_6_4_16, payload, { expectReply: false });
+  }
+
+  /**
    * Master health-monitoring switch. `on=true` enables continuous sensor
    * activity; on=false puts the ring into low-power mode. From capture:
    * TX payload is a single byte [0|1].
    */
   async setHealthMonitorMaster(on: boolean): Promise<void> {
     await this.ring.queue.send(OP_HEALTH_2_14_0, new Uint8Array([on ? 1 : 0]), { expectReply: true });
+  }
+
+  /**
+   * Turn the ring's LED on or off.
+   *
+   * VERIFIED against RWfit's `CmdHelper.C(BrightScreenLedBean)`
+   * (`mlkit_vision_common/p.java:101`, logged as `getLedLevelWCmdJL`):
+   *
+   *     b3.g((byte) 24, new byte[]{ 2, 102, 0, isOpen, lcdLevel });
+   *
+   * {2,102,0} with sendMsgId 0x18 is OP_HEALTH_2_102_0 here — matched on all
+   * four bytes, so this is the real command.
+   *
+   * This ring reports `hasLEDLight = true` from its own SupportMenu flags,
+   * which is worth stating because the written study of this hardware says it
+   * "almost certainly has no LED". The ring disagrees with the study, and the
+   * ring is the authority on itself.
+   *
+   * @param level Brightness 0-100 as the SDK sends it. Firmware may quantise.
+   */
+  async setLed(on: boolean, level: number = 100): Promise<void> {
+    await this.ring.queue.send(
+      OP_HEALTH_2_102_0,
+      new Uint8Array([on ? 1 : 0, Math.max(0, Math.min(100, Math.round(level))) & 0xff]),
+      { expectReply: true, timeoutMs: 2000 }
+    );
+  }
+
+  /**
+   * Blink the LED — an on-finger signal for a ring with no vibration motor.
+   *
+   * Sequential rather than concurrent: the send queue serialises commands
+   * anyway, and overlapping on/off pairs would race to leave the LED in
+   * whichever state finished last. Always ends off.
+   */
+  async blinkLed(times: number = 1, onMs: number = 220, offMs: number = 180): Promise<void> {
+    for (let i = 0; i < times; i++) {
+      await this.setLed(true);
+      await new Promise((r) => setTimeout(r, onMs));
+      await this.setLed(false);
+      if (i < times - 1) await new Promise((r) => setTimeout(r, offMs));
+    }
   }
 
   /**

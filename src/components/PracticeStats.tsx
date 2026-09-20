@@ -62,7 +62,20 @@ interface StatsBoxProps {
   practice: Practice;
   minutesToday: number | null;
   goalMinutes: number;
-  depthScore: number | null;
+  /**
+   * REMOVED from this box.
+   *
+   * The Sadhana Depth Score used to sit here, at the top of Japa, Yoga and
+   * Meditation, as a daily figure. That was the wrong place and the wrong
+   * grain: depth is a property of a SITTING — it is measured against the body
+   * you brought to it and it is only knowable once the sitting has ended.
+   * Showing a running daily average above the counter invited the reader to
+   * watch a number that could not move for anything they were about to do.
+   *
+   * It now appears where it means something: after a SoulSync session ends, at
+   * the bottom of each practice screen, and aggregated day / week / month in
+   * the Insights tab. See analytics/SadhanaDepth.
+   */
   /** Optional second metric shown inside the time tile — used on the
    *  Japa screen to surface "japa count today" alongside the minutes. */
   subMetric?: { label: string; value: string | number };
@@ -84,11 +97,10 @@ interface StatsBoxProps {
    *  tappable target with a small 📈 trend icon — mirrors the
    *  "↗ Details" affordance on the Exercise tab's activity cards.
    *  Use this from JapaScreen to open the DepthTrendModal. */
-  onOpenTrend?: () => void;
 }
 
 export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
-  practice, minutesToday, goalMinutes, depthScore, subMetric, kpis, compact, onOpenTrend,
+  practice, minutesToday, goalMinutes, subMetric, kpis, compact,
 }) => {
   const { palette } = useTheme();
   const statBoxStyles = React.useMemo(() => makeStatBoxStyles(palette), [palette]);
@@ -98,7 +110,6 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
       ? 'MEDITATION'
       : 'JAPA';
   const goalPct = Math.min(100, Math.round(((minutesToday ?? 0) / Math.max(1, goalMinutes)) * 100));
-  const scoreColor = depthScore == null ? NO_DATA_COLOR : colorForScore(depthScore);
 
   // ── Compact single-box mode (Japa screen) ──
   //
@@ -108,26 +119,6 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
   // side so it sits inline with the minutes hero.  Saves vertical
   // space so the bead counter can sit on the same fold.
   if (compact) {
-    const DepthRow = (
-      <View style={statBoxStyles.compactDepthBlock}>
-        <View style={statBoxStyles.compactBarLabelRow}>
-          <Text style={statBoxStyles.compactBarLabel}>
-            SADHANA DEPTH SCORE
-            {onOpenTrend && (
-              <Text style={statBoxStyles.compactTrendIcon}>  📈</Text>
-            )}
-          </Text>
-          <Text style={[statBoxStyles.compactBarValue, { color: scoreColor }]}>
-            {showNum(depthScore)} / 100
-          </Text>
-        </View>
-        <DashedBar value={barPct(depthScore)} color={scoreColor} compact />
-        {onOpenTrend && (
-          <Text style={statBoxStyles.compactTrendHint}>tap for daily trend ›</Text>
-        )}
-      </View>
-    );
-
     return (
       // Compact mode is used INSIDE a ScrollView that already provides
       // horizontal padding (JapaScreen), so we cancel the wrap's own
@@ -165,13 +156,6 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
               ? 'Not timed — start a session to measure it'
               : `${goalPct}% of today's goal`}
           </Text>
-
-          {/* Depth score block — tappable to open the trend modal */}
-          {onOpenTrend ? (
-            <TouchableOpacity onPress={onOpenTrend} activeOpacity={0.7}>
-              {DepthRow}
-            </TouchableOpacity>
-          ) : DepthRow}
 
           {/* Lifetime strip. One hairline row inside the existing box rather
               than a card of its own — this fold already has to hold the bead
@@ -215,19 +199,6 @@ export const PracticeStatsBox: React.FC<StatsBoxProps> = ({
         )}
       </View>
 
-      {/* Tile B — Sadhana Depth Score with HORIZONTAL DASHED bar */}
-      <View style={[statBoxStyles.box, { marginTop: SPACING.sm }]}>
-        <View style={statBoxStyles.depthHeaderRow}>
-          <Text style={statBoxStyles.heroLabel}>SADHANA DEPTH SCORE</Text>
-          <Text style={[statBoxStyles.depthValue, { color: scoreColor }]}>
-            {showNum(depthScore)}<Text style={statBoxStyles.depthOf}> / 100</Text>
-          </Text>
-        </View>
-        <DashedBar value={barPct(depthScore)} color={scoreColor} />
-        <Text style={statBoxStyles.depthHint}>
-          Today&apos;s overall practice quality — weighted HRV · BPM · duration · SpO₂.
-        </Text>
-      </View>
     </View>
   );
 };
@@ -266,6 +237,10 @@ interface SessionCard {
   name: string;
   minutes: number;
   depthScore: number;
+  /** Clock time the sitting began, HH:MM local. */
+  startedAt: string;
+  /** Clock time it ended, or null while it is still running. */
+  endedAt: string | null;
 }
 
 interface SessionListProps {
@@ -305,15 +280,23 @@ export const SessionList: React.FC<SessionListProps> = ({ practice }) => {
           [dayStart, dayEnd]
         ).catch(() => []);
 
+        const hm = (iso: string) => {
+          const d = new Date(iso);
+          return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        };
+
         const named: SessionCard[] = rows.map((r, idx) => {
-          const durSec = r.end_time
-            ? Math.max(0, (Date.parse(r.end_time) - Date.parse(r.start_time)) / 1000)
-            : 0;
+          // A running session is measured to now, so its length grows while
+          // the user sits rather than reading zero until they stop.
+          const endMs = r.end_time ? Date.parse(r.end_time) : Date.now();
+          const durSec = Math.max(0, (endMs - Date.parse(r.start_time)) / 1000);
           return {
             id: r.session_id,
             name: `Session ${idx + 1} · ${practice}`,
             minutes: Math.round(durSec / 60),
             depthScore: Math.round(r.depth_score ?? 0),
+            startedAt: hm(r.start_time),
+            endedAt: r.end_time ? hm(r.end_time) : null,
           };
         });
 
@@ -390,7 +373,13 @@ export const SessionList: React.FC<SessionListProps> = ({ practice }) => {
               </Text>
               <View style={{ flex: 1 }}>
                 <Text style={sessionStyles.cardName} numberOfLines={2}>{sessionName}</Text>
-                <Text style={sessionStyles.cardSub}>{s.minutes} min · today</Text>
+                {/* "24 min · today" does not say when. A practice log whose
+                    entries carry no clock time cannot answer "was that the
+                    morning sitting or the evening one", which is the first
+                    thing anyone asks of their own record. */}
+                <Text style={sessionStyles.cardSub}>
+                  {s.startedAt}{s.endedAt ? ` – ${s.endedAt}` : ' – now'} · {s.minutes} min
+                </Text>
               </View>
               <View style={sessionStyles.cardScoreBox}>
                 <Text style={[sessionStyles.cardScore, { color: sc }]}>{s.depthScore}</Text>

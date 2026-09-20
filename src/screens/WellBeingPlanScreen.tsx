@@ -533,6 +533,12 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
   const [customName, setCustomName] = useState<string | undefined>();
   const [spoken, setSpoken] = useState(false);
   const [search, setSearch] = useState('');
+  /**
+   * Which kind of japa commitment is being made — a deity, a sandhya, or a
+   * multi-step path. Null until one is chosen, which is what keeps the long
+   * deity list out of the way of the goal above it.
+   */
+  const [sadhanaKind, setSadhanaKind] = useState<'deity' | 'sandhya' | 'path' | null>(null);
 
   // ── Hydrate from editing item ──
   useEffect(() => {
@@ -557,6 +563,8 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
       setStep(2);
     } else if (visible && !editing) {
       // fresh
+      setSadhanaKind(null);
+      setSearch('');
       const presetCat = initialCategory ?? null;
       setStep(presetCat ? 2 : 1);
       setCategory(presetCat);
@@ -638,10 +646,20 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
     // v71: exercise goal metric. `duration` holds the goal value. durationMin
     // stays minutes-only for time accounting (default 30 when the goal isn't
     // time-based so step/calorie targets don't pollute "minutes" totals).
+    /*
+     * Japa joins exercise in carrying a goal METRIC, because a japa commitment
+     * is as often "three malas" as "twenty minutes" — and the Japa tab now
+     * shows malas as its headline figure, so it needs a mala target to show it
+     * against. Without this the plan could only ever express japa in minutes
+     * and the tab had nothing to draw a bar from.
+     */
     const isExercise = category === 'exercise';
-    const persistGoalUnit: GoalUnit | undefined = isExercise ? goalUnit : undefined;
-    const persistGoalValue: number | undefined = isExercise ? duration : undefined;
-    const persistDurationMin = (!isExercise || goalUnit === 'min') ? duration : 30;
+    const hasGoalMetric = isExercise || category === 'japa';
+    const persistGoalUnit: GoalUnit | undefined = hasGoalMetric ? goalUnit : undefined;
+    const persistGoalValue: number | undefined = hasGoalMetric ? duration : undefined;
+    // durationMin stays minutes-only, so a mala or step target never pollutes
+    // the app's time accounting. 30 is the placeholder for "not timed".
+    const persistDurationMin = (!hasGoalMetric || goalUnit === 'min') ? duration : 30;
     const goalFields = { goalUnit: persistGoalUnit, goalValue: persistGoalValue };
     let saved: RoutineItem;
     if (editing) {
@@ -663,7 +681,7 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
       });
     }
     // Human label for the goal, used in the notification body.
-    const goalLabel = isExercise && goalUnit !== 'min'
+    const goalLabel = hasGoalMetric && goalUnit !== 'min'
       ? `${duration} ${GOAL_UNIT_META[goalUnit].short}`
       : `${persistDurationMin} min`;
     if (reminderOn && time) {
@@ -674,7 +692,7 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
           : `🎯 ${pickedName}`;
         const body = persistSpoken
           ? `Your ${pickedName.toLowerCase()} is at ${time} — ${goalLabel}`
-          : `Your committed ${goalLabel} ${isExercise && goalUnit !== 'min' ? 'goal' : 'practice'}`;
+          : `Your committed ${goalLabel} ${hasGoalMetric && goalUnit !== 'min' ? 'goal' : 'practice'}`;
         const ids = await scheduleRoutineReminder({
           title, body, time, frequency: freq,
           routineId: saved.id, soundId: persistSoundId,
@@ -717,6 +735,175 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
       e.name.toLowerCase().includes(q) || (e.sub || '').toLowerCase().includes(q)
     ).slice(0, 50);
   }, [catalog, search]);
+
+  /*
+   * ── Step 2, the japa version ─────────────────────────────────────────
+   *
+   * The generic step opens with a long scrolling list of every deity in the
+   * catalogue and puts the goal underneath it. For japa that is the wrong way
+   * round twice over: the goal — so many minutes, or so many malas — is the
+   * decision being made, and it was below the fold; and a japa commitment is
+   * not always a deity at all. Sandhya and a multi-step Sadhana Path are the
+   * other two shapes it takes, and they were buried as rows inside the deity
+   * list.
+   *
+   * So: the goal first, then three plain choices, and the long list only once
+   * "a deity" has actually been chosen.
+   */
+  const SADHANA_KINDS = [
+    {
+      id: 'deity' as const,
+      icon: '🪷',
+      title: 'Add / Edit a Deity',
+      sub: 'Pick deity · mantra · daily reminder time',
+    },
+    {
+      id: 'sandhya' as const,
+      icon: '🌅',
+      title: 'Sandhya Vandan',
+      sub: 'Pratah · Madhyahnika · Sayam',
+    },
+    {
+      id: 'path' as const,
+      icon: '🛤',
+      title: 'Design your own Sadhana Path',
+      sub: 'Multi-step japa flow · your own name and count',
+    },
+  ];
+
+  const japaDeities = React.useMemo(
+    () => catalogFor('japa').filter(e => e.id !== '__design__'),
+    [],
+  );
+  const sandhyaEntries = React.useMemo(
+    () => catalogFor('sandhya').filter(e => e.id !== '__design__'),
+    [],
+  );
+  const shownEntries = sadhanaKind === 'deity' ? japaDeities
+    : sadhanaKind === 'sandhya' ? sandhyaEntries
+      : [];
+  const filteredSadhana = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return shownEntries.slice(0, 80);
+    return shownEntries.filter(e =>
+      e.name.toLowerCase().includes(q) || (e.sub || '').toLowerCase().includes(q)
+    ).slice(0, 80);
+  }, [shownEntries, search]);
+
+  const Step2Japa = (
+    <View>
+      {/* ── 1. The goal ── */}
+      <Text style={ws.stepTitle}>Set your goal</Text>
+      <Text style={ws.stepHint}>Count this japa in time, or in malas.</Text>
+      <View style={ws.goalMetricRow}>
+        {(['min', 'malas'] as GoalUnit[]).map(u => {
+          const on = goalUnit === u;
+          return (
+            <TouchableOpacity
+              key={u}
+              style={[ws.goalChip, on && ws.goalChipActive]}
+              onPress={() => setGoalUnit(u)}
+              activeOpacity={0.7}
+            >
+              <Text style={[ws.goalChipText, on && ws.goalChipTextActive]}>
+                {GOAL_UNIT_META[u].icon} {GOAL_UNIT_META[u].label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <View style={ws.durationRow}>
+        <Text style={ws.durLabel}>Target:</Text>
+        <TextInput
+          style={ws.durInput}
+          value={String(duration)}
+          onChangeText={(t) => setDuration(parseInt(t, 10) || 0)}
+          keyboardType="numeric"
+          maxLength={6}
+        />
+        <Text style={ws.durLabel}>{GOAL_UNIT_META[goalUnit].short}/day</Text>
+      </View>
+
+      {/* ── 2. Which sadhana ── */}
+      <Text style={[ws.stepTitle, { marginTop: SPACING.lg }]}>Pick Sadhana</Text>
+      <Text style={ws.stepHint}>What is this japa for?</Text>
+
+      {SADHANA_KINDS.map(k => {
+        const on = sadhanaKind === k.id;
+        return (
+          <TouchableOpacity
+            key={k.id}
+            style={[ws.sadhanaCard, on && ws.sadhanaCardActive]}
+            onPress={() => {
+              setSadhanaKind(on ? null : k.id);
+              setSearch('');
+              // A path is typed, not picked, so clear whatever was chosen
+              // before rather than leaving a stale deity name in the field.
+              if (k.id === 'path') { setPickedName(''); setPickedSub(''); }
+            }}
+            activeOpacity={0.75}
+          >
+            <Text style={ws.sadhanaCardIcon}>{k.icon}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={ws.sadhanaCardTitle}>{k.title}</Text>
+              <Text style={ws.sadhanaCardSub}>{k.sub}</Text>
+            </View>
+            <Text style={ws.sadhanaCardArrow}>{on ? '▾' : '›'}</Text>
+          </TouchableOpacity>
+        );
+      })}
+
+      {/* ── 3. The list, only once a kind is chosen ── */}
+      {(sadhanaKind === 'deity' || sadhanaKind === 'sandhya') && (
+        <>
+          <TextInput
+            style={ws.searchInput}
+            value={search}
+            onChangeText={setSearch}
+            placeholder={sadhanaKind === 'deity' ? '🔍  Search deities…' : '🔍  Search…'}
+            placeholderTextColor={COLORS.muted}
+            autoFocus={sadhanaKind === 'deity'}
+          />
+          <ScrollView style={{ maxHeight: 300 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+            {filteredSadhana.length === 0 ? (
+              <Text style={ws.orLabel}>
+                Nothing matches “{search.trim()}”. Type the name below and it is
+                added as your own.
+              </Text>
+            ) : filteredSadhana.map(e => (
+              <TouchableOpacity
+                key={e.id}
+                style={[ws.pickRow, pickedName === e.name && ws.pickRowActive]}
+                onPress={() => {
+                  setPickedName(e.name);
+                  setPickedSub(e.sub || '');
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={ws.pickIcon}>{e.icon}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={ws.pickName}>{e.name}</Text>
+                  {!!e.sub && <Text style={ws.pickSub} numberOfLines={1}>{e.sub}</Text>}
+                </View>
+                {pickedName === e.name && <Text style={ws.pickArrow}>✓</Text>}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </>
+      )}
+
+      <Text style={ws.orLabel}>
+        {sadhanaKind === 'path' ? 'Name your Sadhana Path:' : 'OR type your own:'}
+      </Text>
+      <TextInput
+        style={ws.nameInput}
+        value={pickedName}
+        onChangeText={setPickedName}
+        placeholder={sadhanaKind === 'path' ? 'e.g. Morning three-step' : 'e.g. Tara'}
+        placeholderTextColor={COLORS.muted}
+      />
+    </View>
+  );
 
   const Step2 = (
     <View>
@@ -790,11 +977,14 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
       />
       {/* v71: exercise items pick a GOAL metric (minutes / steps / calories /
           distance); other categories keep a simple minutes field. */}
-      {cat === 'exercise' ? (
+      {cat === 'exercise' || cat === 'japa' ? (
         <View style={{ marginTop: SPACING.md }}>
           <Text style={ws.fieldLabel}>Set your goal</Text>
           <View style={ws.goalMetricRow}>
-            {(['min','steps','kcal','km'] as GoalUnit[]).map(u => {
+            {(cat === 'japa'
+              ? (['min','malas'] as GoalUnit[])
+              : (['min','steps','kcal','km'] as GoalUnit[])
+            ).map(u => {
               const on = goalUnit === u;
               return (
                 <TouchableOpacity
@@ -1024,7 +1214,7 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
 
         <ScrollView contentContainerStyle={ws.body} showsVerticalScrollIndicator={false}>
           {step === 1 && Step1}
-          {step === 2 && Step2}
+          {step === 2 && (cat === 'japa' && !editing ? Step2Japa : Step2)}
           {step === 3 && Step3}
           {step === 4 && Step4}
         </ScrollView>
@@ -1390,6 +1580,23 @@ const ws = StyleSheet.create({
     color: COLORS.cream, fontSize: 16, marginBottom: SPACING.sm,
     borderWidth: 1, borderColor: COLORS.border,
   },
+  /* The three "what kind of japa is this" cards. Deliberately tall and
+     spaced: they are three distinct decisions, not rows in a list. */
+  sadhanaCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 14, paddingHorizontal: SPACING.md,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+    marginTop: SPACING.sm,
+  },
+  sadhanaCardActive: {
+    backgroundColor: 'rgba(255,184,0,0.10)', borderColor: 'rgba(255,184,0,0.45)',
+  },
+  sadhanaCardIcon: { fontSize: 26, width: 34, textAlign: 'center' },
+  sadhanaCardTitle: { color: COLORS.cream, fontSize: 15, fontWeight: '700' },
+  sadhanaCardSub: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
+  sadhanaCardArrow: { color: COLORS.gold, fontSize: 18, fontWeight: '700' },
+
   pickRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingVertical: 12, paddingHorizontal: SPACING.sm,

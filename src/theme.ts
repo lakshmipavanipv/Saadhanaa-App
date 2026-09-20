@@ -66,15 +66,96 @@ export const COLORS_LIGHT = {
 export const COLORS = { ...COLORS_DARK };
 
 /** Called by the ThemeProvider on mode change — mutates in place. */
-export const applyMode = (mode: ThemeMode): void => {
-  Object.assign(COLORS, mode === 'light' ? COLORS_LIGHT : COLORS_DARK);
+/**
+ * Techno — a third template, not a third colour scheme.
+ *
+ * Dark and light answer "how bright should this be". Techno answers a
+ * different question: the same practice data read as instrumentation rather
+ * than as a diary. Near-black ground, phosphor cyan, magenta for anything
+ * derived rather than measured, and amber for a caution. Screens branch on it
+ * (see ThemeContext.isTechno) — a recolour alone would be a wallpaper, not a
+ * template.
+ */
+export const COLORS_TECHNO = {
+  deep: '#05070A',
+  darkBg: '#080B10',
+  cardBg: '#0C1118',
+  cream: '#D7F7F2',
+  gold: '#00E5C7',          // primary accent — phosphor cyan
+  saffron: '#FF3DA5',       // derived / secondary readouts
+  muted: '#5E7A80',
+  leaf: '#00E5C7',
+  success: '#00E5C7',
+  warning: '#FFB020',
+  error: '#FF3D6E',
+  border: 'rgba(0, 229, 199, 0.18)',
 };
 
-export type ThemeMode = 'light' | 'dark';
+/**
+ * Elders — a template built around legibility, not a lighter coat of paint.
+ *
+ * Designed against the things that actually make an interface hard to use
+ * later in life: reduced contrast sensitivity, yellowing of the lens which
+ * mutes blues, smaller pupils admitting less light, and less steady aim.
+ *
+ *   • Near-black ink on warm off-white. Pure white glares under cataracts;
+ *     a warm ground scatters less.
+ *   • No grey-on-grey anywhere. The muted tone here is #4A4A4A — still about
+ *     7:1 on this ground, where the other templates' muted greys fall to 3:1
+ *     and vanish for exactly the readers who need them most.
+ *   • Accents are dark and saturated rather than pastel. A pale blue label on
+ *     cream is invisible to a yellowed lens; ink blue survives it.
+ *   • Red and green never carry meaning alone — roughly one man in twelve
+ *     cannot separate them — so the screens pair colour with a word.
+ *
+ * Type scale, spacing and touch targets are set in the Elders screens, since
+ * they are layout rather than colour.
+ */
+export const COLORS_ELDERS = {
+  deep: '#FBF7F0',          // warm off-white, not glaring white
+  darkBg: '#FFFDF9',
+  cardBg: '#FFFFFF',
+  cream: '#1A1A1A',         // ink — this is text colour, despite the name
+  gold: '#1C4E80',          // ink blue: survives a yellowed lens
+  saffron: '#A33B00',       // deep amber, readable on cream
+  muted: '#4A4A4A',         // ~7:1 contrast, never a pale grey
+  leaf: '#1E6B3A',
+  success: '#1E6B3A',
+  warning: '#8A5300',
+  error: '#A3122B',
+  border: 'rgba(26, 26, 26, 0.22)',
+};
+
+export const applyMode = (mode: ThemeMode): void => {
+  Object.assign(
+    COLORS,
+    mode === 'light' ? COLORS_LIGHT
+      : mode === 'techno' ? COLORS_TECHNO
+        : mode === 'elders' ? COLORS_ELDERS
+          : COLORS_DARK
+  );
+};
+
+export type ThemeMode = 'light' | 'dark' | 'techno' | 'elders';
 export type Palette = typeof COLORS_DARK;
 
 export const paletteFor = (mode: ThemeMode): Palette =>
-  mode === 'light' ? COLORS_LIGHT : COLORS_DARK;
+  mode === 'light' ? COLORS_LIGHT
+    : mode === 'techno' ? COLORS_TECHNO
+      : mode === 'elders' ? COLORS_ELDERS
+        : COLORS_DARK;
+
+/**
+ * Left inset a screen header needs so the floating ☰ drawer button does not
+ * sit on top of its title.
+ *
+ * The button is absolutely positioned at left: 12 and is 36 wide (App.tsx,
+ * `burgerBtn`), so it occupies x 12-48; 56 clears it with a small gap. It was
+ * previously hardcoded as a bare `56` on some screens, applied to the title
+ * and subtitle separately on another, and missing entirely on the rest — so
+ * the header overlapped the button on exactly the screens nobody had checked.
+ */
+export const DRAWER_CLEARANCE = 56;
 
 export const SPACING = {
   xs: 4,

@@ -24,12 +24,14 @@ interface Props {
   quality?: Record<string, DayQuality>;
   /** Accent for the selected day. Defaults to the app's gold. */
   accent?: string;
+  /** True when the screen's own ScrollView already pads horizontally. */
+  flush?: boolean;
 }
 
-export const RangeBar: React.FC<Props> = ({ quality, accent }) => {
+export const RangeBar: React.FC<Props> = ({ quality, accent, flush }) => {
   const { view, setView, selected, setSelected } = useRange();
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, flush && styles.wrapFlush]}>
       <ViewSwitch value={view} onChange={setView} />
       <WeekStrip
         selected={selected}
@@ -46,4 +48,11 @@ const styles = StyleSheet.create({
   // SPACING.md, which the health screens apply further in. Matching it here
   // keeps the strip flush with the cards below it on every screen.
   wrap: { paddingHorizontal: SPACING.md },
+  /**
+   * For screens whose ScrollView already pads horizontally — Japa does, the
+   * others do not. Without this the two paddings stack and the control sits
+   * 32 from the edge while the cards beside it sit at 16, which is exactly
+   * how the weekday strip ended up narrower than everything around it.
+   */
+  wrapFlush: { paddingHorizontal: 0 },
 });

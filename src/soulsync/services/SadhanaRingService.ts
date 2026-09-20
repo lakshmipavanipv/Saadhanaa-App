@@ -170,8 +170,9 @@ export class SadhanaRingService implements RingService {
     this.ownsLink = this.ring.refCount <= 1 && this.ring.claimSetup();
 
     if (this.ownsLink) {
-      // Push phone clock so ring timestamps stay coherent.
-      try { await this.ring.device.setDateTime(); } catch { /* not fatal */ }
+      // The clock is set by SadhanaRing.open() on every connection, so it is
+      // already correct by the time we get here — and is now set for the
+      // pairing screen and the japa counter too, which never called it.
 
       // Turn on continuous health monitoring.
       try { await this.ring.device.setHealthMonitorMaster(true); } catch { /* not fatal */ }

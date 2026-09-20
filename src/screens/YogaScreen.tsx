@@ -15,10 +15,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal,
  TextInput } from 'react-native';
-import { COLORS, SPACING } from '../theme';
+import { COLORS, SPACING, DRAWER_CLEARANCE } from '../theme';
 import { RangeBar } from './health/RangeBar';
 import { useTheme } from '../ThemeContext';
 import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
+import { PracticeHeader } from '../components/PracticeHeader';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
 // AddToPlanCta removed — Plan Your Wellbeing lives in the hamburger drawer.
 import { YogaPoseAnimation } from '../components/YogaPoseAnimation';
@@ -28,10 +29,10 @@ import { exerciseRepo } from '../services/exerciseRepo';
 import { useSadhana } from '../context';
 import { todayStr, isoDayOf } from '../utils';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
-import { PracticeStatsBox, SessionList, BeforeAfterVitals } from '../components/PracticeStats';
+import { SessionList, BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import { PracticeAssistant, PracticeCatalogItem } from '../components/PracticeAssistant';
-import { computeJapaEffect } from '../soulsync/analytics/JapaEffect';
+import { SessionDepthReport } from '../soulsync/components/SessionDepthReport';
 
 // Single shared ring instance for yoga stage-mark buzzes
 const ring = createDefaultRing();
@@ -288,21 +289,26 @@ export const YogaScreen = ({ navigation }: any) => {
     setShowLog(false); setLogMin('');
   };
 
-  // Compute today's yoga minutes + sadhana depth score for the stats box
+  // Today's yoga minutes for the stats box. The depth score is no longer read
+  // here: it belongs to a sitting, is written when that sitting ends, and is
+  // reported at the bottom of this screen rather than above the practice.
   const [minutesToday, setMinutesToday] = useState(0);
-  const [depthScore, setDepthScore]   = useState<number | null>(null);
+  const [lifetime, setLifetime] = useState({ sessions: 0, minutes: 0 });
+  const [depthEpoch, setDepthEpoch] = useState(0);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const all = await exerciseRepo.list();
       const today = todayStr();
-      const real = all.filter(e => e.activity === 'yoga' && e.date === today)
-                      .reduce((s, e) => s + e.durationMin, 0);
-      if (!cancelled) setMinutesToday(real);
-      try {
-        const snap = await computeJapaEffect();
-        if (!cancelled && snap?.score != null) setDepthScore(snap.score);
-      } catch { /* keep dummy */ }
+      const mine = all.filter(e => e.activity === 'yoga');
+      const real = mine.filter(e => e.date === today)
+                       .reduce((s, e) => s + e.durationMin, 0);
+      if (cancelled) return;
+      setMinutesToday(real);
+      setLifetime({
+        sessions: mine.length,
+        minutes: mine.reduce((s, e) => s + e.durationMin, 0),
+      });
     })();
     return () => { cancelled = true; };
   }, []);
@@ -335,18 +341,17 @@ export const YogaScreen = ({ navigation }: any) => {
   return (
     <View style={[styles.container, { backgroundColor: palette.deep }]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>Yoga Sadhana</Text>
-              <Text style={styles.subtitle}>Asanas + Pranayama for body and prana</Text>
-            </View>
+        <PracticeHeader
+          title="🧘‍♀️ Yoga"
+          subtitle="Asanas + Pranayama for body and prana"
+          preset="yoga"
+          navigation={navigation}
+          actions={
             <TouchableOpacity style={styles.logBtn} onPress={() => setShowLog(true)}>
               <Text style={styles.logBtnText}>+ Log past</Text>
             </TouchableOpacity>
-            <PlanWellbeingButton navigation={navigation} preset="yoga" />
-          </View>
-        </View>
+          }
+        />
 
         {/* Shared Day / Week / Month — the same control the health
             reports use, on the same date. */}
@@ -356,12 +361,10 @@ export const YogaScreen = ({ navigation }: any) => {
               · Box A: yoga time today (solid gold progress bar)
               · Box B: sadhana depth score (HORIZONTAL DASHED bar) */}
 
-        <PracticeStatsBox
-          practice="yoga"
-          minutesToday={minutesToday}
-          goalMinutes={YOGA_DAILY_GOAL_MIN}
-          depthScore={depthScore}
-        />
+        {/* The summary box lives on the Yoga & Meditation tab now, beside the
+            other practice's. This screen is the library it opens into —
+            poses, techniques, timers — and repeating the summary here would
+            be a second copy of a figure that has one source. */}
 
         {/* One card per session today — name (from Sadhana Path or "Session N · yoga"),
               minutes, depth score, week sparkline of scores, week total in small font. */}
@@ -373,6 +376,7 @@ export const YogaScreen = ({ navigation }: any) => {
         <SoulsyncSessionBar
           practice="yoga"
           onViewInsights={() => navigation?.navigate?.('History')}
+          onSessionEnd={() => setDepthEpoch((n) => n + 1)}
           session={soulsync}
         />
 
@@ -396,6 +400,12 @@ export const YogaScreen = ({ navigation }: any) => {
           onSelect={handlePickPractice}
           iconFor={iconFor}
         />
+
+        {/* ─── Sadhana Depth — the sitting that just ended ───
+             At the end of the screen, after the practice. It used to sit at
+             the top as a daily average, where nothing the reader was about to
+             do could move it. */}
+        <SessionDepthReport practice="yoga" refreshKey={depthEpoch} />
       </ScrollView>
 
       {/* Detail modal */}
@@ -610,9 +620,9 @@ const YogaDetailModal: React.FC<{ item: YogaItem; onClose: () => void }> = ({ it
 const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   container: { flex: 1, backgroundColor: C.deep },
   content: { paddingVertical: SPACING.lg, paddingBottom: 80 },
-  header: { paddingHorizontal: SPACING.md, marginBottom: SPACING.md },
-  title: { fontSize: 24, color: C.cream, fontWeight: '600', paddingLeft: 56 },
-  subtitle: { fontSize: 12, color: C.muted, marginTop: 4, paddingLeft: 56 },
+  header: { paddingHorizontal: SPACING.md, paddingLeft: DRAWER_CLEARANCE, marginBottom: SPACING.md },
+  title: { fontSize: 24, color: C.cream, fontWeight: '600' },
+  subtitle: { fontSize: 12, color: C.muted, marginTop: 4 },
 
   recCard: {
     marginHorizontal: SPACING.md, marginBottom: SPACING.md,

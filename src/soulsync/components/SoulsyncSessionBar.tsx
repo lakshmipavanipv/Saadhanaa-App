@@ -17,13 +17,32 @@ import { COLORS, SPACING } from '../../theme';
 import { useTheme } from '../../ThemeContext';
 import { useSoulsyncSession } from '../hooks/useSoulsyncSession';
 import { SessionScorePopup } from './SessionScorePopup';
-import { computeJapaEffect, JapaEffectSnapshot } from '../analytics/JapaEffect';
+import type { SessionKind, SessionDepth } from '../analytics/SadhanaDepth';
 
 interface Props {
-  /** What kind of practice (used in label only). */
-  practice?: string;        // e.g. "yoga", "meditation"
+  /**
+   * What kind of practice this is.
+   *
+   * No longer label-only: it is stamped onto the session row so the sitting
+   * can be found again by practice — which is what makes a per-practice depth
+   * report and a deity breakdown possible at all.
+   */
+  practice?: SessionKind;
   /** Navigation ref so the popup can deep-link to Insights. */
   onViewInsights?: () => void;
+  /** Deity this sitting is for, when the practice has one (japa). */
+  deityId?: string | null;
+  deityName?: string | null;
+  /** Called when a sitting ends, with its scored report. */
+  onSessionEnd?: (depth: SessionDepth | null) => void;
+  /**
+   * True when the screen's own ScrollView already pads horizontally.
+   *
+   * Exercise, Yoga and Meditation do not pad, so the bar carries its own 16.
+   * Japa does, and without this the two stacked — the bar came out 32 from the
+   * edge and visibly narrower than the same control on the Exercise tab.
+   */
+  flush?: boolean;
   /** Optional EXTERNAL soulsync session.  If the parent screen already
    *  holds a `useSoulsyncSession()` instance — because it also renders
    *  LiveVitalsTrends / BeforeAfterVitals that read from the same hook
@@ -41,8 +60,12 @@ const fmtElapsed = (seconds: number): string => {
 };
 
 export const SoulsyncSessionBar: React.FC<Props> = ({
-  practice = 'practice',
+  practice = 'meditation',
+  deityId,
+  deityName,
+  flush,
   onViewInsights,
+  onSessionEnd,
   session,
 }) => {
   const { palette } = useTheme();
@@ -56,7 +79,7 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
   const soulsync = session ?? ownSession;
   const [elapsed, setElapsed] = useState(0);
   const [showScoreModal, setShowScoreModal] = useState(false);
-  const [scoreSnap, setScoreSnap] = useState<JapaEffectSnapshot | null>(null);
+  const [sessionDepth, setSessionDepth] = useState<SessionDepth | null>(null);
 
   // Tick elapsed time while session is active
   useEffect(() => {
@@ -70,20 +93,20 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
 
   const handleToggle = async () => {
     if (soulsync.state.active) {
-      await soulsync.stop();
-      // Brief delay so DB finalisation lands, then compute + show score
-      await new Promise(r => setTimeout(r, 600));
-      try {
-        const snap = await computeJapaEffect();
-        setScoreSnap(snap);
-        setShowScoreModal(true);
-      } catch { /* soft fail */ }
+      // `stop()` finalises the row and scores the sitting in one step, and
+      // hands back the report. The old path slept 600 ms hoping the write had
+      // landed, then recomputed the whole DAY — so the popup after a second
+      // sitting was partly made of the first one.
+      const depth = await soulsync.stop();
+      setSessionDepth(depth);
+      setShowScoreModal(depth != null);
+      onSessionEnd?.(depth);
     } else {
       // start() now rethrows when the ring can't be reached, so it can unwind
       // cleanly instead of leaving a half-open session behind. Swallow it here
       // — the bar simply stays off, which is what the user sees anyway.
       try {
-        await soulsync.start();
+        await soulsync.start({ practice, deityId, deityName });
       } catch (e) {
         console.warn('[Soulsync] session start failed:', (e as Error).message);
       }
@@ -93,7 +116,7 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
   return (
     <>
       <TouchableOpacity
-        style={[styles.bar, soulsync.state.active && styles.barActive]}
+        style={[styles.bar, flush && styles.barFlush, soulsync.state.active && styles.barActive]}
         onPress={handleToggle}
         activeOpacity={0.85}
       >
@@ -102,7 +125,7 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
           <Text style={[styles.label, soulsync.state.active && styles.labelActive]}>
             {soulsync.state.active
               ? `◉ Recording your body · ${fmtElapsed(elapsed)}`
-              : `Start Soulsync · track this ${practice} on your body`}
+              : `Start Soulsync · score this ${practice} against your baseline`}
           </Text>
           {soulsync.state.active && soulsync.state.liveBpm != null && (
             <Text style={styles.liveStats}>
@@ -125,7 +148,7 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
           not currently streaming, so "connected but no reading yet" is
           distinguishable from "not working". */}
       {soulsync.state.active && (
-        <View style={styles.livePanel}>
+        <View style={[styles.livePanel, flush && styles.barFlush]}>
           <Text style={styles.livePanelHead}>Live from your ring</Text>
           <View style={styles.liveRow}>
             <LiveStat label="Heart" value={soulsync.state.liveBpm} unit="bpm" color="#FF6B8A" />
@@ -150,7 +173,7 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
 
       <SessionScorePopup
         visible={showScoreModal}
-        snapshot={scoreSnap}
+        depth={sessionDepth}
         onClose={() => setShowScoreModal(false)}
         onViewInsights={onViewInsights ? () => {
           setShowScoreModal(false);
@@ -175,6 +198,7 @@ const LiveStat: React.FC<{ label: string; value: number | null; unit: string; co
 );
 
 const makeStyles = (C: typeof COLORS) => StyleSheet.create({
+  barFlush: { marginHorizontal: 0 },
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -207,6 +231,8 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
     backgroundColor: C.cardBg, borderRadius: 14,
     borderWidth: 1, borderColor: C.border,
     padding: SPACING.md, marginTop: SPACING.sm,
+    // Lines up with the bar above it rather than running full-bleed.
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
   },
   livePanelHead: {
     fontSize: 10, fontWeight: '700', color: C.muted,

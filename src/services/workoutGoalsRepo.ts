@@ -8,13 +8,19 @@ import { BodyActivity } from '../types';
 
 // v67: a goal can now be measured in any of these units, chosen per
 // activity by the user (previously walk=steps, everything else=minutes).
-export type GoalUnit = 'min' | 'steps' | 'kcal' | 'km';
+/**
+ * `malas` is a japa unit, not a workout one. It lives here because this is
+ * where GOAL_UNIT_META is, and the Plan wizard reads one table for every
+ * category — a second table for japa would drift from this one.
+ */
+export type GoalUnit = 'min' | 'steps' | 'kcal' | 'km' | 'malas';
 
 export const GOAL_UNIT_META: Record<GoalUnit, { label: string; short: string; icon: string }> = {
   min:   { label: 'Time',     short: 'min',   icon: '⏱' },
   steps: { label: 'Steps',    short: 'steps', icon: '👟' },
   kcal:  { label: 'Calories', short: 'kcal',  icon: '🔥' },
   km:    { label: 'Distance', short: 'km',    icon: '📏' },
+  malas: { label: 'Malas',    short: 'malas', icon: '📿' },
 };
 
 export interface WorkoutGoals {

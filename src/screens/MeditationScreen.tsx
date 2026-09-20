@@ -16,20 +16,21 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, Animated, TextInput,
 } from 'react-native';
-import { COLORS, SPACING } from '../theme';
+import { COLORS, SPACING, DRAWER_CLEARANCE } from '../theme';
 import { RangeBar } from './health/RangeBar';
 import { useTheme } from '../ThemeContext';
 import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
+import { PracticeHeader } from '../components/PracticeHeader';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
 // AddToPlanCta removed — Plan Your Wellbeing lives in the hamburger drawer.
 import { soulActivityRepo } from '../services/soulActivityRepo';
 import { useSadhana } from '../context';
 import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
 import { todayStr, isoDayOf } from '../utils';
-import { PracticeStatsBox, SessionList, BeforeAfterVitals } from '../components/PracticeStats';
+import { SessionList, BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import { PracticeAssistant, PracticeCatalogItem } from '../components/PracticeAssistant';
-import { computeJapaEffect } from '../soulsync/analytics/JapaEffect';
+import { SessionDepthReport } from '../soulsync/components/SessionDepthReport';
 
 type Intent = 'quick' | 'calm' | 'deep' | 'mantra' | 'cooling';
 
@@ -342,21 +343,26 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const quickRelief = MEDITATION_CATALOG.filter(t => t.intent === 'quick');
 
-  // Today's meditation minutes + sadhana depth score (with dummy fallback)
+  // Today's meditation minutes. The depth score is no longer read here: it
+  // belongs to a sitting, is written when that sitting ends, and is reported
+  // at the bottom of this screen rather than above the practice.
   const [minutesToday, setMinutesToday] = useState(0);
-  const [depthScore, setDepthScore]   = useState<number | null>(null);
+  const [lifetime, setLifetime] = useState({ sessions: 0, minutes: 0 });
+  const [depthEpoch, setDepthEpoch] = useState(0);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const all = await soulActivityRepo.list();
       const today = todayStr();
-      const real = all.filter(e => e.activity === 'meditation' && e.date === today)
-                      .reduce((s, e) => s + e.durationMin, 0);
-      if (!cancelled) setMinutesToday(real);
-      try {
-        const snap = await computeJapaEffect();
-        if (!cancelled && snap?.score != null) setDepthScore(snap.score);
-      } catch { /* keep dummy */ }
+      const mine = all.filter(e => e.activity === 'meditation');
+      const real = mine.filter(e => e.date === today)
+                       .reduce((s, e) => s + e.durationMin, 0);
+      if (cancelled) return;
+      setMinutesToday(real);
+      setLifetime({
+        sessions: mine.length,
+        minutes: mine.reduce((s, e) => s + e.durationMin, 0),
+      });
     })();
     return () => { cancelled = true; };
   }, []);
@@ -390,18 +396,17 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
   return (
     <View style={[styles.container, { backgroundColor: palette.deep }]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>Meditation</Text>
-              <Text style={styles.subtitle}>Anxiety relief · daily calm · breath work</Text>
-            </View>
+        <PracticeHeader
+          title="🧘 Meditation"
+          subtitle="Anxiety relief · daily calm · breath work"
+          preset="meditate"
+          navigation={navigation}
+          actions={
             <TouchableOpacity style={styles.logBtn} onPress={() => setShowLog(true)}>
               <Text style={styles.logBtnText}>+ Log past</Text>
             </TouchableOpacity>
-            <PlanWellbeingButton navigation={navigation} preset="meditation" />
-          </View>
-        </View>
+          }
+        />
 
         {/* Shared Day / Week / Month — the same control the health
             reports use, on the same date. */}
@@ -411,12 +416,10 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
               · Box A: meditation time today (solid gold progress bar)
               · Box B: sadhana depth score (HORIZONTAL DASHED bar) */}
 
-        <PracticeStatsBox
-          practice="meditation"
-          minutesToday={minutesToday}
-          goalMinutes={20}
-          depthScore={depthScore}
-        />
+        {/* The summary box lives on the Yoga & Meditation tab now, beside the
+            other practice's. This screen is the library it opens into —
+            poses, techniques, timers — and repeating the summary here would
+            be a second copy of a figure that has one source. */}
 
         {/* One card per session today (name, minutes, depth score, week trend, week total) */}
         <SessionList practice="meditation" />
@@ -439,6 +442,7 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
         <SoulsyncSessionBar
           practice="meditation"
           onViewInsights={() => navigation?.navigate?.('History')}
+          onSessionEnd={() => setDepthEpoch((n) => n + 1)}
           session={soulsync}
         />
 
@@ -460,6 +464,11 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
           onSelect={handlePickTechnique}
           iconFor={iconForIntent}
         />
+
+        {/* ─── Sadhana Depth — the sitting that just ended ───
+             At the end of the screen, after the practice, rather than above it
+             as a daily average nothing you were about to do could move. */}
+        <SessionDepthReport practice="meditation" refreshKey={depthEpoch} />
       </ScrollView>
 
       {selected && (
@@ -660,7 +669,7 @@ const TechniqueModal: React.FC<{ technique: Technique; onClose: () => void }> = 
 const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   container: { flex: 1, backgroundColor: C.deep },
   content: { paddingVertical: SPACING.lg, paddingBottom: 80 },
-  header: { paddingHorizontal: SPACING.md, marginBottom: SPACING.md },
+  header: { paddingHorizontal: SPACING.md, paddingLeft: DRAWER_CLEARANCE, marginBottom: SPACING.md },
   title: { fontSize: 24, color: C.cream, fontWeight: '600' },
   subtitle: { fontSize: 12, color: C.muted, marginTop: 4 },
 

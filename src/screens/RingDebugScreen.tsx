@@ -199,6 +199,36 @@ export const RingDebugScreen = ({ onClose }: { onClose: () => void }) => {
     append({ kind: 'info', text: `■ Sweep complete. Tell me which # buzzed.` });
   }, [ring, append]);
 
+  /**
+   * Send a pretend incoming call, so the display command can be checked
+   * against the ring before any of Android's call plumbing exists.
+   *
+   * The wire format came out of the reference app rather than out of a
+   * capture of this ring, and the last display command taken on trust — the
+   * OLED logo — timed out and dropped the link. So it gets tried here, by
+   * hand, on a screen built for exactly that, before it is wired to anything
+   * that fires on its own.
+   */
+  const testCall = useCallback(async () => {
+    if (!ring) return;
+    try {
+      append({ kind: 'info', text: 'call notify → ringing "Test Caller"' });
+      await ring.device.notifyCall({
+        number: '+919876543210', name: 'Test Caller', state: 'ringing',
+      });
+      append({ kind: 'info', text: 'sent — watch the ring display' });
+      // Clear it after a few seconds so the ring is not left ringing.
+      setTimeout(() => {
+        void ring.device
+          .notifyCall({ number: '+919876543210', state: 'ended' })
+          .then(() => append({ kind: 'info', text: 'call notify → ended' }))
+          .catch(() => { /* the link may be gone already; nothing to clean up */ });
+      }, 8000);
+    } catch (e) {
+      append({ kind: 'error', text: `call notify failed: ${(e as Error).message}` });
+    }
+  }, [ring, append]);
+
   const disconnect = useCallback(async () => {
     if (!ring) return;
     await ring.disconnect();
@@ -232,6 +262,9 @@ export const RingDebugScreen = ({ onClose }: { onClose: () => void }) => {
               <Text style={styles.stat}>🔋 {battery ?? '—'}%</Text>
               <Text style={styles.stat}>fw {firmware ?? '—'}</Text>
             </View>
+            <TouchableOpacity style={styles.btn} onPress={testCall}>
+              <Text style={styles.btnTxt}>📞 Test caller display</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={[styles.btn, styles.btnDanger]} onPress={disconnect}>
               <Text style={styles.btnTxt}>Disconnect</Text>
             </TouchableOpacity>

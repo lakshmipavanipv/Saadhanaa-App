@@ -45,8 +45,12 @@ import { RemindersScreen } from './screens/RemindersScreen';
 import { SideDrawer, type DrawerAction } from './components/SideDrawer';
 import { ThemePicker } from './components/ThemePicker';
 import { ThemeProvider, useTheme } from './ThemeContext';
+import { TechnoDashboard } from './screens/techno/TechnoDashboard';
+import { EldersDashboard } from './screens/elders/EldersDashboard';
+import { EldersJapa } from './screens/elders/EldersJapa';
 import { RangeProvider } from './screens/health/rangeContext';
 import { YogaMeditationWrapper } from './screens/YogaMeditationWrapper';
+import { YogaScreen } from './screens/YogaScreen';
 import { AnxietyReliefPopup } from './soulsync/components/AnxietyReliefPopup';
 import { AggressionReliefPopup } from './soulsync/components/AggressionReliefPopup';
 import { DailyRecommendationsPopup } from './soulsync/components/DailyRecommendationsPopup';
@@ -102,9 +106,13 @@ const TabNavigator = () => {
             Japa      = manomaya  (mind sheath — Sandhya lives here too)
             Meditate  = vijnanamaya (wisdom sheath)
             Festivals = anandamaya (bliss/cosmic sheath) */}
+      {/* Home is chosen at the route, not inside the screen: an early return
+          before the other hooks would violate the Rules of Hooks, and
+          interleaving two layouts through one 1,000-line component is how
+          both end up broken. */}
       <Tab.Screen
         name="Dashboard"
-        component={DashboardScreen}
+        component={HomeForTemplate}
         options={{
           tabBarLabel: 'Home',
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 26, color }}>🏠</Text>,
@@ -130,7 +138,7 @@ const TabNavigator = () => {
       {/* Reordered bottom tabs: Home → Japa → Yoga & Meditate → Exercise → Health */}
       <Tab.Screen
         name="Japa"
-        component={JapaScreen}
+        component={JapaForTemplate}
         options={{
           tabBarLabel: 'Japa',
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 26, color }}>📿</Text>,
@@ -158,6 +166,18 @@ const TabNavigator = () => {
       <Tab.Screen
         name="Meditation"
         component={MeditationScreen}
+        options={{
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: 'none' },
+        }}
+      />
+      {/* The yoga library — poses, timers, the detail sheets. Hidden, and
+          reached from the Yoga card's Details on the Yoga & Meditation tab,
+          the same way Meditation's is. The tab itself is now a summary of both
+          practices rather than one of their catalogues. */}
+      <Tab.Screen
+        name="YogaLibrary"
+        component={YogaScreen}
         options={{
           tabBarButton: () => null,
           tabBarItemStyle: { display: 'none' },
@@ -406,7 +426,7 @@ const AppContent = () => {
       </NavigationContainer>
       {/* Settings gear removed — Profile & app settings now live under the
           hamburger drawer (☰ → Profile & Personal Info). */}
-      {activeRoute !== 'Plan' && <HamburgerButton onPress={() => setShowDrawer(true)} />}
+      {activeRoute !== 'Plan' && <MenuButton onPress={() => setShowDrawer(true)} />}
       {/* Voice assistant floating mic disabled — it overlapped the Health tab.
           Re-enable via drawer if we need it back. */}
       {false && <VoiceAssistant navRef={navRef} />}
@@ -543,15 +563,77 @@ const SettingsButton = ({ onPress }: { onPress: () => void }) => {
   );
 };
 
-const HamburgerButton = ({ onPress }: { onPress: () => void }) => {
+/**
+ * Which Home the user gets.
+ *
+ * Dark and Light are the same screen at different brightness. Techno is a
+ * different composition of the same data, so it is a different component —
+ * and the choice is made here, where a component swap is free, rather than
+ * inside a screen where it would mean a conditional return above its hooks.
+ */
+const HomeForTemplate: React.FC<any> = (props) => {
+  const { isTechno, isElders } = useTheme();
+  if (isElders) return <EldersDashboard {...props} />;
+  if (isTechno) return <TechnoDashboard {...props} />;
+  return <DashboardScreen {...props} />;
+};
+
+/**
+ * Japa, chosen by template.
+ *
+ * Only the Elders template replaces this one. Techno keeps the default Japa
+ * screen for now — the bead counter is the same job however it is painted, and
+ * a template should only take over a screen when it has something better to
+ * say about it.
+ */
+const JapaForTemplate: React.FC<any> = (props) => {
+  const { isElders } = useTheme();
+  return isElders ? <EldersJapa {...props} /> : <JapaScreen {...props} />;
+};
+
+/**
+ * The app menu, top right.
+ *
+ * Was a ☰ at the top LEFT, which is the convention for a navigation drawer —
+ * a place you go. This menu is not that: it is settings, the ring, themes,
+ * the profile. The vertical ⋮ is the convention for "more about this screen",
+ * and it belongs on the same side as the panel it opens, so the panel appears
+ * under the thumb that asked for it rather than flying in from the far edge.
+ */
+const MenuButton = ({ onPress }: { onPress: () => void }) => {
   const insets = useSafeAreaInsets();
+  const { palette } = useTheme();
   return (
     <TouchableOpacity
-      style={[styles.burgerBtn, { top: 8 + insets.top }]}
+      style={[
+        styles.menuBtn,
+        {
+          top: 8 + insets.top,
+          /*
+           * Painted from the PALETTE, not from the dark theme's constants.
+           *
+           * It was fixed gold-on-translucent-gold, which is legible on the two
+           * dark themes and nearly invisible on the light one — gold text, on a
+           * gold tint, on a cream background. "The light home tab has no
+           * settings button" was that: the button was there and could not be
+           * seen.
+           *
+           * A solid card-coloured disc with the palette's own border gives it
+           * an edge against every background the app has.
+           */
+          backgroundColor: palette.cardBg,
+          borderColor: palette.border,
+        },
+      ]}
       onPress={onPress}
       activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel="Menu"
+      // The dots are a small target; widen what counts as a hit without
+      // widening what is drawn.
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
     >
-      <Text style={styles.burgerText}>☰</Text>
+      <Text style={[styles.menuDots, { color: palette.cream }]}>⋮</Text>
     </TouchableOpacity>
   );
 };
@@ -634,18 +716,20 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   cogText: { fontSize: 18, color: COLORS.gold },
-  burgerBtn: {
+  menuBtn: {
     position: 'absolute',
-    left: 12,
+    right: 12,
+    // Above everything the navigator draws, on both platforms.
+    zIndex: 100,
+    elevation: 6,
+    shadowColor: '#000', shadowOpacity: 0.25,
+    shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(212, 160, 23, 0.15)',
     borderWidth: 1,
-    borderColor: 'rgba(212, 160, 23, 0.4)',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 100,
   },
-  burgerText: { fontSize: 20, color: COLORS.gold },
+  menuDots: { fontSize: 22, fontWeight: '900', lineHeight: 24 },
 });

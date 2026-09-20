@@ -16,7 +16,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { COLORS, SPACING } from '../../theme';
+import { COLORS, SPACING, DRAWER_CLEARANCE } from '../../theme';
 import { useTheme } from '../../ThemeContext';
 import { syncAllRingVitals, loadStoredVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
 import { groupSleepSessions } from '../../soulsync/ring/ringVitalsSync';
@@ -55,12 +55,17 @@ const TILES: TileSpec[] = [
   // timed-monitoring command for it ({2,27,0} times out with every encoding
   // the SDK implies), so the channel produces no data on this hardware and a
   // permanently blank tile is worse than no tile.
-  { key: 'resp',  name: 'Respiration',  unit: '/min',route: 'MetricDetail', routeParams: { metric: 'resp' }, color: HEALTH_COLORS.resp, emptyNote: 'Ring sends no breath data · tap' },
+  // Respiration is gone. The SR16 streams no beat-to-beat intervals, so the
+  // tile could never hold a number — it was a permanent "no breath data" note
+  // taking a slot from vitals the ring does measure. Recovering respiration
+  // needs R-R intervals (see analytics/Respiration.ts), and the tile can come
+  // back the day hardware that streams them does.
   { key: 'sleep', name: 'Sleep',        unit: 'h',   route: 'SleepDetail',                                    color: HEALTH_COLORS.sleep },
-  // Sits beside Sleep rather than spanning the row. The full-width treatment
-  // gave Stress more weight than any other vital and left the grid ending on
-  // an odd, heavy block.
-  { key: 'stress',name: 'Stress',       unit: '/100',route: 'StressDetail',                                   color: HEALTH_COLORS.stress, goodDelta: 'lower' },
+  // Full width, and not for emphasis: with Respiration removed there are five
+  // tiles in a two-column grid, and the fifth would sit alone beside a hole.
+  // Stress spanning the row closes it, and it is the one metric that reads
+  // well wide because its baseline comparison is a sentence, not a figure.
+  { key: 'stress',name: 'Stress',       unit: '/100',route: 'StressDetail',                                   color: HEALTH_COLORS.stress, goodDelta: 'lower', wide: true },
 ];
 
 // ── Derivation helpers ─────────────────────────────────────────────────────
@@ -329,7 +334,11 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   body: { paddingHorizontal: SPACING.md, paddingBottom: 80, paddingTop: 6 },
   headerRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingLeft: 56, paddingTop: 4, paddingBottom: 4,
+    // The clearance is on the RIGHT, where the ⋮ menu is. It was on the left,
+    // left over from the days of a ☰ there — so the sync button ran right to
+    // the edge and sat underneath the menu.
+    paddingLeft: 0, paddingRight: DRAWER_CLEARANCE - SPACING.md,
+    paddingTop: 4, paddingBottom: 4,
   },
   title: { fontSize: 24, fontWeight: '700', color: C.cream },
   iconBtn: {
@@ -361,7 +370,13 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
     borderColor: C.border, borderWidth: 1,
     borderRadius: 14, padding: 12, position: 'relative',
   },
-  tileWide: { width: '100%' },
+  /*
+    A full-width tile does not need a half-width tile's height. 148 was sized
+    for a narrow column where the name, figure, baseline and sparkline stack;
+    across the whole row they have twice the width and half the need for it,
+    and the leftover became the blank block under Stress.
+  */
+  tileWide: { width: '100%', minHeight: 104 },
   detailBadge: {
     position: 'absolute', top: 8, right: 8,
     flexDirection: 'row', alignItems: 'center', gap: 2,

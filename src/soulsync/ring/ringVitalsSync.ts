@@ -199,30 +199,163 @@ function scalarStats(samples: readonly unknown[], field: string): {
 }
 
 /**
- * Upsert steps into the `daily_activity` table so ExerciseScreen picks
- * them up on its next read.
+ * Fold the ring's step records into one row per local day.
+ *
+ * PURE, AND EXPORTED, SO IT CAN BE TESTED
+ *
+ * The step total is the figure this app has got wrong most often, and every
+ * time it was the aggregation rather than the decode. Keeping it a pure
+ * function of the samples means it can be fed real captured records and
+ * checked against the ring's own display without a database, a ring, or a
+ * screen — see scratchpad/steps for that test.
+ *
+ * TWO KINDS OF RECORD, NEVER ADDED TOGETHER
+ *
+ * The ring sends hourly buckets AND a running daily total stamped at the
+ * moment of the sync. The daily total already contains every hourly bucket in
+ * the same page, so adding both reports roughly double. That is exactly the
+ * bug that had the app showing 8000 steps for a 2600-step day.
+ *
+ * So the hourly buckets are summed, and the running total is then taken as a
+ * FLOOR rather than an addend: whichever is larger wins. The daily total
+ * usually is, because it includes the part of the current hour that has no
+ * bucket yet — but a stale one can be smaller, and then the hourly sum stands.
+ *
+ * Distance and calories come from the same records and follow the same rule.
+ * They were previously decoded and discarded while the Exercise tab multiplied
+ * steps by a generic stride length and a generic cost per step.
  */
-async function upsertRingSteps(samples: StepSample[]): Promise<{ total: number; sampleCount: number }> {
+export interface DayActivityTotals {
+  steps: number;
+  km: number;
+  kcal: number;
+  /** Hourly buckets in which the ring counted any walking at all. */
+  hours: number;
+}
+
+export function foldStepSamples(
+  samples: StepSample[],
+  dayKey: (ms: number) => string = dayOf,
+): Map<string, DayActivityTotals> {
+  const byDay = new Map<string, DayActivityTotals>();
+  const at = (d: string): DayActivityTotals => {
+    let e = byDay.get(d);
+    if (!e) { e = { steps: 0, km: 0, kcal: 0, hours: 0 }; byDay.set(d, e); }
+    return e;
+  };
+
+  // Hourly buckets: summed.
+  for (const s of samples) {
+    if (s.isDailyTotal) continue;
+    const e = at(dayKey(s.timestamp.getTime()));
+    e.steps += s.steps;
+    e.km += s.distanceKm;
+    e.kcal += s.calorieKcal;
+    // One bucket with any walking in it is one hour the body moved. A measured
+    // count, replacing the `steps / 100` that used to stand for "minutes".
+    if (s.steps > 0) e.hours += 1;
+  }
+
+  // Running daily totals: a floor, never an addend.
+  for (const s of samples) {
+    if (!s.isDailyTotal) continue;
+    const e = at(dayKey(s.timestamp.getTime()));
+    e.steps = Math.max(e.steps, s.steps);
+    e.km = Math.max(e.km, s.distanceKm);
+    e.kcal = Math.max(e.kcal, s.calorieKcal);
+  }
+
+  return byDay;
+}
+
+/**
+ * The ring's hourly records, kept as hours rather than folded into a day.
+ *
+ * This is most of what the step channel actually says. A daily total answers
+ * "how much"; the hours answer "when", which is what lets the Exercise box
+ * draw a day the same way the Japa box draws one from its bead log.
+ *
+ * The running daily total is excluded — it is stamped at the moment of the
+ * sync, not on an hour, so filing it under that hour would invent a burst of
+ * walking that did not happen then.
+ */
+export function hourlyStepRows(
+  samples: StepSample[],
+  dayKey: (ms: number) => string = dayOf,
+): { day: string; hour: number; steps: number; km: number; kcal: number }[] {
+  const by = new Map<string, { day: string; hour: number; steps: number; km: number; kcal: number }>();
+  for (const s of samples) {
+    if (s.isDailyTotal) continue;
+    const day = dayKey(s.timestamp.getTime());
+    const hour = s.timestamp.getHours();
+    const k = `${day}#${hour}`;
+    const e = by.get(k) ?? { day, hour, steps: 0, km: 0, kcal: 0 };
+    e.steps += s.steps;
+    e.km += s.distanceKm;
+    e.kcal += s.calorieKcal;
+    by.set(k, e);
+  }
+  return [...by.values()];
+}
+
+/**
+ * Upsert steps into `daily_activity` and `activity_hour`.
+ *
+ * EXPORTED because the Exercise tab reads the step channel itself, through
+ * `getRingStepsToday()`, and was throwing the records away after showing the
+ * total. That is why the day chart said "no hour-by-hour steps for this day
+ * yet" while the same screen displayed 3,495 steps: the hours had been read
+ * and discarded in the same breath. Both readers now land here.
+ */
+export async function upsertRingSteps(samples: StepSample[]): Promise<{ total: number; sampleCount: number }> {
   if (!samples.length) return { total: 0, sampleCount: 0 };
   const db = await getDB();
-  // Group by day
   // Local date, not UTC. toISOString() buckets by UTC, which put steps on a
-  // different day than the vitals recorded at the same moment (vitalsRepo
-  // keys on local `dayOf`). Near midnight the two stores disagreed.
-  const byDay = new Map<string, number>();
-  for (const s of samples) {
-    const d = dayOf(s.timestamp.getTime());
-    byDay.set(d, (byDay.get(d) ?? 0) + s.steps);
-  }
-  for (const [date, steps] of byDay) {
+  // different day than the vitals recorded at the same moment (vitalsRepo keys
+  // on local `dayOf`). Near midnight the two stores disagreed.
+  const byDay = foldStepSamples(samples);
+
+  for (const [date, t] of byDay) {
     await db.runAsync(
-      `INSERT INTO daily_activity (activity_date, step_count) VALUES (?, ?)
-       ON CONFLICT(activity_date) DO UPDATE SET step_count = MAX(step_count, excluded.step_count)`,
-      [date, steps]
+      /*
+       * Overwrite, rather than MAX.
+       *
+       * MAX was protection against a partial read lowering a good total. It
+       * became the reason a wrong total was permanent: while the running daily
+       * record was being added to the hourly ones, this table took the
+       * inflated figure and then refused every corrected value that followed,
+       * because the correct number is smaller. Steps only ever climbed.
+       *
+       * Overwriting is safe here because the steps channel returns the whole
+       * day on every sync — the sweep read hours 00:00 to 08:00 in one page,
+       * long after those hours had been ACKed — so each sync recomputes a
+       * complete day rather than contributing a fragment of one.
+       */
+      `INSERT INTO daily_activity
+         (activity_date, step_count, distance_km, calorie_kcal, active_hours)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(activity_date) DO UPDATE SET
+         step_count   = excluded.step_count,
+         distance_km  = excluded.distance_km,
+         calorie_kcal = excluded.calorie_kcal,
+         active_hours = excluded.active_hours`,
+      [date, t.steps, Math.round(t.km * 100) / 100, Math.round(t.kcal), t.hours]
     );
   }
+  // The hours, kept alongside the days. Overwritten rather than added to:
+  // the steps channel returns the whole day on every sync, so a later read
+  // corrects an earlier one.
+  for (const h of hourlyStepRows(samples)) {
+    await db.runAsync(
+      `INSERT INTO activity_hour (day, hour, steps, km, kcal) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(day, hour) DO UPDATE SET
+         steps = excluded.steps, km = excluded.km, kcal = excluded.kcal`,
+      [h.day, h.hour, h.steps, Math.round(h.km * 1000) / 1000, Math.round(h.kcal)]
+    );
+  }
+
   const today = dayOf(Date.now());
-  return { total: byDay.get(today) ?? 0, sampleCount: byDay.size };
+  return { total: byDay.get(today)?.steps ?? 0, sampleCount: byDay.size };
 }
 
 /**
@@ -382,6 +515,13 @@ async function hydrateFromHistory(result: RingVitalsSyncResult): Promise<RingVit
       ...base(r.ts),
       sleepModel: Math.round(r.value),
     }));
+     
+    console.log(
+      `[SLEEPDIAG] stored=${sleep.length}` +
+      (sleep.length
+        ? ` span=${sleep[0].timestamp.toLocaleString()} → ${sleep[sleep.length - 1].timestamp.toLocaleString()}`
+        : '')
+    );
     if (sleep.length) {
       result.raw.sleep = sleep;
       // Re-derive the summary from stored stages so the sleep screens show a
@@ -545,26 +685,61 @@ async function runSync(opts: SyncOptions = {}): Promise<RingVitalsSyncResult> {
     metric: 'hr' | 'hrv' | 'spo2' | 'stress',
     dwellMs: number,
   ): Promise<{ samples: T[] } | null> => {
-    const first = await safe(metric, () => ring!.sync.sync<T>(metric));
+    // Every one of these channels is destructive on ACK, so each page is
+    // stored before it is acknowledged. The value field is the metric's own
+    // name on the sample, which is how persistScalar is called for them below.
+    const onPage = (page: T[]) =>
+      persistScalar(metric, page, (x: T) => (x as unknown as Record<string, number>)[metric]);
+
+    const first = await safe(metric, () => ring!.sync.sync<T>(metric, { onPage }));
     if (first && first.samples.length > 0) return first;
     if (!measure) return first;
 
     const measured = await safe(`${metric}:measure`, async () => {
       await ring!.withLiveMetric(metric, () => new Promise<void>((r) => setTimeout(r, dwellMs)));
-      return ring!.sync.sync<T>(metric);
+      return ring!.sync.sync<T>(metric, { onPage });
     });
     return measured ?? first;
   };
 
-  const sleep = await safe('sleep', () => ring!.sync.sync<SleepSample>('sleep'));
+  /*
+   * Sleep is read page by page and each page is written to storage before it
+   * is acknowledged, because acknowledging is what makes the ring forget it.
+   *
+   * The previous order stored everything only after the whole channel had
+   * been drained and ACKed. That window is small but it is not zero, and it
+   * is exactly where a night goes missing: the ring has dropped the pages, the
+   * app has not yet written them, and nothing anywhere can reconstruct them.
+   */
+  const sleep = await safe('sleep', () => ring!.sync.sync<SleepSample>('sleep', {
+    onPage: (page) => persistScalar('sleep', page, (x: SleepSample) => x.sleepModel),
+  }));
   if (sleep) {
+    /*
+     * Sleep diagnostics.
+     *
+     * A session the user knows happened is not reaching the app, and the
+     * reads that would carry it are destructive — the ring drops a page once
+     * it is ACKed — so the evidence is gone by the time anyone notices. This
+     * records what the ring actually handed over, before anything is derived
+     * from it: the raw first page, how many stage records decoded, and the
+     * span they cover. Without it every explanation is a guess.
+     *   adb logcat -s ReactNativeJS:V | grep SLEEPDIAG
+     */
+    const span = sleep.samples.length
+      ? `${sleep.samples[0].timestamp.toLocaleString()} → ${sleep.samples[sleep.samples.length - 1].timestamp.toLocaleString()}`
+      : 'none';
+    const models = [...new Set(sleep.samples.map((x) => x.sleepModel))].sort((a, b) => a - b);
+     
+    console.log(
+      `[SLEEPDIAG] decoded=${sleep.samples.length} span=${span} ` +
+      `models=[${models.join(',')}] rawFirstPage=${[...sleep.rawPayload.slice(0, 32)].map((b) => b.toString(16).padStart(2, '0')).join('')}`
+    );
     result.raw.sleep = sleep.samples;
-    // Store the raw stages BEFORE aggregating. The ACK we already sent means
-    // the ring has dropped these; aggregateSleep() then throws away any night
-    // with under two samples or under 30 minutes total, so a short or partial
-    // night used to vanish permanently between those two steps.
-    await safe('sleep:persist', () =>
-      persistScalar('sleep', sleep.samples, (s: SleepSample) => s.sleepModel));
+    // Already stored page by page above, before each ACK — see the onPage
+    // hook. aggregateSleep() discards any night under two samples or under
+    // thirty minutes, so the raw stages must survive it regardless of what it
+    // decides to keep.
     const agg = await aggregateSleep(sleep.samples);
     result.sleep = { nightsUpserted: agg.nights, sampleCount: agg.total };
   }
@@ -573,6 +748,15 @@ async function runSync(opts: SyncOptions = {}): Promise<RingVitalsSyncResult> {
   if (hr) {
     result.raw.hr = hr.samples;
     result.hr = scalarStats(hr.samples, 'hr');
+    /*
+     * A second write of the same samples, kept on purpose.
+     *
+     * Each page is already stored by the onPage hook before it is ACKed. This
+     * repeats it for the whole set, which is NOT duplication: vitalsRepo
+     * upserts on (metric, ts), so re-writing a row leaves the count unmoved.
+     * It costs one cheap statement and it covers any path that reaches here
+     * without having gone through the hook.
+     */
     await safe('hr:persist', () => persistScalar('hr', hr.samples, (s: HrSample) => s.hr));
   }
 

@@ -104,6 +104,16 @@ export interface StepSample extends TsSample {
   steps: number;
   calorieKcal: number;
   distanceKm: number;
+  /**
+   * True when this record is the ring's running total for the day rather than
+   * one hour's steps.
+   *
+   * These must never be added to the hourly records — they already contain
+   * them. Sum the hourly ones for a day's total, or take this figure directly;
+   * doing both counts the day twice. See decodeSteps for the capture that
+   * showed it.
+   */
+  isDailyTotal: boolean;
 }
 export interface TasbihSample extends TsSample {
   /** Accumulated count as of `timestamp`. Ring stores hourly snapshots. */
@@ -208,14 +218,66 @@ const decodeTasbih: Decoder<TasbihSample> = (payload) => {
   return out;
 };
 
-const decodeSteps: Decoder<StepSample> = (payload) => {
-  // a0() handler — 16-byte records: [ts32_LE, pad, steps24_BE, cal32_BE/10, dist32_BE/10000]
+/** Exported so the running-total rule can be checked against real captured
+ *  bytes without a ring attached. See the test note in decodeSteps. */
+export const decodeSteps: Decoder<StepSample> = (payload) => {
+  /*
+   * a0() handler — 16-byte records:
+   *   [ts32_LE, pad, steps24_BE, cal32_BE/10, dist32_BE/10000]
+   *
+   * NOT EVERY RECORD IS AN HOURLY BUCKET.
+   *
+   * The ring mixes two kinds of record in the same page. Most sit exactly on
+   * an hour and carry that hour's steps. One does not: it is timestamped at
+   * the moment of the sync and carries the running total for the day so far.
+   * From a real capture:
+   *
+   *     12:59   2149   <- running total, ts % 3600 = 3585
+   *     00:00     43   <- hourly
+   *     01:00     83
+   *     ...
+   *     08:00    112
+   *     hourly sum 1686, running total 2149
+   *
+   * Summing them all gives 3835 for a day the ring itself calls 2149 and
+   * Samsung Health calls ~2600 — the day counted nearly twice. Every consumer
+   * summed every record, so steps were inflated everywhere they appeared.
+   *
+   * Hour alignment is the discriminator, and it is the ring's own: an hourly
+   * bucket lands on the hour by construction, while the running total is
+   * stamped "now" and almost never will. `isDailyTotal` carries that
+   * distinction so callers can sum the buckets and use the total as a total,
+   * rather than guessing from timestamps themselves.
+   */
   const out: StepSample[] = [];
   for (let off = 0; off + 16 <= payload.length; off += 16) {
     const ts = readTs(payload, off);
     const steps = readU24BE(payload, off + 5);
-    const calorie = readU32BE(payload, off + 8) / 10;    // kcal (stored as centi-kcal — /10 = kcal)
-    const distance = readU32BE(payload, off + 12) / 10000; // km  (stored as cm — /10000 = km)
+    /*
+     * UNITS, SETTLED FROM THE CAPTURE RATHER THAN FROM THE DECOMPILE.
+     *
+     * These divisors were /10 and /10000, taken from the RWfit source, and
+     * both were a thousand times too small: the Exercise tab reported 2851.92
+     * km and 124,885 kcal for a 3,495-step day.
+     *
+     * Every record in rwfit_capture/jieli_frames.jsonl gives the same two
+     * ratios, to the byte:
+     *
+     *   dist_raw / steps = 8160.00      exactly, in all 27 replies
+     *   cal_raw  / steps = 357.3
+     *
+     * A ratio that constant is a per-step constant the firmware applies, so
+     * the unit falls out of it. 8160 units per step at a 0.816 m stride makes
+     * the unit a TENTH OF A MILLIMETRE; 357.3 units per step at the ~0.036
+     * kcal a walking step costs makes the other a TENTH OF A CALORIE. Both
+     * land in the normal range, from two independent directions.
+     *
+     * Checked against the reported day: 3,495 steps x 8160 = 28,519,200, which
+     * is 2.85 km — and 2851.92 is exactly what the screen had been showing, in
+     * metres. Same for calories at 124.9 kcal against a displayed 124,885.
+     */
+    const calorie = readU32BE(payload, off + 8) / 10_000;      // 0.1 cal  -> kcal
+    const distance = readU32BE(payload, off + 12) / 10_000_000; // 0.1 mm  -> km
     if (steps === 0 && calorie === 0 && distance === 0) continue;
     out.push({
       ringTs: ts,
@@ -223,6 +285,7 @@ const decodeSteps: Decoder<StepSample> = (payload) => {
       steps,
       calorieKcal: calorie,
       distanceKm: distance,
+      isDailyTotal: ts % 3600 !== 0,
     });
   }
   return out;
@@ -303,7 +366,25 @@ export class SyncApi {
    */
   async sync<T extends TsSample>(
     metric: SyncMetric,
-    opts: { priority?: boolean; maxPages?: number } = {}
+    opts: {
+      priority?: boolean;
+      maxPages?: number;
+      /**
+       * Called with each decoded page BEFORE that page is ACKed, and awaited.
+       *
+       * ACKing is destructive: the ring drops a page the moment it is
+       * acknowledged. Without this hook the order was decode → ACK → return →
+       * caller persists, so any failure after the ACK — a write error, the app
+       * being killed mid-sync, a decode that silently produced nothing —
+       * destroyed the only copy. A night of sleep can disappear that way and
+       * leave no evidence it ever existed.
+       *
+       * Pass a persister here and the ring is only told to forget a page once
+       * it is durably stored. If the hook throws, the page is not ACKed and
+       * the ring will offer it again on the next sync.
+       */
+      onPage?: (samples: T[]) => Promise<void>;
+    } = {}
   ): Promise<SyncResult<T>> {
     const spec = DECODER[metric];
     if (!spec) throw new Error(`unknown metric: ${metric}`);
@@ -352,6 +433,22 @@ export class SyncApi {
 
       const page = spec.decode(frame.payload) as T[];
       samples.push(...page);
+
+      // Persist BEFORE acknowledging. The ACK tells the ring to drop the page,
+      // so it must be the last thing that happens, not the first.
+      if (opts.onPage && page.length) {
+        try {
+          await opts.onPage(page);
+        } catch (e) {
+          // Leave the page un-ACKed so the ring keeps it and offers it again.
+          // Stopping here is deliberate: continuing would request the next
+          // page without advancing, and the ring would hand back this same
+          // one forever.
+           
+          console.warn(`[sync] ${metric}: page not stored, leaving it on the ring —`, e);
+          break;
+        }
+      }
 
       // ACK before re-requesting — the ring won't advance otherwise.
       // Fire-and-forget, exactly as RWfit does.

@@ -33,7 +33,7 @@ import {
 } from './transport';
 import { RingCommandQueue } from './sendQueue';
 import type { JieliFrame } from './codec';
-import { DeviceApi } from './device';
+import { DeviceApi, type Capabilities } from './device';
 import { SyncApi } from './sync';
 import { RemindersApi } from './reminders';
 import { OtaApi } from './ota';
@@ -105,6 +105,24 @@ export class SadhanaRing {
   /** Live measurements currently armed on the ring, so we can stop them. */
   private liveMetrics = new Set<LiveMetric>();
   private frameSubs = new Set<FrameObserver>();
+
+  /**
+   * What the ring reported it can do, from its own SupportMenu V2 flags.
+   * Null until the probe on connect returns. Read it rather than assuming:
+   * the SDK is white-label and drives watches and bands too, so the presence
+   * of a command says nothing about this ring's parts.
+   */
+  caps: Capabilities | null = null;
+
+  /**
+   * Whether the motor's strength is adjustable — not whether one exists.
+   *
+   * There is no "has a motor" flag in SupportMenu V2. This ring reports false
+   * here and vibrates anyway, so nothing may infer absence from it: a version
+   * of this code did, skipped the motor entirely, and silently downgraded the
+   * mala signal on hardware that was working.
+   */
+  get supportsVibrationLevel(): boolean { return this.caps?.supportsVibrationLevel ?? false; }
 
   private constructor(
     private readonly ring: ConnectedRing,
@@ -355,6 +373,84 @@ export class SadhanaRing {
       SadhanaRing.instances.delete(deviceId);
     });
     (sr.instance as unknown as { _disconnectSub: typeof sub })._disconnectSub = sub;
+
+    /**
+     * Set the ring's clock on every connection.
+     *
+     * This lives here, in the one place every connection passes through,
+     * rather than in each caller. It used to be called from
+     * SadhanaRingService alone, so a ring paired from the pairing screen, or
+     * opened by the japa counter, or by the respiration probe, kept whatever
+     * time it had — and a ring whose clock has drifted timestamps every
+     * reading it records with the wrong hour, which no amount of correction
+     * on the phone side can undo afterwards.
+     *
+     * Deliberately not awaited: the clock is housekeeping, and a caller
+     * waiting to read a battery level should not be held up by it, nor fail
+     * if the firmware nacks the opcode.
+     */
+    /**
+     * Ask the ring what hardware it actually has, once per connection.
+     *
+     * `getCapabilities()` has existed on the device API from the start and was
+     * never called anywhere, so every question about this ring — does it have
+     * a motor, an LED, a screen — has been answered from a shared white-label
+     * SDK that also drives watches and bands. The SDK containing a command
+     * proves only that the SDK can talk to a device that has the part. The
+     * ring's own SupportMenu V2 flags are the authority, and this puts them
+     * in the log where they can be read:
+     *   adb logcat -s ReactNativeJS:V | grep RINGCAPS
+     */
+    void sr.instance.device.getCapabilities()
+      .then((c) => {
+        // Cached so callers can ask what this ring can do instead of assuming.
+        sr.instance!.caps = c;
+        // eslint-disable-next-line no-console
+        console.log(
+          `[RINGCAPS] vibrationLevel=${c.supportsVibrationLevel} led=${c.hasLEDLight} ` +
+          `findDevice=${c.hasFindDevice} powerOff=${c.hasPowerOff} ` +
+          `alarm=${c.hasAlarm} msgNotify=${c.hasMsgNotification} ` +
+          `raw=${[...c.raw].map((b) => b.toString(16).padStart(2, '0')).join('')}`
+        );
+      })
+      .catch((e) => {
+        // eslint-disable-next-line no-console
+        console.log(`[RINGCAPS] unavailable: ${(e as Error).message}`);
+      });
+
+    /*
+     * The Velvue logo is NOT pushed here.
+     *
+     * It was, and the ring answered with silence: the {7,3,0} bitmap INIT in
+     * oled.ts timed out unacknowledged on every connect, costing six seconds
+     * of the command queue before failing. See oled.ts for what the real
+     * transfer turns out to require.
+     */
+    /*
+     * The channel sweep no longer runs on connect.
+     *
+     * It did its job — it found {5,11,16}, a channel carrying data that
+     * neither this app nor RWfit reads — but it cost far too much to leave in.
+     * Forty probes at up to 1.8 s each monopolise the ring's command queue for
+     * over a minute, and everything real queues behind it: on this device the
+     * vitals sync simply never got a turn while the sweep was running.
+     *
+     * sweepHistoryChannels is still exported and still safe to call by hand
+     * when there is another question worth asking the ring.
+     */
+    const clockAt = new Date();
+    void sr.instance.device.setDateTime(clockAt)
+      .then(() => {
+        // Logged so the result can be confirmed on a real ring rather than
+        // assumed: adb logcat -s ReactNativeJS:V | grep RINGCLOCK
+        // eslint-disable-next-line no-console
+        console.log(`[RINGCLOCK] set to ${clockAt.toString()} — ring acknowledged`);
+      })
+      .catch((e) => {
+        // eslint-disable-next-line no-console
+        console.log(`[RINGCLOCK] refused: ${(e as Error).message}`);
+      });
+
     return sr.instance;
   }
 

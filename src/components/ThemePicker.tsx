@@ -1,6 +1,9 @@
 /**
- * ThemePicker — modal presenting Light / Dark options with a preview swatch.
- * Persists via ThemeContext.setMode.
+ * ThemePicker — choose Dark, Light or Techno.
+ *
+ * Dark and Light are the same screens at different brightness. Techno is a
+ * template: it rearranges the screens themselves, so it is labelled as such
+ * rather than sitting in the list as if it were a third colour.
  */
 
 import React from 'react';
@@ -16,9 +19,12 @@ interface Props {
 export const ThemePicker: React.FC<Props> = ({ visible, onClose }) => {
   const { mode, setMode, palette } = useTheme();
 
-  const Row: React.FC<{ label: string; value: 'light' | 'dark'; preview: typeof COLORS }> = ({
-    label, value, preview,
-  }) => {
+  const Row: React.FC<{
+    label: string;
+    value: 'light' | 'dark' | 'techno' | 'elders';
+    preview: typeof COLORS;
+    note?: string;
+  }> = ({ label, value, preview, note }) => {
     const selected = mode === value;
     return (
       <TouchableOpacity
@@ -34,7 +40,7 @@ export const ThemePicker: React.FC<Props> = ({ visible, onClose }) => {
         </View>
         <View style={{ flex: 1, marginLeft: SPACING.md }}>
           <Text style={styles.rowLabel}>{label}</Text>
-          <Text style={styles.rowHint}>{selected ? 'Currently active' : 'Tap to apply'}</Text>
+          <Text style={styles.rowHint}>{note ?? (selected ? 'Currently active' : 'Tap to apply')}</Text>
         </View>
         {selected && <Text style={styles.check}>✓</Text>}
       </TouchableOpacity>
@@ -47,10 +53,22 @@ export const ThemePicker: React.FC<Props> = ({ visible, onClose }) => {
         <TouchableOpacity activeOpacity={1} style={[styles.sheet, { backgroundColor: palette.darkBg }]} onPress={(e) => e.stopPropagation()}>
           <View style={[styles.handle, { backgroundColor: palette.muted }]} />
           <Text style={[styles.title, { color: palette.cream }]}>Color Theme</Text>
-          <Text style={[styles.hint, { color: palette.muted }]}>Cards, drawer, ring debug, device settings, and health screens follow this immediately. Legacy screens will migrate over time.</Text>
+          <Text style={[styles.hint, { color: palette.muted }]}>Dark and Light change how bright the app is. Techno changes how it is laid out — the same readings, told as instrumentation.</Text>
 
           <Row label="Dark" value="dark" preview={paletteFor('dark')} />
           <Row label="Light" value="light" preview={paletteFor('light')} />
+          <Row
+            label="Techno"
+            value="techno"
+            preview={paletteFor('techno')}
+            note={mode === 'techno' ? 'Currently active' : 'Different layout, not just colour'}
+          />
+          <Row
+            label="Easy to read"
+            value="elders"
+            preview={paletteFor('elders')}
+            note={mode === 'elders' ? 'Currently active' : 'Bigger text, plain wording, larger buttons'}
+          />
 
           <TouchableOpacity style={[styles.doneBtn, { backgroundColor: palette.gold }]} onPress={onClose}>
             <Text style={styles.doneTxt}>Done</Text>

@@ -60,6 +60,9 @@ export const ExerciseDetailScreen: React.FC<any> = ({ navigation }) => {
     const map: Record<string, { steps: number; kcal: number; km: number }> = {};
     if (!vitals) return map;
     for (const s of vitals.raw.steps) {
+      // The running daily total is not an hour's walking; summing it with the
+      // hourly records double-counts the day. See decodeSteps.
+      if (s.isDailyTotal) continue;
       const key = isoDay(s.timestamp);
       const b = (map[key] ??= { steps: 0, kcal: 0, km: 0 });
       b.steps += s.steps;
@@ -112,6 +115,7 @@ export const ExerciseDetailScreen: React.FC<any> = ({ navigation }) => {
     const dayStart = new Date(selected + 'T00:00:00').getTime();
     const day = (vitals?.raw.steps ?? [])
       .filter((smp) => {
+        if (smp.isDailyTotal) return false;   // see decodeSteps
         const ms = smp.timestamp.getTime() - dayStart;
         return ms >= 0 && ms < DAY_MS;
       })
@@ -145,6 +149,7 @@ export const ExerciseDetailScreen: React.FC<any> = ({ navigation }) => {
     const dayStart = new Date(selected + 'T00:00:00').getTime();
     const day = (vitals?.raw.steps ?? [])
       .filter((smp) => {
+        if (smp.isDailyTotal) return false;   // see decodeSteps
         const ms = smp.timestamp.getTime() - dayStart;
         return ms >= 0 && ms < DAY_MS && smp.steps > 0;
       })
@@ -197,6 +202,7 @@ export const ExerciseDetailScreen: React.FC<any> = ({ navigation }) => {
     const dayStart = new Date(selected + 'T00:00:00').getTime();
     const hours = new Array(24).fill(0);
     for (const smp of vitals?.raw.steps ?? []) {
+      if (smp.isDailyTotal) continue;   // see decodeSteps
       const ms = smp.timestamp.getTime() - dayStart;
       if (ms < 0 || ms >= DAY_MS) continue;
       hours[Math.floor(ms / 3_600_000)] += smp.steps;
@@ -224,6 +230,7 @@ export const ExerciseDetailScreen: React.FC<any> = ({ navigation }) => {
       const dayStart = new Date(selected + 'T00:00:00').getTime();
       const buckets = Array.from({ length: 24 }, () => ({ steps: 0, kcal: 0, km: 0 }));
       for (const smp of vitals?.raw.steps ?? []) {
+        if (smp.isDailyTotal) continue;   // see decodeSteps
         const ms = smp.timestamp.getTime() - dayStart;
         if (ms < 0 || ms >= DAY_MS) continue;
         const h = Math.floor(ms / 3_600_000);
@@ -352,17 +359,25 @@ export const ExerciseDetailScreen: React.FC<any> = ({ navigation }) => {
           ) : bouts.map((b, i) => (
             <View key={i} style={styles.boutRow}>
               <View style={styles.boutWhen}>
+                {/* Start AND end, not just a start and a duration: "07:12 for
+                    24 min" makes the reader do the arithmetic to answer the
+                    question they actually have, which is when it finished. */}
                 <Text style={styles.boutTime}>{formatHm(new Date(b.start))}</Text>
-                <Text style={styles.boutDur}>{b.mins} min</Text>
+                <Text style={styles.boutArrow}>↓</Text>
+                <Text style={styles.boutTime}>{formatHm(new Date(b.end))}</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.boutMain}>
-                  {b.steps.toLocaleString()} steps · {b.km.toFixed(2)} km
+                  {b.mins} min · {b.steps.toLocaleString()} steps
                 </Text>
                 <Text style={styles.boutSub}>
-                  {Math.round(b.kcal)} kcal
-                  {b.avgHr != null ? ` · ${b.avgHr} bpm avg` : ' · heart rate not sampled'}
-                  {b.maxHr != null ? ` · peak ${b.maxHr}` : ''}
+                  {b.km.toFixed(2)} km · {Math.round(b.kcal)} kcal
+                </Text>
+                <Text style={styles.boutSub}>
+                  {b.avgHr != null
+                    ? `${b.avgHr} bpm average${b.maxHr != null ? `, peak ${b.maxHr}` : ''}`
+                    : 'Heart rate not sampled during this walk'}
+                  {b.mins > 0 ? ` · ${Math.round(b.steps / b.mins)} steps/min` : ''}
                 </Text>
               </View>
             </View>
@@ -601,8 +616,12 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
     letterSpacing: 1.3, textTransform: 'uppercase', marginBottom: SPACING.sm,
   },
   boutEmpty: { color: C.muted, fontSize: 12.5, lineHeight: 18 },
-  boutRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, paddingVertical: 8 },
-  boutWhen: { width: 62 },
+  boutRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.md,
+    paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border,
+  },
+  boutWhen: { width: 62, alignItems: 'flex-start' },
+  boutArrow: { color: C.muted, fontSize: 10, marginVertical: 1 },
   boutTime: { color: C.cream, fontSize: 14, fontWeight: '700' },
   boutDur: { color: C.muted, fontSize: 11, marginTop: 1 },
   boutMain: { color: C.cream, fontSize: 13.5, fontWeight: '600' },

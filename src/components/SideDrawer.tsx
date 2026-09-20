@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../theme';
 import { useSadhana } from '../context';
+import { BuildStamp } from './BuildStamp';
 import { useTheme } from '../ThemeContext';
 
 const SCREEN_W = Dimensions.get('window').width;
@@ -90,7 +91,7 @@ export const SideDrawer: React.FC<Props> = ({ visible, onClose, onSelect }) => {
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
         <TouchableOpacity
           activeOpacity={1}
-          style={[styles.drawer, { backgroundColor: palette.deep, borderRightColor: palette.border }]}
+          style={[styles.drawer, { backgroundColor: palette.deep, borderLeftColor: palette.border }]}
           onPress={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -125,7 +126,10 @@ export const SideDrawer: React.FC<Props> = ({ visible, onClose, onSelect }) => {
               </View>
             ))}
 
-            <Text style={[styles.footer, { color: palette.muted }]}>Body & Soul Ring · v1.0.75</Text>
+            {/* Was a hardcoded "v1.0.75" — which stayed put through months of
+                builds and so told the reader nothing true. */}
+            <Text style={[styles.footer, { color: palette.muted }]}>Body & Soul Ring</Text>
+            <BuildStamp />
           </ScrollView>
         </TouchableOpacity>
       </TouchableOpacity>
@@ -134,11 +138,17 @@ export const SideDrawer: React.FC<Props> = ({ visible, onClose, onSelect }) => {
 };
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
+  /* Right-aligned: the panel opens on the side the ⋮ that summoned it sits
+     on. A menu that appears on the opposite edge from its own button makes
+     the user cross the screen to use what they just tapped. */
+  overlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
+    flexDirection: 'row', justifyContent: 'flex-end',
+  },
   drawer: {
     width: DRAWER_W, height: '100%',
     backgroundColor: COLORS.deep,
-    borderRightWidth: 1, borderRightColor: COLORS.border,
+    borderLeftWidth: 1, borderLeftColor: COLORS.border,
     paddingTop: SPACING.xl + SPACING.md,
   },
   header: {

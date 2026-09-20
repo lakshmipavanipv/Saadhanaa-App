@@ -10,10 +10,12 @@ import {
 import { useSadhana } from '../context';
 import { WEEK_DAYS } from '../constants';
 import { formatShortDate } from '../utils';
-import { COLORS, SPACING } from '../theme';
+import { COLORS, SPACING, DRAWER_CLEARANCE } from '../theme';
 import { MoodTimelineCard }      from '../soulsync/components/MoodTimelineCard';
 import { MultiMetricTrendCard }  from '../soulsync/components/MultiMetricTrendCard';
 import { StepsJapaCard }         from '../soulsync/components/StepsJapaCard';
+import { JapaTimeCard }          from '../soulsync/components/JapaTimeCard';
+import { SadhanaDepthCard }      from '../soulsync/components/SadhanaDepthCard';
 import { EmotionalSummaryCard }  from '../soulsync/components/EmotionalSummaryCard';
 import { AIInsightsCard }        from '../soulsync/components/AIInsightsCard';
 import { ExplainedSection }      from '../components/ExplainedSection';
@@ -216,6 +218,24 @@ export const HistoryScreen = ({ navigation }: { navigation?: any } = {}) => {
         <ExplainedSection icon="📊" title="Each vital over time" plain="The same readings drawn day by day, so you can see a change rather than a single number.">
           <MultiMetricTrendCard />
         </ExplainedSection>
+        <ExplainedSection
+          icon="🪷"
+          title="Sadhana Depth — how deeply your practice landed"
+          plain="Each Soul Sync sitting scored on how your body responded, then averaged by day, week and month, and broken down by deity."
+          defaultOpen
+        >
+          <SadhanaDepthCard />
+        </ExplainedSection>
+
+        <ExplainedSection
+          icon="📿"
+          title="How long you sat with the beads"
+          plain="Minutes of japa each day, measured from the beads themselves rather than assumed from the count."
+          defaultOpen
+        >
+          <JapaTimeCard days={14} />
+        </ExplainedSection>
+
         <ExplainedSection icon="🚶" title="Walking and japa together" plain="Whether the days you move more are also the days you practise more.">
           <StepsJapaCard days={30} />
         </ExplainedSection>
@@ -368,7 +388,7 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.lg,
     paddingBottom: SPACING.xl,
   },
-  header: { marginBottom: SPACING.lg },
+  header: { marginBottom: SPACING.lg, paddingLeft: SPACING.md, paddingRight: DRAWER_CLEARANCE },
   title: {
     fontSize: 24,
     color: COLORS.cream,

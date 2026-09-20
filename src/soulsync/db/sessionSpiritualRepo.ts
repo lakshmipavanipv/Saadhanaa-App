@@ -10,6 +10,10 @@ export interface SessionSpiritualRow {
   avg_spo2?: number | null;
   avg_skin_temp_c?: number | null;
   depth_score?: number | null;
+  /** Which practice this sitting was. Set at start; never changed after. */
+  practice?: 'japa' | 'yoga' | 'meditation' | 'exercise' | null;
+  deity_id?: string | null;
+  deity_name?: string | null;
 }
 
 export const sessionSpiritualRepo = {
@@ -17,9 +21,11 @@ export const sessionSpiritualRepo = {
     const db = await getDB();
     await db.runAsync(
       `INSERT INTO session_spiritual
-        (session_id, start_time, end_time, mala_count, session_avg_bpm, hrv_peaks_registered)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [row.session_id, row.start_time, row.end_time, row.mala_count, row.session_avg_bpm, row.hrv_peaks_registered]
+        (session_id, start_time, end_time, mala_count, session_avg_bpm, hrv_peaks_registered,
+         practice, deity_id, deity_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [row.session_id, row.start_time, row.end_time, row.mala_count, row.session_avg_bpm,
+       row.hrv_peaks_registered, row.practice ?? null, row.deity_id ?? null, row.deity_name ?? null]
     );
   },
 

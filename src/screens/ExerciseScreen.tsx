@@ -1,7 +1,6 @@
 /**
  * ExerciseScreen — body-activity hub, restructured to mirror YogaScreen.
  *
- *   • Header with "+ Log past" button (parallels Yoga)
  *   • KPIs: today's minutes / daily goal
  *   • SoulsyncSessionBar for live tracking
  *   • Ring auto-detect strip — walk/run/jog/steps captured passively
@@ -19,10 +18,11 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, TextInput, Platform,
 } from 'react-native';
-import { COLORS, SPACING } from '../theme';
+import { COLORS, SPACING, DRAWER_CLEARANCE } from '../theme';
 import { RangeBar } from './health/RangeBar';
 import { useTheme } from '../ThemeContext';
 import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
+import { PracticeHeader } from '../components/PracticeHeader';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
 // AddToPlanCta removed — the big 🎯 Plan Your Wellbeing tile on this screen
 // (and the drawer's ☰ → Plan Your Wellbeing) both navigate to the Plan tab's
@@ -35,9 +35,8 @@ import { todayStr, isoDayOf } from '../utils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createDefaultRing } from '../soulsync/services/RingTelemetryService';
 import { TimePickerField } from '../components/TimePickerField';
-import { WeekSparkline } from '../components/WeekSparkline';
+import { ActivityBox } from '../components/ActivityBox';
 import { workoutGoalsRepo, WorkoutGoals, GoalUnit, GOAL_UNIT_META } from '../services/workoutGoalsRepo';
-import { getTodaySteps } from '../services/stepTracker';
 import { getRingStepsToday } from '../soulsync/ring';
 import { getDB } from '../soulsync/db/database';
 
@@ -90,6 +89,18 @@ export const ExerciseScreen = ({ navigation }: any) => {
   // Per-activity goals + 7-day series + today's step count (from ring)
   const [goals, setGoals] = useState<WorkoutGoals>({});
   const [stepsToday, setStepsToday] = useState(0);
+  /**
+   * The ring's OWN distance, calorie and active-hour figures for today.
+   *
+   * These arrive in the same records as the step counts and were previously
+   * decoded and thrown away, while the screen showed `steps * 0.000762` km and
+   * `steps * 0.04` kcal -- a generic stride and a generic cost per step,
+   * neither measured from this body or this walk. Null until the ring has been
+   * read, and rendered as a dash rather than as an estimate.
+   */
+  const [walkKm, setWalkKm] = useState<number | null>(null);
+  const [walkKcal, setWalkKcal] = useState<number | null>(null);
+  const [walkHours, setWalkHours] = useState<number | null>(null);
   const [weeklyByActivity, setWeeklyByActivity] = useState<Record<BodyActivity, number[]>>({} as any);
   const [stepsWeekly, setStepsWeekly] = useState<number[]>([0,0,0,0,0,0,0]);
   const [editingGoalFor, setEditingGoalFor] = useState<BodyActivity | null>(null);
@@ -120,25 +131,47 @@ export const ExerciseScreen = ({ navigation }: any) => {
     try {
       const db = await getDB();
       const today = todayStr();
-      const row = await db.getFirstAsync<{ step_count: number | null }>(
-        'SELECT step_count FROM daily_activity WHERE activity_date = ?',
+      const row = await db.getFirstAsync<{
+        step_count: number | null; distance_km: number | null;
+        calorie_kcal: number | null; active_hours: number | null;
+      }>(
+        `SELECT step_count, distance_km, calorie_kcal, active_hours
+           FROM daily_activity WHERE activity_date = ?`,
         [today]
       );
-      // v73: use the larger of the ring/DB step count and the phone
-      // pedometer's accumulated count for today, so the strip reflects
-      // whichever source captured more movement.
-      const pedSteps = await getTodaySteps().catch(() => 0);
-      // Initial paint from cheap sources — DB + pedometer.
-      setStepsToday(Math.max(row?.step_count ?? 0, pedSteps));
-      // Then fetch fresh steps from the paired SR16 (5-8 s round trip:
-      // connect → sync → disconnect). Non-blocking; upgrades the count
-      // when the ring's number is higher than DB+pedometer.
+      /*
+       * The ring is the source of truth for steps. The phone pedometer is not
+       * consulted at all.
+       *
+       * This used to show max(ring, phone). Two sensors measuring the same
+       * legs cannot be combined that way: taking the larger means the count
+       * always follows whichever is MORE wrong in the upward direction, and it
+       * can never come down. When the phone's accumulator inflated, it won
+       * permanently, and no amount of correctness on the ring side could show
+       * through.
+       *
+       * The ring is also the better instrument here — it is on the body all
+       * day, whereas the phone only counts while it is being carried and the
+       * app is awake.
+       */
+      setStepsToday(row?.step_count ?? 0);
+      setWalkKm(row?.distance_km ?? null);
+      setWalkKcal(row?.calorie_kcal ?? null);
+      setWalkHours(row?.active_hours ?? null);
+
+      // Then refresh from the ring itself (5-8 s: connect → sync → disconnect).
+      // Its answer replaces the stored one rather than being maxed with it, so
+      // a corrected count can go down as well as up.
       void getRingStepsToday()
         .then((ringToday) => {
           if (!ringToday) return;
-          setStepsToday((prev) => Math.max(prev, ringToday.steps));
+          setStepsToday(ringToday.steps);
+          setWalkKm(ringToday.distanceKm);
+          setWalkKcal(ringToday.calorieKcal);
+          // One hourly record with steps in it is one hour the body moved.
+          setWalkHours(ringToday.sampleCount);
         })
-        .catch(() => { /* silent — falls back to DB+pedometer */ });
+        .catch(() => { /* keep the stored ring count */ });
       // 7-day step series (oldest first → today last)
       const cutoff = isoDayOf(new Date(Date.now() - 6 * 86400000));
       const rows = await db.getAllAsync<{ activity_date: string; step_count: number }>(
@@ -232,21 +265,20 @@ export const ExerciseScreen = ({ navigation }: any) => {
   return (
     <View style={[styles.container, { backgroundColor: palette.deep }]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Header — title + Plan Your Wellbeing accent button (big, right side) */}
-        <View style={styles.header}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>Workout</Text>
-              <Text style={styles.subtitle}>Cardio · strength · ring-tracked daily movement</Text>
-            </View>
-            <PlanWellbeingButton navigation={navigation} preset="exercise" />
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: SPACING.sm }}>
-            <TouchableOpacity style={styles.logBtn} onPress={() => { setLogActivity('walk'); setShowLog(true); }}>
-              <Text style={styles.logBtnText}>+ Log past</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        {/* One shared header, so the 🎯 button is in the same corner on every
+             practice tab. See components/PracticeHeader. */}
+        {/* No "+ Log past" here. Walking is the activity the header defaulted
+            it to, and walking is counted by the ring — offering to type it in
+            by hand invited a second, conflicting number for the same steps.
+            The activities that DO need manual entry carry their own log button
+            inside their card, where it belongs to the thing being logged. */}
+        <PracticeHeader
+          title="🏃 Workout"
+          subtitle="Cardio · strength · ring-tracked daily movement"
+          preset="exercise"
+          navigation={navigation}
+          onSynced={() => { void refresh(); }}
+        />
 
         {/* Shared Day / Week / Month — one date across Japa, Yoga, Meditate,
             Exercise and the health reports. Sits below the header rather than
@@ -255,48 +287,15 @@ export const ExerciseScreen = ({ navigation }: any) => {
             and the Plan button. */}
         <RangeBar />
 
-        {/* KPI: today's minutes / goal */}
-        <View style={styles.kpiCard}>
-          <Text style={styles.kpiLabel}>WORKOUT MINUTES TODAY</Text>
-          <Text style={styles.kpiBig}>
-            {todayMin} <Text style={styles.kpiSmall}>/ {goalMin} min</Text>
-          </Text>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${goalPct}%` }]} />
-          </View>
-          <Text style={styles.kpiHint}>
-            {goalPct >= 100
-              ? '🎉 Goal complete — beautiful work for your body'
-              : todayMin === 0
-                ? 'Tap any activity below to start, or it auto-logs via the ring'
-                : `${goalMin - todayMin} more min to reach today's goal`}
-          </Text>
-        </View>
-
-        {/* v72: since-morning summary — steps + calories at a glance */}
-        {(() => {
-          const steps = stepsToday;
-          const kcal = Math.round(steps * 0.04 + todayMin * 5);
-          const km = (steps * 0.000762).toFixed(2);   // ~0.762 m per step
-          return (
-            <View style={styles.sinceMorningRow}>
-              <View style={styles.sinceCell}>
-                <Text style={styles.sinceVal}>{steps.toLocaleString()}</Text>
-                <Text style={styles.sinceLabel}>👟 steps{'\n'}since morning</Text>
-              </View>
-              <View style={styles.sinceDivider} />
-              <View style={styles.sinceCell}>
-                <Text style={styles.sinceVal}>{kcal.toLocaleString()}</Text>
-                <Text style={styles.sinceLabel}>🔥 kcal{'\n'}burnt</Text>
-              </View>
-              <View style={styles.sinceDivider} />
-              <View style={styles.sinceCell}>
-                <Text style={styles.sinceVal}>{km}</Text>
-                <Text style={styles.sinceLabel}>📏 km{'\n'}covered</Text>
-              </View>
-            </View>
-          );
-        })()}
+        {/*
+          The "WORKOUT MINUTES TODAY" card and the steps / kcal / km strip that
+          stood here are gone. Both repeated what the activity cards below
+          already show -- the minutes card restated the same logged minutes, and
+          the strip restated the walk card's steps and calories -- so one figure
+          appeared two and three times on a single screen with nothing to say
+          which was authoritative. The walk card now carries distance too, which
+          was the only thing the strip had that the card did not.
+        */}
 
         {/* Plan-Your-Wellbeing lives in the drawer + a big accent tile on this
             screen. In-line CTA removed for consistency across all tabs. */}
@@ -316,132 +315,42 @@ export const ExerciseScreen = ({ navigation }: any) => {
           .map(item => {
           const isWalk = item.id === 'walk';
           const todaySeries = weeklyByActivity[item.id] ?? [0,0,0,0,0,0,0];
-          const thisWeekMin = todaySeries.reduce((s, x) => s + x, 0);
           const todayActivityMin = todaySeries[todaySeries.length - 1] || 0;
-          // Measured values only — the ring's step channel and logged minutes.
-          const fbSteps = stepsToday;
-          const fbStepsWeekly = stepsWeekly;
-          const fbActivityMin = todayActivityMin;
-          // Walk uses ring step count, others use logged minutes
-          const todayValue = isWalk ? fbSteps : fbActivityMin;
-          // v67: prefer the user's chosen value+unit; fall back to legacy.
+
+          // The user's chosen target and unit, falling back to the legacy keys.
           const savedUnit = goals.goalUnit?.[item.id];
           const savedVal  = goals.goalValue?.[item.id];
           const cardUnit: GoalUnit = savedUnit ?? (isWalk ? 'steps' : 'min');
           const legacyKey = isWalk ? 'walkSteps' : (`${item.id}Min` as keyof WorkoutGoals);
           const goalVal = savedVal ?? (goals[legacyKey] as number) ?? (isWalk ? 6000 : 30);
-          const pct = Math.min(100, Math.round((todayValue / Math.max(1, goalVal)) * 100));
-          const sparkSeries = isWalk ? fbStepsWeekly : todaySeries;
-          // Calories — uses fallback step count when no real data
-          const calories = isWalk
-            ? Math.round(fbSteps * 0.04)
-            : Math.round(fbActivityMin * (KCAL_PER_MIN[item.id] || 5));
-          // Last session
-          const lastSession = history.find(h => h.activity === item.id);
-          const daysSince = lastSession
-            ? Math.round((Date.now() - new Date(lastSession.date).getTime()) / 86400000)
-            : null;
 
           return (
-            <View key={item.id} style={styles.activityMetricCard}>
-              <View style={styles.amHeader}>
-                <Text style={styles.amIcon}>{item.icon}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.amName}>{item.name}</Text>
-                  <View style={{ flexDirection: 'row', gap: 6, marginTop: 2 }}>
-                    {item.ringAutoDetect ? (
-                      <View style={styles.autoBadge}>
-                        <Text style={styles.autoBadgeText}>📡 auto by ring</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.manualBadge}>
-                        <Text style={styles.manualBadgeText}>✍️ manual entry</Text>
-                      </View>
-                    )}
-                    {reminders[item.id] && (
-                      <View style={styles.reminderBadge}>
-                        <Text style={styles.reminderBadgeText}>⏰ {reminders[item.id]}</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-                <TouchableOpacity style={styles.trendBtn} onPress={() => setSelected(item)}>
-                  <Text style={styles.trendBtnText}>↗ Details</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Primary metric */}
-              <View style={styles.amPrimary}>
-                <Text style={styles.amPrimaryLabel}>
-                  {isWalk ? 'STEPS TODAY' : 'MINUTES TODAY'}
-                </Text>
-                <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                  <Text style={styles.amPrimaryValue}>
-                    {todayValue.toLocaleString()}
-                  </Text>
-                  <Text style={styles.amPrimaryGoal}>
-                    {' '}/ {goalVal.toLocaleString()} {GOAL_UNIT_META[cardUnit].short}
-                  </Text>
-                  <TouchableOpacity
-                    style={styles.editGoalBtn}
-                    onPress={() => { setEditingGoalFor(item.id); setGoalInput(String(goalVal)); setGoalUnit(cardUnit); }}
-                  >
-                    <Text style={styles.editGoalText}>✎ goal</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.amProgressTrack}>
-                  <View style={[styles.amProgressFill, { width: `${pct}%` }]} />
-                </View>
-              </View>
-
-              {/* This-week sparkline */}
-              <Text style={styles.amSubLabel}>THIS WEEK</Text>
-              <WeekSparkline values={sparkSeries} height={48} />
-              <Text style={styles.amWeekTotal}>
-                Week total · {(isWalk
-                  ? sparkSeries.reduce((s, x) => s + x, 0)
-                  : thisWeekMin
-                ).toLocaleString()} {isWalk ? 'steps' : 'min'}
-              </Text>
-
-              {/* Secondary KPI grid */}
-              <View style={styles.amKpiGrid}>
-                <View style={styles.amKpiCell}>
-                  <Text style={styles.amKpiValue}>
-                    {Math.round(fbActivityMin * 0.7)}
-                  </Text>
-                  <Text style={styles.amKpiLabel}>❤️ HR active{'\n'}min</Text>
-                </View>
-                <View style={styles.amKpiCell}>
-                  <Text style={styles.amKpiValue}>{calories}</Text>
-                  <Text style={styles.amKpiLabel}>🔥 Calories</Text>
-                </View>
-                <View style={styles.amKpiCell}>
-                  <Text style={styles.amKpiValue}>
-                    {isWalk
-                      ? Math.round(fbSteps / 100)
-                      : fbActivityMin}
-                  </Text>
-                  <Text style={styles.amKpiLabel}>⏱ Minutes{'\n'}today</Text>
-                </View>
-              </View>
-
-              {/* Manual log CTA — only when user must add session */}
-              {!item.ringAutoDetect && (
-                <TouchableOpacity
-                  style={styles.amLogBtn}
-                  onPress={() => { setLogActivity(item.id); setShowLog(true); }}
-                >
-                  <Text style={styles.amLogBtnText}>+ Log a {item.name.toLowerCase()} session</Text>
-                </TouchableOpacity>
-              )}
-              {!!daysSince && lastSession && (
-                <Text style={styles.amLastSession}>
-                  Last session: {daysSince === 0 ? 'today' : daysSince === 1 ? 'yesterday' : `${daysSince} days ago`}
-                  {` · ${lastSession.durationMin} min`}
-                </Text>
-              )}
-            </View>
+            <ActivityBox
+              key={item.id}
+              activity={item.id}
+              icon={item.icon}
+              name={item.name}
+              ringAutoDetect={item.ringAutoDetect}
+              reminder={reminders[item.id]}
+              goalValue={goalVal}
+              goalUnitShort={GOAL_UNIT_META[cardUnit].short}
+              stepsToday={stepsToday}
+              walkKm={walkKm}
+              walkKcal={walkKcal}
+              walkHours={walkHours}
+              minutesToday={todayActivityMin}
+              estKcalPerMin={KCAL_PER_MIN[item.id] || 5}
+              history={history}
+              onDetails={() => (isWalk
+                ? navigation?.navigate?.('ExerciseDetail')
+                : setSelected(item))}
+              onEditGoal={() => {
+                setEditingGoalFor(item.id);
+                setGoalInput(String(goalVal));
+                setGoalUnit(cardUnit);
+              }}
+              onLog={() => { setLogActivity(item.id); setShowLog(true); }}
+            />
           );
         })}
       </ScrollView>
@@ -705,7 +614,7 @@ const WorkoutDetailModal: React.FC<{
 const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   container: { flex: 1, backgroundColor: C.deep },
   content: { paddingVertical: SPACING.lg, paddingBottom: 80 },
-  header: { paddingLeft: 56, paddingRight: SPACING.md, marginBottom: SPACING.md, paddingTop: 4 },
+  header: { paddingLeft: DRAWER_CLEARANCE, paddingRight: SPACING.md, marginBottom: SPACING.md, paddingTop: 4 },
   title: { fontSize: 24, color: C.cream, fontWeight: '600' },
   subtitle: { fontSize: 12, color: C.muted, marginTop: 4 },
 
