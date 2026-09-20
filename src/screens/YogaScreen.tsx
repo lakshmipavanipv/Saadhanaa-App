@@ -28,11 +28,12 @@ import { createDefaultRing } from '../soulsync/services/RingTelemetryService';
 import { exerciseRepo } from '../services/exerciseRepo';
 import { useSadhana } from '../context';
 import { todayStr, isoDayOf } from '../utils';
-import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
+import { useSoulsync } from '../soulsync/SoulsyncContext';
 import { SessionList, BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import { PracticeAssistant, PracticeCatalogItem } from '../components/PracticeAssistant';
 import { SessionDepthReport } from '../soulsync/components/SessionDepthReport';
+import { SessionVitalsReport } from '../soulsync/components/SessionVitalsReport';
 
 // Single shared ring instance for yoga stage-mark buzzes
 const ring = createDefaultRing();
@@ -275,7 +276,7 @@ export const YogaScreen = ({ navigation }: any) => {
   const { showToast } = useSadhana();
   // Soulsync session — same hook the Japa tab uses; live BPM/HRV streams
   // are surfaced as a wave graph + baseline card while a session is on.
-  const soulsync = useSoulsyncSession();
+  const soulsync = useSoulsync();
   const [selected, setSelected] = useState<YogaItem | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [logMin, setLogMin] = useState('');
@@ -406,6 +407,12 @@ export const YogaScreen = ({ navigation }: any) => {
              the top as a daily average, where nothing the reader was about to
              do could move it. */}
         <SessionDepthReport practice="yoga" refreshKey={depthEpoch} />
+
+        {/* What the last sitting actually measured: averages plus the
+            shape of each vital over the session. The live charts above
+            wipe their buffers on stop, so without this the numbers
+            vanished at the moment they became worth keeping. */}
+        <SessionVitalsReport practice="yoga" refreshKey={depthEpoch} />
       </ScrollView>
 
       {/* Detail modal */}

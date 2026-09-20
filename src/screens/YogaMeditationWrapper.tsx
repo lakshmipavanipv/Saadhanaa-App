@@ -34,7 +34,7 @@ import { PracticeHeader } from '../components/PracticeHeader';
 import { SoulPracticeBox } from '../components/SoulPracticeBox';
 import { SessionDepthReport } from '../soulsync/components/SessionDepthReport';
 import { RangeBar } from './health/RangeBar';
-import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
+import { useSoulsync } from '../soulsync/SoulsyncContext';
 import { exerciseRepo } from '../services/exerciseRepo';
 import { soulActivityRepo } from '../services/soulActivityRepo';
 import { todayStr } from '../utils';
@@ -54,7 +54,7 @@ export const YogaMeditationWrapper: React.FC<any> = ({ navigation }) => {
    * Exercise is exercise; here a sitting is either yoga or meditation, and a
    * bar floating above both would have to guess.
    */
-  const soulsync = useSoulsyncSession();
+  const soulsync = useSoulsync();
 
   const [yoga, setYoga] = useState<Totals>(ZERO);
   const [med, setMed] = useState<Totals>(ZERO);

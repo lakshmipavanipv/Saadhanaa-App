@@ -25,12 +25,13 @@ import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
 // AddToPlanCta removed — Plan Your Wellbeing lives in the hamburger drawer.
 import { soulActivityRepo } from '../services/soulActivityRepo';
 import { useSadhana } from '../context';
-import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
+import { useSoulsync } from '../soulsync/SoulsyncContext';
 import { todayStr, isoDayOf } from '../utils';
 import { SessionList, BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import { PracticeAssistant, PracticeCatalogItem } from '../components/PracticeAssistant';
 import { SessionDepthReport } from '../soulsync/components/SessionDepthReport';
+import { SessionVitalsReport } from '../soulsync/components/SessionVitalsReport';
 
 type Intent = 'quick' | 'calm' | 'deep' | 'mantra' | 'cooling';
 
@@ -314,7 +315,7 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
   const styles = React.useMemo(() => makeStyles(palette), [palette]);
   const mshStyles = React.useMemo(() => makeMshStyles(palette), [palette]);
   const { showToast } = useSadhana();
-  const soulsync = useSoulsyncSession();
+  const soulsync = useSoulsync();
   const [selected, setSelected] = useState<Technique | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [logMin, setLogMin] = useState('');
@@ -469,6 +470,12 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
              At the end of the screen, after the practice, rather than above it
              as a daily average nothing you were about to do could move. */}
         <SessionDepthReport practice="meditation" refreshKey={depthEpoch} />
+
+        {/* What the last sitting actually measured: averages plus the
+            shape of each vital over the session. The live charts above
+            wipe their buffers on stop, so without this the numbers
+            vanished at the moment they became worth keeping. */}
+        <SessionVitalsReport practice="meditation" refreshKey={depthEpoch} />
       </ScrollView>
 
       {selected && (

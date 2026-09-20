@@ -20,8 +20,9 @@
  * convert between representations.
  */
 
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { HealthView } from './HealthPrimitives';
+import { dayRollover } from '../../services/dayRollover';
 
 /**
  * Re-exported so callers of this context have the day helper to hand. The
@@ -47,6 +48,25 @@ const RangeContext = createContext<RangeValue | null>(null);
 export const RangeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [view, setView] = useState<HealthView>('day');
   const [selected, setSelected] = useState<string>(() => isoDay(new Date()));
+
+  /**
+   * Follow the clock past midnight.
+   *
+   * `selected` was initialised once, at app launch, on the reasoning that the
+   * range should always start on today. True on a cold start — and false for
+   * every session that outlives a day, where "today" stayed pinned to the day
+   * the app happened to be opened on and every screen reading this context
+   * kept querying it.
+   *
+   * Only a selection that WAS today moves. A day the user deliberately picked
+   * stays picked: they are looking at Tuesday, and midnight passing is not a
+   * reason to yank them to Wednesday.
+   */
+  useEffect(() => {
+    return dayRollover.subscribe((today, previous) => {
+      setSelected((cur) => (cur === previous ? today : cur));
+    });
+  }, []);
 
   const value = useMemo<RangeValue>(() => ({
     view,

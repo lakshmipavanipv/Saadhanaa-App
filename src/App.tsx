@@ -9,6 +9,11 @@ import { StyleSheet, View, Text, StatusBar, TouchableOpacity, Modal } from 'reac
 import { SplashScreen } from './components/SplashScreen';
 import { initNotifications } from './services/notifications';
 import { startStepTracking } from './services/stepTracker';
+import { dayRollover } from './services/dayRollover';
+import { SoulsyncProvider } from './soulsync/SoulsyncContext';
+import { SadhanaRing } from './soulsync/ring/SadhanaRing';
+import { syncAllRingVitals } from './soulsync/ring/ringVitalsSync';
+import { resetRingDailyCounters } from './soulsync/ring/dailyReset';
 import { ConsentScreen } from './screens/ConsentScreen';
 import { consentRepo } from './services/consentRepo';
 import { telemetry } from './services/telemetry';
@@ -672,6 +677,40 @@ export default function App() {
     return () => { cancelled = true; ambientIngestion.stop(); vitalsScheduler.stop(); stopSteps?.(); };
   }, []);
 
+  /**
+   * Midnight.
+   *
+   * Nothing in the app used to notice the date change: screens captured
+   * `todayStr()` in a mount-only effect, so an app left open overnight kept
+   * showing yesterday's steps and yesterday's bead count until it was killed.
+   * The counters were never stuck — nothing ever asked them again.
+   *
+   * Two things have to happen at the turn, and only one of them is the phone's:
+   * re-push the wall clock to any ring still connected, because `connect()`
+   * reuses a cached link and the japa counter holds one open for days, so a
+   * long-lived ring's RTC is written once at pairing and then left to drift;
+   * and pull a fresh day's figures so the screens have something to show other
+   * than the day that just ended.
+   */
+  useEffect(() => {
+    dayRollover.start();
+    const off = dayRollover.subscribe((today, previous) => {
+      console.log(`[DAYROLL] ${previous} → ${today}`);
+      void (async () => {
+        // Clock first: the ring stamps everything it records from its own RTC,
+        // and the two calls below both read or write records it will date.
+        await SadhanaRing.syncClockOnAllOpen();
+        // Credit any beads the ring still holds, then zero its lifetime japa
+        // counter so its own number means "today" (see ring/dailyReset).
+        await resetRingDailyCounters();
+        // The ring's daily step total has rolled over too; pick it up rather
+        // than waiting for the scheduler's next cadence slot.
+        await syncAllRingVitals().catch(() => { /* out of range — scheduler retries */ });
+      })();
+    });
+    return () => { off(); dayRollover.stop(); };
+  }, []);
+
   return (
     <SafeAreaProvider>
       <ThemeProvider>
@@ -680,7 +719,13 @@ export default function App() {
               navigator so a day picked on any tab is the day every other tab
               is showing. */}
           <RangeProvider>
-            <AppContent />
+            {/* One Soul Sync sitting for the whole app. Above the navigator
+                because a session now outlives the screen that began it — and
+                because it can begin without a screen at all, from beads or
+                from steps. See soulsync/SoulsyncContext. */}
+            <SoulsyncProvider>
+              <AppContent />
+            </SoulsyncProvider>
           </RangeProvider>
         </SadhanaProvider>
       </ThemeProvider>

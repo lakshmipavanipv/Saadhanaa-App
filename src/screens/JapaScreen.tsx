@@ -26,11 +26,13 @@ import {
 } from '../soulsync/analytics/JapaTotals';
 import { useRange } from './health/rangeContext';
 import { SessionDepthReport } from '../soulsync/components/SessionDepthReport';
+import { SessionVitalsReport } from '../soulsync/components/SessionVitalsReport';
 import { JapaGoalCard } from '../soulsync/components/JapaGoalCard';
 import type { SessionDepth } from '../soulsync/analytics/SadhanaDepth';
 import { DeityScreen } from './DeityScreen';
 import { DeityIcon } from '../components/DeityIcon';
-import { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
+import { useSoulsync } from '../soulsync/SoulsyncContext';
+import { autoSession } from '../soulsync/services/autoSession';
 // AddToPlanCta removed — Plan Your Wellbeing lives in the hamburger drawer.
 import { TimePickerField } from '../components/TimePickerField';
 import { ALL_CATALOG_DEITIES } from '../deityCatalog';
@@ -512,7 +514,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   const [popBead, setPopBead] = useState(-1);
 
   // ── Soulsync ring-telemetry session (mock until hardware arrives) ──
-  const soulsync = useSoulsyncSession();
+  const soulsync = useSoulsync();
 
   // ── Active Sadhana Path tracking (auto-advance through steps) ──
   // When the user picks a Sadhana Path (Ganapathi 1 mala → Guru 1 mala →
@@ -677,6 +679,19 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
     recordJapaTap(source);
     setPopBead(s.count);
     setTimeout(() => setPopBead(-1), 280);
+
+    /*
+     * Every bead tells the auto-starter the practice is alive.
+     *
+     * This is the right place precisely because it is the funnel: the mala on
+     * screen, the ring's own counter, the legacy clicker and the backfill all
+     * arrive here, so a sitting is recorded whichever way the beads are being
+     * counted — including with the phone in a pocket and the screen dark.
+     *
+     * Also the idle heartbeat, not just the trigger: five quiet minutes after
+     * the last bead is what ends an auto-started sitting.
+     */
+    autoSession.noteJapa();
 
     // ── Hint: first bead of an unrecorded session ──
     if (s.count === 0 && !s.soulsyncActive) {
@@ -1344,6 +1359,12 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
              where it asked the reader to watch a number that nothing they were
              about to do could move. */}
         <SessionDepthReport practice="japa" refreshKey={depthEpoch} />
+
+        {/* What the last sitting actually measured: averages plus the
+            shape of each vital over the session. The live charts above
+            wipe their buffers on stop, so without this the numbers
+            vanished at the moment they became worth keeping. */}
+        <SessionVitalsReport practice="japa" refreshKey={depthEpoch} />
 
       </ScrollView>
 

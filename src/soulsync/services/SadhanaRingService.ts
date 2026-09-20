@@ -70,8 +70,32 @@ const COMPANION_FRESHNESS_MS = 6 * 60 * 60 * 1000;   // 6 h
  * firmware, so a pushed value is only trusted when it lands where the verified
  * HR push puts its value.
  */
-const LIVE_WINDOW_MS = 10_000;   // how long a metric stays armed
-const LIVE_GAP_MS = 20_000;      // idle between windows
+/**
+ * How long each metric stays armed, per metric.
+ *
+ * This was a single 10 s window for both, which is generous for SpO2 and about
+ * right for HRV. RWfit's own capture shows the ring settling in 9.4 s for HRV
+ * and 2.8 s for SpO2, so holding SpO2 armed for ten was seven seconds of the
+ * cycle spent waiting for a reading the ring had already taken. Rounded up from
+ * the observed dwells, not guessed.
+ */
+const LIVE_DWELL_MS: Record<'hrv' | 'spo2', number> = { hrv: 10_000, spo2: 4_000 };
+
+/**
+ * Idle between windows.
+ *
+ * Was 20 s, which with two 10 s windows put each metric on a 60 s rotation —
+ * a live "graph" that moved once a minute. With the per-metric dwells above,
+ * 4 s brings the full cycle to ~22 s, so HRV and SpO2 each refresh roughly
+ * every 20 s.
+ *
+ * Deliberately NOT zero. The gap is the interval in which NOTHING is armed,
+ * and that is the property the ring's sensor loop depends on — back-to-back
+ * arming is what froze the ring mid-japa before this cycler existed. The gain
+ * from 4 s to 0 s is one sample per minute per metric; the cost is the failure
+ * mode that requires rebooting the ring. Not a trade worth making.
+ */
+const LIVE_GAP_MS = 4_000;
 /** Metrics rotated through the cycler, in order. */
 const LIVE_CYCLE: ('hrv' | 'spo2')[] = ['hrv', 'spo2'];
 
@@ -352,7 +376,7 @@ export class SadhanaRingService implements RingService {
   }
 
   /**
-   * Arm one metric, hold it for LIVE_WINDOW_MS, release it, then read the
+   * Arm one metric, hold it for its own dwell, release it, then read the
    * result. `withLiveMetric` guarantees the release even if the wait throws,
    * which is the invariant the ring's sensor loop depends on.
    */
@@ -367,7 +391,7 @@ export class SadhanaRingService implements RingService {
     try {
       await this.ring.withLiveMetric(
         metric,
-        () => new Promise<void>((resolve) => setTimeout(resolve, LIVE_WINDOW_MS))
+        () => new Promise<void>((resolve) => setTimeout(resolve, LIVE_DWELL_MS[metric]))
       );
       // The push, if this firmware sends one, already updated the companion
       // during the window. Otherwise fall back to the channel whose record

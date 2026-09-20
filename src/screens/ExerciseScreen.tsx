@@ -24,6 +24,10 @@ import { useTheme } from '../ThemeContext';
 import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
 import { PracticeHeader } from '../components/PracticeHeader';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
+import { useSoulsync } from '../soulsync/SoulsyncContext';
+import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
+import { SessionVitalsReport } from '../soulsync/components/SessionVitalsReport';
+import { useToday } from '../services/dayRollover';
 // AddToPlanCta removed — the big 🎯 Plan Your Wellbeing tile on this screen
 // (and the drawer's ☰ → Plan Your Wellbeing) both navigate to the Plan tab's
 // 4-step wizard, so no in-screen modal is needed.
@@ -112,6 +116,16 @@ export const ExerciseScreen = ({ navigation }: any) => {
   // they've already logged minutes against it (so existing data isn't
   // hidden retroactively).
   const [plannedActivities, setPlannedActivities] = useState<Set<string>>(new Set(['walk']));
+  /**
+   * This screen's Soul Sync sitting.
+   *
+   * Owned here and handed to the bar, so the live charts below read the same
+   * state the bar is driving. See the bar's `session` prop for what happens
+   * when a screen forgets — which is what this screen used to do.
+   */
+  const soulsync = useSoulsync();
+  /** Bumped when a sitting ends so the report card re-reads it. */
+  const [vitalsEpoch, setVitalsEpoch] = useState(0);
   // Calendar week strip — user can pick a day to view (display-only for now).
   // The local selectedDay is gone. It was read by nothing except the strip
   // that set it, so tapping a day highlighted a circle and left every number
@@ -229,7 +243,16 @@ export const ExerciseScreen = ({ navigation }: any) => {
       setPlannedActivities(planned);
     } catch { /* keep default walk-only */ }
   };
-  useEffect(() => { refresh(); }, []);
+  /**
+   * Re-read when the date turns over, not only on mount.
+   *
+   * `refresh()` computes `todayStr()` internally, so an app left open across
+   * midnight kept asking for yesterday's `daily_activity` row and kept
+   * displaying yesterday's step count — which is what "the steps never reset"
+   * looked like from the outside. The counters were fine; nobody asked again.
+   */
+  const today = useToday();
+  useEffect(() => { refresh(); }, [today]);
 
   const submitLog = async () => {
     const m = parseInt(logMin, 10);
@@ -300,11 +323,34 @@ export const ExerciseScreen = ({ navigation }: any) => {
         {/* Plan-Your-Wellbeing lives in the drawer + a big accent tile on this
             screen. In-line CTA removed for consistency across all tabs. */}
 
-        {/* Soulsync — start before any workout to capture HRV / BPM */}
+        {/* Soulsync — start before any workout to capture HRV / BPM.
+
+            The screen owns the hook and hands it down. Without `session` the
+            bar forked its OWN isolated instance, so this screen could not see
+            a single reading from the session it had just started: no live
+            chart, no vitals, nothing to refresh when it ended. Japa, Yoga and
+            Meditation all pass the hook down; Exercise was the odd one out,
+            which is exactly why "start soul sync" looked like it stored
+            nothing here. */}
         <SoulsyncSessionBar
           practice="exercise"
+          session={soulsync}
+          onSessionEnd={() => { refresh(); setVitalsEpoch((n) => n + 1); }}
           onViewInsights={() => navigation?.navigate?.('History')}
         />
+
+        {/* Live HR / SpO2 / HRV while the workout is recording. */}
+        {soulsync.state.active && (
+          <LiveVitalsTrends
+            bpmSeries={soulsync.state.bpmSeries}
+            liveSpo2={soulsync.state.liveSpo2}
+            liveHrv={soulsync.state.liveHrv}
+            isActive={soulsync.state.active}
+          />
+        )}
+
+        {/* What the sitting measured, once it is over. */}
+        <SessionVitalsReport practice="exercise" refreshKey={vitalsEpoch} />
 
         {/* v58: only show walking by default + activities the user has
             planned (via Plan tab) or has already logged history for.

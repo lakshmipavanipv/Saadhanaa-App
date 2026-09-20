@@ -16,6 +16,24 @@ const MAX_WAVE_SAMPLES = 90; // ~90s on the wave at a time
 export interface SoulsyncSessionState {
   active: boolean;
   sessionId: string | null;
+  /**
+   * What the running sitting IS.
+   *
+   * Exposed because there is now ONE session shared by every screen (see
+   * SoulsyncContext). A bar labelled "japa" needs to know the active sitting is
+   * a yoga one so it can say so, instead of offering a Stop button that would
+   * silently end someone else's practice and file it under the wrong name.
+   */
+  practice: SessionKind | null;
+  /**
+   * When the sitting began, as epoch ms.
+   *
+   * Needed because a session can now outlive — and predate — the screen
+   * showing it. A bar that mounts onto a sitting already in progress used
+   * to start its elapsed counter at zero, so japa auto-started from the
+   * ring twelve minutes ago read "0:03" the moment the tab was opened.
+   */
+  startedAt: number | null;
   bpmSeries: number[];
   peakIndices: number[];
   rmssd: number | null;
@@ -65,6 +83,8 @@ export const useSoulsyncSession = () => {
   const [state, setState] = useState<SoulsyncSessionState>({
     active: false,
     sessionId: null,
+    practice: null,
+    startedAt: null,
     bpmSeries: [],
     peakIndices: [],
     rmssd: null,
@@ -104,6 +124,16 @@ export const useSoulsyncSession = () => {
    * is never stopped cleanly is still identifiable.
    */
   const metaRef = useRef<SessionMeta>({ practice: 'japa' });
+  /**
+   * Whether a sitting is open, readable synchronously.
+   *
+   * `state.active` is the same fact for rendering; this is the same fact for
+   * control flow. They are separate because a `useCallback` closes over the
+   * state value it was created with, and the callers that matter most here —
+   * the auto-starter, a screen stopping one sitting to begin another — act
+   * within a single tick, before any re-render has happened.
+   */
+  const activeRef = useRef(false);
 
   const handleSample = useCallback(async (s: RingSample) => {
     if (!sessionIdRef.current || !calcRef.current) return;
@@ -211,7 +241,25 @@ export const useSoulsyncSession = () => {
   }, [state.active]);
 
   const start = useCallback(async (meta: SessionMeta = { practice: 'japa' }) => {
-    if (state.active) return;
+    /*
+     * Guarded on a ref, not on `state.active`.
+     *
+     * `setState` does not update this closure — React schedules a re-render and
+     * only the NEXT `start` sees the new value. Anything that stops a session
+     * and starts another without yielding to the renderer therefore read a
+     * stale `active` and returned here silently, having done nothing: the
+     * caller saw a resolved promise and believed a session was open.
+     *
+     * That is not hypothetical. It is exactly the walk→japa upgrade in
+     * autoSession: `await stop()` then `await start()` resumes on a microtask,
+     * long before React has re-rendered, so the first bead of a chant that
+     * began during a walk ended the walk and opened nothing in its place.
+     *
+     * A ref is also the only correct guard against two concurrent starts,
+     * which is why it is set before the first await rather than after.
+     */
+    if (activeRef.current) return;
+    activeRef.current = true;
     metaRef.current = meta;
 
     const id = uuid();
@@ -254,12 +302,15 @@ export const useSoulsyncSession = () => {
       ringRef.current = null;
       sessionIdRef.current = null;
       calcRef.current = null;
+      activeRef.current = false;
       throw e;
     }
 
     setState({
       active: true,
       sessionId: id,
+      practice: meta.practice,
+      startedAt: Date.now(),
       bpmSeries: [],
       peakIndices: [],
       rmssd: null,
@@ -272,7 +323,9 @@ export const useSoulsyncSession = () => {
       liveSkinTempC: null,
       liveRespirationBpm: null,
     });
-  }, [state.active, handleSample]);
+  // No `state.active` dependency: the guard is `activeRef`, so this callback
+  // never needs rebuilding and every holder of it stays current.
+  }, [handleSample]);
 
   /**
    * End the sitting and score it.
@@ -287,17 +340,32 @@ export const useSoulsyncSession = () => {
    * of re-reading what it just wrote.
    */
   const stop = useCallback(async (): Promise<SessionDepth | null> => {
-    if (!state.active || !sessionIdRef.current) return null;
+    // Ref-guarded for the same reason `start` is — see the note there.
+    if (!activeRef.current || !sessionIdRef.current) return null;
     const id = sessionIdRef.current;
+    activeRef.current = false;
 
     await ringRef.current?.stop();
     ringRef.current = null;
     ambientIngestion.resume();
 
-    const avgBpm = await sessionSpiritualRepo.computeAvgBpm(id);
+    // Every vital the sitting measured, averaged in one pass over the
+    // telemetry it already wrote. `avg_spo2` and `avg_skin_temp_c` have existed
+    // since migration v2 and nothing ever wrote them, which is why every stored
+    // report showed a blank "Blood oxygen · In sadhana" cell — the number was
+    // computed live, shown once, and thrown away.
+    //
+    // AVG() over an all-null column returns null, and the repo floors that to
+    // 0; 0 is not a reading, so it is stored as null rather than charted as a
+    // heart that stopped.
+    const agg = await telemetryRepo.aggregates(id);
+    const measured = (v: number): number | null => (v > 0 ? Math.round(v * 10) / 10 : null);
+    const avgBpm = agg.avgBpm > 0 ? Math.round(agg.avgBpm) : null;
     await sessionSpiritualRepo.patch(id, {
       end_time: new Date().toISOString(),
       session_avg_bpm: avgBpm,
+      avg_spo2: measured(agg.avgSpo2),
+      avg_skin_temp_c: measured(agg.avgSkinTempC),
     });
 
     sessionIdRef.current = null;
@@ -316,6 +384,8 @@ export const useSoulsyncSession = () => {
     setState({
       active: false,
       sessionId: null,
+      practice: null,
+      startedAt: null,
       bpmSeries: [],
       peakIndices: [],
       rmssd: null,
@@ -330,7 +400,7 @@ export const useSoulsyncSession = () => {
     });
 
     return depth;
-  }, [state.active]);
+  }, []);
 
   /** Called from outside whenever the user completes a full mala. */
   const recordMala = useCallback(async () => {
@@ -345,5 +415,15 @@ export const useSoulsyncSession = () => {
     };
   }, []);
 
-  return { state, start, stop, recordMala };
+  /**
+   * Is a sitting open, right now, this tick?
+   *
+   * `state.active` answers the same question for rendering but lags by a
+   * render: immediately after `start()` resolves it is still false. A caller
+   * that acts on the answer synchronously — the auto-starter checking whether
+   * the session it just asked for actually opened — needs the ref.
+   */
+  const isActive = useCallback(() => activeRef.current, []);
+
+  return { state, start, stop, recordMala, isActive };
 };

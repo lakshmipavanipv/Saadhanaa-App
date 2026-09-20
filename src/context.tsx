@@ -3,6 +3,51 @@ import { Deity, HistoryEntry, JapaSession, UserProfile } from './types';
 import { DEFAULT_DEITIES, SAMPLE_HISTORY } from './constants';
 import { Storage } from './storage';
 import { ALL_CATALOG_DEITIES } from './deityCatalog';
+import { todayStr } from './utils';
+import { dayRollover } from './services/dayRollover';
+
+/**
+ * A deity's in-progress bead count, and the day it belongs to.
+ *
+ * `day` is the fix for a count that outlived its day. This used to be just
+ * `{count, malas}` with no date on it, persisted to storage and restored
+ * verbatim — so 40 beads into a mala at 11:58pm were still 40 beads at 12:01am
+ * on a fresh day, and the day's mala total carried over with them. Neither
+ * number was wrong when it was written; nothing ever told them the day had
+ * ended.
+ *
+ * Optional because entries written before this existed have no day, and an
+ * undated entry is treated as stale rather than as today's.
+ */
+export interface DeityProgress {
+  count: number;
+  malas: number;
+  /** Local YYYY-MM-DD this progress was recorded on. */
+  day?: string;
+}
+
+/**
+ * Today's progress only — anything older starts the day at zero.
+ *
+ * An entry with NO day is adopted as today's rather than discarded. Every
+ * entry written before this field existed is in that state, so dropping them
+ * would mean the first launch after this ships silently clears whatever mala
+ * was in progress — and a partial mala lives nowhere else, since only
+ * completed ones are written to `history`. One stale count carried into one
+ * day is a far smaller wrong than deleting everyone's unfinished mala once.
+ */
+const freshProgress = (
+  p: Record<string, DeityProgress>,
+  today: string = todayStr(),
+): Record<string, DeityProgress> => {
+  const out: Record<string, DeityProgress> = {};
+  for (const [id, v] of Object.entries(p)) {
+    if (!v) continue;
+    if (v.day === today) out[id] = v;
+    else if (v.day === undefined) out[id] = { ...v, day: today };
+  }
+  return out;
+};
 
 interface SadhanaContextType {
   deities: Deity[];
@@ -22,7 +67,7 @@ interface SadhanaContextType {
   userProfile: UserProfile | null;
   setUserProfile: (p: UserProfile | null) => void;
   resetAll: () => Promise<void>;
-  deityProgress: Record<string, { count: number; malas: number }>;
+  deityProgress: Record<string, DeityProgress>;
   updateProgress: (deityId: string, count: number, malas: number) => void;
 
   /** One-shot navigation intent set by Onboarding when the user picks
@@ -53,7 +98,7 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isLoading, setIsLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [pendingRoute, setPendingRoute] = useState<string | null>(null);
-  const [deityProgress, setDeityProgress] = useState<Record<string, { count: number; malas: number }>>({});
+  const [deityProgress, setDeityProgress] = useState<Record<string, DeityProgress>>({});
   const toastRef = useRef<NodeJS.Timeout | null>(null);
   // Prevents the empty-initial-state useEffect from wiping saved storage
   // before the load-on-mount completes.
@@ -76,7 +121,7 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
           'history',
           loadedProfile?.onboarded ? [] : []
         );
-        const loadedProgress = await Storage.get<Record<string, { count: number; malas: number }>>('deityProgress', {});
+        const loadedProgress = await Storage.get<Record<string, DeityProgress>>('deityProgress', {});
 
         // ── Migration: backfill mala material/color from catalog for existing deities ──
         const migratedDeities = loadedDeities.map(d => {
@@ -94,7 +139,9 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
         setDeities(migratedDeities);
         setHistory(loadedHistory);
-        setDeityProgress(loadedProgress);
+        // Yesterday's half-finished mala is not today's. A cold start after
+        // midnight restored it verbatim before this.
+        setDeityProgress(freshProgress(loadedProgress));
         if (migratedDeities.length > 0) {
           setSelectedDeity(migratedDeities[0]);
         }
@@ -131,11 +178,28 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateProgress = (deityId: string, count: number, malas: number) => {
     setDeityProgress(p => {
-      const next = { ...p, [deityId]: { count, malas } };
+      // Stamped with the day so it can be recognised as stale tomorrow.
+      const next = { ...p, [deityId]: { count, malas, day: todayStr() } };
       Storage.set('deityProgress', next);
       return next;
     });
   };
+
+  /**
+   * Start the new day at zero.
+   *
+   * The count is in-progress state, not history — completed malas were already
+   * written to `history` and to `japa_day` by `saveSession`, so nothing is lost
+   * here. What is cleared is the partial mala and the running total that would
+   * otherwise greet the user as though the previous day's practice were still
+   * going.
+   */
+  useEffect(() => {
+    return dayRollover.subscribe(() => {
+      setDeityProgress({});
+      Storage.set('deityProgress', {});
+    });
+  }, []);
 
   // Persist deities — only after initial load completes
   useEffect(() => {

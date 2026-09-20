@@ -454,6 +454,40 @@ export class SadhanaRing {
     return sr.instance;
   }
 
+  /**
+   * Re-push the wall clock to every ring currently open.
+   *
+   * `open()` above sets the clock once per PHYSICAL connection, and `connect()`
+   * short-circuits to the cached instance whenever one already exists. The japa
+   * counter holds its link open for as long as the app lives, so on a phone
+   * that is never force-closed the ring's clock was written once — at pairing —
+   * and never again.
+   *
+   * That matters more than "the ring shows the wrong time". The ring stamps
+   * every reading it records from its own RTC, its step counter rolls over at
+   * ITS midnight rather than the user's, and `decodeSteps` tells an hourly
+   * bucket from a running daily total by testing `ts % 3600 !== 0` — so once
+   * the seconds drift off an exact hour boundary, every record is misread as a
+   * daily total and the day's steps collapse to a single `Math.max` value.
+   *
+   * Called at each local midnight (see services/dayRollover), which is both
+   * when it matters most and the moment the drift is about to do damage.
+   */
+  static async syncClockOnAllOpen(): Promise<void> {
+    const open = [...SadhanaRing.instances.values()];
+    for (const sr of open) {
+      const at = new Date();
+      try {
+        await sr.device.setDateTime(at);
+        // eslint-disable-next-line no-console
+        console.log(`[RINGCLOCK] re-pushed at rollover: ${at.toString()}`);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.log(`[RINGCLOCK] rollover re-push refused: ${(e as Error).message}`);
+      }
+    }
+  }
+
   get info(): SadhanaRingInfo {
     return {
       id: this.ring.device.id,

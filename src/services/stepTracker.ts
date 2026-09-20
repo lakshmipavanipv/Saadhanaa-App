@@ -14,6 +14,7 @@ import * as Notifications from 'expo-notifications';
 import { Pedometer } from 'expo-sensors';
 import { routineRepo } from './routineRepo';
 import { todayStr } from '../utils';
+import { autoSession } from '../soulsync/services/autoSession';
 
 const KEY = 'soulsync.steps.v1';
 
@@ -189,6 +190,21 @@ export const startStepTracking = async (
     const delta = cur - last;
     last = cur;
     if (delta <= 0) return;
+
+    /*
+     * Tell the auto-starter the legs are moving.
+     *
+     * The pedometer rather than the ring, deliberately. The ring is the source
+     * of truth for how many steps were taken — it is on the body all day and
+     * this screen-side counter is not — but its steps only reach the app when
+     * the vitals scheduler next syncs, which is minutes late and useless for
+     * "is a walk happening right now". The phone's sensor is the only LIVE
+     * step signal there is, and liveness is the whole question here.
+     *
+     * Counting is unaffected: this reports movement, it does not record it.
+     */
+    autoSession.noteSteps(delta);
+
     const total = await addSteps(delta);
     onUpdate?.(total);
   });
