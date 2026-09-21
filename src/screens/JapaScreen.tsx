@@ -32,7 +32,7 @@ import type { SessionDepth } from '../soulsync/analytics/SadhanaDepth';
 import { DeityScreen } from './DeityScreen';
 import { DeityIcon } from '../components/DeityIcon';
 import { useSoulsync } from '../soulsync/SoulsyncContext';
-import { autoSession } from '../soulsync/services/autoSession';
+import { sessionDirector } from '../soulsync/services/sessionDirector';
 // AddToPlanCta removed — Plan Your Wellbeing lives in the hamburger drawer.
 import { TimePickerField } from '../components/TimePickerField';
 import { ALL_CATALOG_DEITIES } from '../deityCatalog';
@@ -691,7 +691,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
      * Also the idle heartbeat, not just the trigger: five quiet minutes after
      * the last bead is what ends an auto-started sitting.
      */
-    autoSession.noteJapa();
+    sessionDirector.noteJapa();
 
     // ── Hint: first bead of an unrecorded session ──
     if (s.count === 0 && !s.soulsyncActive) {

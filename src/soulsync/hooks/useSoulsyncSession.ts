@@ -425,5 +425,28 @@ export const useSoulsyncSession = () => {
    */
   const isActive = useCallback(() => activeRef.current, []);
 
-  return { state, start, stop, recordMala, isActive };
+  /**
+   * Relabel a sitting that is already running.
+   *
+   * A sitting can be more than one practice: japa while walking is one span of
+   * time the ring is measuring, not two. The session opens under whichever
+   * practice began it and is relabelled if a more specific one joins — so a
+   * walk that turns into a chant ends up filed as japa rather than as
+   * exercise, which matters because exercise is deliberately unscoreable and
+   * japa is not (see SessionKind in analytics/SadhanaDepth).
+   *
+   * Written to the row as well as to `metaRef`, so a session that is never
+   * stopped cleanly still carries what it actually became.
+   */
+  const setPractice = useCallback(async (practice: SessionKind) => {
+    if (!activeRef.current || !sessionIdRef.current) return;
+    if (metaRef.current.practice === practice) return;
+    metaRef.current = { ...metaRef.current, practice };
+    setState((st) => ({ ...st, practice }));
+    try {
+      await sessionSpiritualRepo.patch(sessionIdRef.current, { practice });
+    } catch { /* the row is relabelled again at stop() */ }
+  }, []);
+
+  return { state, start, stop, recordMala, isActive, setPractice };
 };

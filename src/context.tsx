@@ -195,9 +195,24 @@ export const SadhanaProvider: React.FC<{ children: React.ReactNode }> = ({ child
    * going.
    */
   useEffect(() => {
-    return dayRollover.subscribe(() => {
-      setDeityProgress({});
-      Storage.set('deityProgress', {});
+    return dayRollover.subscribe((today) => {
+      setDeityProgress((p) => {
+        /*
+         * Roll the day over; do not delete the record.
+         *
+         * This used to write `{}` to storage, which threw away the per-deity
+         * `malas` total along with the in-progress `count`. Only `count` is a
+         * today thing. Re-stamping with the new day is what makes it read zero
+         * tomorrow, and it leaves every figure that was not about today alone —
+         * a reset should end a day, not erase one.
+         */
+        const next: Record<string, DeityProgress> = {};
+        for (const [id, v] of Object.entries(p)) {
+          if (v) next[id] = { ...v, count: 0, day: today };
+        }
+        Storage.set('deityProgress', next);
+        return next;
+      });
     });
   }, []);
 

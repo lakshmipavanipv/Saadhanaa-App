@@ -14,7 +14,7 @@ import * as Notifications from 'expo-notifications';
 import { Pedometer } from 'expo-sensors';
 import { routineRepo } from './routineRepo';
 import { todayStr } from '../utils';
-import { autoSession } from '../soulsync/services/autoSession';
+import { sessionDirector } from '../soulsync/services/sessionDirector';
 
 const KEY = 'soulsync.steps.v1';
 
@@ -203,7 +203,7 @@ export const startStepTracking = async (
      *
      * Counting is unaffected: this reports movement, it does not record it.
      */
-    autoSession.noteSteps(delta);
+    sessionDirector.noteSteps(delta);
 
     const total = await addSteps(delta);
     onUpdate?.(total);

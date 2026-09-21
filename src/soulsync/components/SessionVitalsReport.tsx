@@ -32,6 +32,7 @@ import { getDB } from '../db/database';
 import { telemetryRepo, type TelemetryRow } from '../db/telemetryRepo';
 import { useChartWidth } from './useChartWidth';
 import { useSoulsync } from '../SoulsyncContext';
+import { ambientBaselineRepo } from '../db/ambientBaselineRepo';
 import type { SessionKind } from '../analytics/SadhanaDepth';
 
 interface Props {
@@ -52,6 +53,10 @@ interface Loaded {
   bpm: number[];
   hrv: number[];
   spo2: number[];
+  /** The day's resting baseline, for the comparison row. */
+  baseBpm: number | null;
+  baseHrv: number | null;
+  baseSpo2: number | null;
 }
 
 const CHART_H = 120;
@@ -97,9 +102,12 @@ export const SessionVitalsReport: React.FC<Props> = ({ practice, refreshKey = 0 
           session_id: string; start_time: string; end_time: string | null;
           session_avg_bpm: number | null; avg_spo2: number | null;
           avg_skin_temp_c: number | null; session_rmssd: number | null;
+          baseline_bpm: number | null; baseline_rmssd: number | null;
+          baseline_spo2: number | null;
         }>(
           `SELECT session_id, start_time, end_time, session_avg_bpm,
-                  avg_spo2, avg_skin_temp_c, session_rmssd
+                  avg_spo2, avg_skin_temp_c, session_rmssd,
+                  baseline_bpm, baseline_rmssd, baseline_spo2
              FROM session_spiritual
             WHERE practice = ? AND end_time IS NOT NULL
             ORDER BY start_time DESC LIMIT 1`,
@@ -114,6 +122,30 @@ export const SessionVitalsReport: React.FC<Props> = ({ practice, refreshKey = 0 
         const hrv = readings(tele, (t) => t.rmssd_ms);
         const spo2 = readings(tele, (t) => t.spo2);
         const temps = readings(tele, (t) => t.skin_temp_c);
+
+        /*
+         * Prefer the baseline STORED on the session row.
+         *
+         * `finaliseSessionDepth` writes the baseline that was in force when
+         * the sitting was scored, and that is the number the sitting was
+         * judged against. Today's rolling average is a different figure — it
+         * has moved on, and using it would silently restate an old sitting
+         * against a newer normal. Fall back to it only when the row predates
+         * those columns.
+         */
+        let baseBpm = row.baseline_bpm ?? null;
+        let baseHrv = row.baseline_rmssd ?? null;
+        let baseSpo2 = row.baseline_spo2 ?? null;
+        if (baseBpm == null && baseHrv == null && baseSpo2 == null) {
+          try {
+            const t = await ambientBaselineRepo.todaysAvg();
+            if (t) {
+              baseBpm = t.bpm > 0 ? Math.round(t.bpm) : null;
+              baseHrv = t.rmssd > 0 ? Math.round(t.rmssd) : null;
+              baseSpo2 = t.spo2 > 0 ? Math.round(t.spo2 * 10) / 10 : null;
+            }
+          } catch { /* no baseline yet — the row simply reads "—" */ }
+        }
 
         const startMs = new Date(row.start_time).getTime();
         const endMs = row.end_time ? new Date(row.end_time).getTime() : startMs;
@@ -130,6 +162,7 @@ export const SessionVitalsReport: React.FC<Props> = ({ practice, refreshKey = 0 
           avgSpo2: row.avg_spo2 ?? mean(spo2),
           avgTempC: row.avg_skin_temp_c ?? mean(temps),
           bpm, hrv, spo2,
+          baseBpm, baseHrv, baseSpo2,
         });
       } catch {
         if (!cancelled) setData(null);
@@ -169,6 +202,16 @@ export const SessionVitalsReport: React.FC<Props> = ({ practice, refreshKey = 0 
             <Stat label="AVG TEMP" value={data.avgTempC} unit="°C" color="#8BD3C7" />
           </View>
 
+          {/* Against the baseline, which is the only thing that makes the
+              averages mean anything. 68 bpm is good or bad depending entirely
+              on what this body normally does at rest. */}
+          <View style={styles.baseRow}>
+            <Text style={styles.baseHead}>VS YOUR BASELINE</Text>
+            <Compare label="Heart" during={data.avgBpm} base={data.baseBpm} unit="bpm" lowerIsBetter />
+            <Compare label="HRV" during={data.avgHrv} base={data.baseHrv} unit="ms" />
+            <Compare label="Blood oxygen" during={data.avgSpo2} base={data.baseSpo2} unit="%" />
+          </View>
+
           {/* Drawn only once the card has been measured — charting at a
               fallback width and snapping to the real one is a visible
               flicker on every mount. */}
@@ -196,6 +239,38 @@ const Stat: React.FC<{ label: string; value: number | null; unit: string; color:
     </Text>
   </View>
 );
+
+/**
+ * One vital, during the sitting versus at rest.
+ *
+ * The arrow says whether the change went the helpful way, which is not the
+ * same direction for every vital: a heart rate below baseline means the body
+ * settled, while HRV and blood oxygen below baseline do not. Nothing is
+ * claimed when either number is missing.
+ */
+const Compare: React.FC<{
+  label: string; during: number | null; base: number | null;
+  unit: string; lowerIsBetter?: boolean;
+}> = ({ label, during, base, unit, lowerIsBetter }) => {
+  const delta = during != null && base != null ? Math.round((during - base) * 10) / 10 : null;
+  const good = delta == null || delta === 0 ? null : (lowerIsBetter ? delta < 0 : delta > 0);
+  return (
+    <View style={styles.compareRow}>
+      <Text style={styles.compareLabel}>{label}</Text>
+      <Text style={styles.compareCell}>{base ?? '—'}</Text>
+      <Text style={[styles.compareCell, styles.compareDuring]}>{during ?? '—'}</Text>
+      <Text
+        style={[
+          styles.compareCell,
+          good === true && styles.deltaGood,
+          good === false && styles.deltaBad,
+        ]}
+      >
+        {delta == null ? '—' : `${delta > 0 ? '+' : ''}${delta} ${unit}`}
+      </Text>
+    </View>
+  );
+};
 
 /**
  * One vital's trace over the sitting.
@@ -283,6 +358,14 @@ const styles = StyleSheet.create({
   statLabel: { color: COLORS.muted, fontSize: 9, letterSpacing: 0.5, marginBottom: 2 },
   statValue: { fontSize: 20, fontWeight: '700' },
   statUnit: { fontSize: 10, color: COLORS.muted, fontWeight: '400' },
+  baseRow: { marginTop: SPACING.xs, marginBottom: SPACING.xs },
+  baseHead: { color: COLORS.muted, fontSize: 9, letterSpacing: 0.5, marginBottom: 4 },
+  compareRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 3 },
+  compareLabel: { flex: 2, color: COLORS.cream, fontSize: 12 },
+  compareCell: { flex: 1, color: COLORS.muted, fontSize: 12, textAlign: 'right' },
+  compareDuring: { color: COLORS.cream, fontWeight: '600' },
+  deltaGood: { color: '#7FE8C8' },
+  deltaBad: { color: '#FF9AA8' },
   traceBlock: { marginTop: SPACING.xs },
   traceHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   traceTitle: { color: COLORS.cream, fontSize: 12, fontWeight: '600' },

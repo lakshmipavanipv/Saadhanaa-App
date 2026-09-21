@@ -36,7 +36,7 @@ import { bodyActivitySeries, soulActivitySeries } from '../soulsync/analytics/pr
 import { makeSeries, bucketsFor, type Series } from '../soulsync/analytics/practiceSeries';
 import { practiceGoalToday, type SoulPractice } from '../soulsync/analytics/PracticeGoals';
 import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
-import type { useSoulsyncSession } from '../soulsync/hooks/useSoulsyncSession';
+import type { SoulsyncValue } from '../soulsync/SoulsyncContext';
 
 interface Props {
   practice: SoulPractice;
@@ -51,7 +51,7 @@ interface Props {
   sessionsEver: number;
 
   /** The screen's Soul Sync hook, shared so both cards drive one session. */
-  session: ReturnType<typeof useSoulsyncSession>;
+  session: SoulsyncValue;
   onSessionEnd?: () => void;
 
   onDetails?: () => void;

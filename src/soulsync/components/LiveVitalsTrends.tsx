@@ -155,17 +155,22 @@ export const LiveVitalsTrends: React.FC<Props> = ({ bpmSeries, liveSpo2, liveHrv
         color="#7FE8C8"
         hint="Pranayama steady-state should sit at or above your baseline."
       />
-      {liveHrvNow != null && (
-        <TrendCard
-          title="🌿  HRV · LIVE TREND"
-          live={liveHrvNow}
-          baseline={baselineHrv}
-          unit="ms"
-          series={hrvSeries}
-          color="#C6A5FF"
-          hint="Rising HRV means the nervous system is settling into the practice."
-        />
-      )}
+      {/* Always rendered, like the other two.
+          This used to be hidden until `liveHrvNow != null`, and on this ring
+          that is a wait of up to a minute — the measurement cycler arms HRV
+          only periodically. So a session that was working correctly showed
+          two cards, and the third appeared later or, with no baseline stored
+          yet, never. A card that says "waiting" is information; a card that is
+          absent looks like a missing feature. */}
+      <TrendCard
+        title="🌿  HRV · LIVE TREND"
+        live={liveHrvNow}
+        baseline={baselineHrv}
+        unit="ms"
+        series={hrvSeries}
+        color="#C6A5FF"
+        hint="Rising HRV means the nervous system is settling into the practice."
+      />
     </View>
   );
 };
@@ -179,10 +184,20 @@ const TrendCard: React.FC<{
   color: string;
   hint: string;
 }> = ({ title, live, baseline, unit, series, color, hint }) => {
-  // chart-kit needs at least 2 points
-  const data = series.length >= 2
-    ? series
-    : (series.length === 1 ? [series[0], series[0]] : [baseline ?? 70, baseline ?? 70]);
+  /*
+   * chart-kit needs at least two points — but inventing them is not allowed.
+   *
+   * The empty case used to fall back to `baseline ?? 70`, so a session with no
+   * readings and no stored baseline drew a confident flat line at 70 of
+   * whatever the unit was: 70 bpm, 70% SpO₂, 70 ms HRV. That is a number no
+   * instrument produced, presented identically to one that did.
+   *
+   * Now nothing measured means no chart, and the card says what it is waiting
+   * for. A single reading is still doubled to make a drawable segment, which
+   * is duplication of a real value rather than fabrication of a fake one.
+   */
+  const hasReadings = series.length > 0;
+  const data = series.length >= 2 ? series : (hasReadings ? [series[0], series[0]] : []);
   const baselineLine = data.map(() => baseline ?? data[0]);
 
   // Format live + delta vs baseline
@@ -219,7 +234,14 @@ const TrendCard: React.FC<{
         </View>
       </View>
 
-      {/* Two-line chart: baseline (dashed grey) + live trace (color) */}
+      {/* Two-line chart: baseline (dashed grey) + live trace (color).
+          Replaced by a plain line of text until the ring has actually
+          reported something — see the note on `hasReadings`. */}
+      {!hasReadings ? (
+        <Text style={styles.waiting}>
+          Waiting for the ring to report {unit === 'bpm' ? 'a heartbeat' : `a ${unit === '%' ? 'blood oxygen' : 'HRV'} reading`}…
+        </Text>
+      ) : (
       <LineChart
         data={{
           labels: data.map(() => ''),
@@ -253,6 +275,7 @@ const TrendCard: React.FC<{
         }}
         style={{ borderRadius: 10, marginVertical: 4, marginLeft: -16 }}
       />
+      )}
 
       <Text style={styles.hint}>{hint}</Text>
     </View>
@@ -285,6 +308,13 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 26, fontWeight: '800', marginTop: 2 },
   statBaseline: { fontSize: 20, color: COLORS.cream, fontWeight: '700', marginTop: 2 },
   statUnit: { fontSize: 12, color: COLORS.muted, fontWeight: '500' },
+  waiting: {
+    color: COLORS.muted,
+    fontSize: 11,
+    fontStyle: 'italic',
+    paddingVertical: 18,
+    textAlign: 'center',
+  },
   hint: {
     fontSize: 11, color: COLORS.muted, fontStyle: 'italic',
     textAlign: 'center', marginTop: 2, lineHeight: 16,

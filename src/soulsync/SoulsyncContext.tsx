@@ -26,16 +26,33 @@
  * behaves the same beyond now sharing state with its siblings.
  */
 
-import React, { createContext, useContext, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useSoulsyncSession } from './hooks/useSoulsyncSession';
-import { autoSession } from './services/autoSession';
+import { sessionDirector } from './services/sessionDirector';
+import type { SessionDepth } from './analytics/SadhanaDepth';
 
-export type SoulsyncValue = ReturnType<typeof useSoulsyncSession>;
+/**
+ * The last sitting to end, and when.
+ *
+ * The director closes recordings on its own — an idle walk hold expiring has
+ * no screen behind it — so the scored report can no longer be handed back
+ * through whoever pressed Stop. It is published here instead, and the bar
+ * shows the popup when it sees a new one.
+ */
+export interface LastEnd {
+  depth: SessionDepth | null;
+  at: number;
+}
+
+export type SoulsyncValue = ReturnType<typeof useSoulsyncSession> & {
+  lastEnd: LastEnd | null;
+};
 
 const SoulsyncContext = createContext<SoulsyncValue | null>(null);
 
 export const SoulsyncProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const session = useSoulsyncSession();
+  const [lastEnd, setLastEnd] = useState<LastEnd | null>(null);
 
   /**
    * Hand the one session to the auto-starter.
@@ -57,18 +74,24 @@ export const SoulsyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   sessionRef.current = session;
 
   useEffect(() => {
-    autoSession.attach({
+    sessionDirector.attach({
       start: (meta) => sessionRef.current.start(meta),
-      stop: () => sessionRef.current.stop(),
+      stop: async () => {
+        const depth = await sessionRef.current.stop();
+        setLastEnd({ depth, at: Date.now() });
+        return depth;
+      },
       // The hook's ref-backed answer, not `state.active` — the latter is a
       // render behind, so a check made right after `start()` resolves would
       // read false and conclude the session had not opened.
       isActive: () => sessionRef.current.isActive(),
+      setPractice: (p) => sessionRef.current.setPractice(p),
     });
-    return () => autoSession.detach();
+    return () => sessionDirector.detach();
   }, []);
 
-  return <SoulsyncContext.Provider value={session}>{children}</SoulsyncContext.Provider>;
+  const value = React.useMemo<SoulsyncValue>(() => ({ ...session, lastEnd }), [session, lastEnd]);
+  return <SoulsyncContext.Provider value={value}>{children}</SoulsyncContext.Provider>;
 };
 
 /**
@@ -82,5 +105,8 @@ export const SoulsyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 export const useSoulsync = (): SoulsyncValue => {
   const ctx = useContext(SoulsyncContext);
   const fallback = useSoulsyncSession();
-  return ctx ?? fallback;
+  const fallbackValue = React.useMemo<SoulsyncValue>(
+    () => ({ ...fallback, lastEnd: null }), [fallback]
+  );
+  return ctx ?? fallbackValue;
 };

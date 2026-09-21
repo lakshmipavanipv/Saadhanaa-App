@@ -11,9 +11,7 @@ import { initNotifications } from './services/notifications';
 import { startStepTracking } from './services/stepTracker';
 import { dayRollover } from './services/dayRollover';
 import { SoulsyncProvider } from './soulsync/SoulsyncContext';
-import { SadhanaRing } from './soulsync/ring/SadhanaRing';
-import { syncAllRingVitals } from './soulsync/ring/ringVitalsSync';
-import { resetRingDailyCounters } from './soulsync/ring/dailyReset';
+import { closeOutDay } from './soulsync/ring/dailyReset';
 import { ConsentScreen } from './screens/ConsentScreen';
 import { consentRepo } from './services/consentRepo';
 import { telemetry } from './services/telemetry';
@@ -696,17 +694,19 @@ export default function App() {
     dayRollover.start();
     const off = dayRollover.subscribe((today, previous) => {
       console.log(`[DAYROLL] ${previous} → ${today}`);
-      void (async () => {
-        // Clock first: the ring stamps everything it records from its own RTC,
-        // and the two calls below both read or write records it will date.
-        await SadhanaRing.syncClockOnAllOpen();
-        // Credit any beads the ring still holds, then zero its lifetime japa
-        // counter so its own number means "today" (see ring/dailyReset).
-        await resetRingDailyCounters();
-        // The ring's daily step total has rolled over too; pick it up rather
-        // than waiting for the scheduler's next cadence slot.
-        await syncAllRingVitals().catch(() => { /* out of range — scheduler retries */ });
-      })();
+      /*
+       * Close out the day that just ENDED, not the one that just began.
+       *
+       * `closeOutDay` purges that day's figures off the ring, checks the app's
+       * stored totals against what the ring reported, and only zeroes anything
+       * once the two agree. If they do not — a page went missing, the ring was
+       * out of range — it leaves the ring exactly as it is. A day left on the
+       * ring can still be collected tomorrow; a day zeroed before it was
+       * copied is gone, and the ring drops a page the moment it is ACKed.
+       */
+      void closeOutDay(previous).catch((e) => {
+        console.log(`[DAYROLL] close-out failed, ring left untouched: ${e?.message}`);
+      });
     });
     return () => { off(); dayRollover.stop(); };
   }, []);

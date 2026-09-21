@@ -11,13 +11,13 @@
  *   • Live time elapsed shown while recording
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { COLORS, SPACING } from '../../theme';
 import { useTheme } from '../../ThemeContext';
 import { useSoulsyncSession, type SoulsyncSessionState } from '../hooks/useSoulsyncSession';
-import { useSoulsync } from '../SoulsyncContext';
-import { autoSession } from '../services/autoSession';
+import { useSoulsync, type SoulsyncValue } from '../SoulsyncContext';
+import { sessionDirector, useHolds } from '../services/sessionDirector';
 import { SessionScorePopup } from './SessionScorePopup';
 import type { SessionKind, SessionDepth } from '../analytics/SadhanaDepth';
 
@@ -52,7 +52,7 @@ interface Props {
    *  forking a second, isolated instance.  Without this, the bar would
    *  start a session on its own private hook and the parent's
    *  LiveVitalsTrends would stay empty. */
-  session?: ReturnType<typeof useSoulsyncSession>;
+  session?: SoulsyncValue;
 }
 
 /**
@@ -98,19 +98,23 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
   const soulsync = session ?? ownSession;
 
   /**
-   * A sitting is running, but it is not this practice's.
+   * A recording is running that this bar did not ask for.
    *
-   * Possible now that one session is shared app-wide: yoga is recording and
-   * the user is looking at meditation's card, or japa auto-started from the
-   * ring while the Exercise tab is open. Tapping Stop here would end that
-   * sitting and file it under whatever it was started as — so the bar says
-   * what is actually recording instead of offering a button that lies.
+   * One recording is shared by everything now (see services/sessionDirector),
+   * so the ring may already be measuring because the user is walking, or
+   * because beads started arriving with the phone in a pocket. That is not a
+   * reason to hide the control: tapping Start here ADDS this practice to the
+   * recording rather than opening a second one. It only changes what the bar
+   * says, so "recording" is never mistaken for "recording this".
    */
-  const otherPractice =
+  useHolds();   // re-render when a hold is taken or released
+  const heldByUser = sessionDirector.hasManualHold(practice);
+  const runningPractice =
     soulsync.state.active && soulsync.state.practice != null &&
     soulsync.state.practice !== practice
       ? soulsync.state.practice
       : null;
+
   const [elapsed, setElapsed] = useState(0);
   const [showScoreModal, setShowScoreModal] = useState(false);
   const [sessionDepth, setSessionDepth] = useState<SessionDepth | null>(null);
@@ -137,33 +141,41 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
   }, [soulsync.state.active, startedAt]);
 
   const handleToggle = async () => {
-    // Someone else's sitting. Say so; do not end it from here.
-    if (otherPractice) return;
-    if (soulsync.state.active) {
-      // Whatever ends a sitting, the auto-starter has to hear about it —
-      // otherwise it goes on believing it still owns a session that no longer
-      // exists, and the next bead is read as "still going" rather than as the
-      // start of something new.
-      autoSession.noteSessionEnded();
-      // `stop()` finalises the row and scores the sitting in one step, and
-      // hands back the report. The old path slept 600 ms hoping the write had
-      // landed, then recomputed the whole DAY — so the popup after a second
-      // sitting was partly made of the first one.
-      const depth = await soulsync.stop();
-      setSessionDepth(depth);
-      setShowScoreModal(depth != null);
-      onSessionEnd?.(depth);
+    /*
+     * Start and Stop are a HOLD on the shared recording, not a session
+     * lifecycle of their own.
+     *
+     * Start takes this practice's hold, which opens a recording if none is
+     * running and otherwise joins the one that is — so beginning japa in the
+     * middle of a walk keeps one continuous span of vitals instead of cutting
+     * the walk short to open a second row. Stop releases only this hold; if
+     * the user is still walking, the ring is still measuring, and the bar
+     * will say so rather than pretending the recording ended.
+     */
+    if (heldByUser) {
+      await sessionDirector.stopManual(practice);
     } else {
-      // start() now rethrows when the ring can't be reached, so it can unwind
-      // cleanly instead of leaving a half-open session behind. Swallow it here
-      // — the bar simply stays off, which is what the user sees anyway.
-      try {
-        await soulsync.start({ practice, deityId, deityName });
-      } catch (e) {
-        console.warn('[Soulsync] session start failed:', (e as Error).message);
-      }
+      await sessionDirector.startManual(practice);
     }
   };
+
+  /*
+   * Show the report when a recording ends — whichever route ended it.
+   *
+   * The popup used to be driven by the Stop handler, which only knew about
+   * sittings the user closed by hand. A recording can now also end on its own
+   * when the last automatic hold expires, so the provider publishes the scored
+   * report and this watches for a new one.
+   */
+  const lastEnd = soulsync.lastEnd;
+  const seenEndRef = useRef<number>(lastEnd?.at ?? 0);
+  useEffect(() => {
+    if (!lastEnd || lastEnd.at === seenEndRef.current) return;
+    seenEndRef.current = lastEnd.at;
+    setSessionDepth(lastEnd.depth);
+    setShowScoreModal(lastEnd.depth != null);
+    onSessionEnd?.(lastEnd.depth);
+  }, [lastEnd, onSessionEnd]);
 
   return (
     <>
@@ -175,11 +187,14 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
         <View style={[styles.dot, soulsync.state.active && styles.dotActive]} />
         <View style={{ flex: 1 }}>
           <Text style={[styles.label, soulsync.state.active && styles.labelActive]}>
-            {otherPractice
-              ? `◉ Recording your ${otherPractice} · ${fmtElapsed(elapsed)}`
-              : soulsync.state.active
-                ? `◉ Recording your body · ${fmtElapsed(elapsed)}`
-                : `Start Soulsync · score this ${practice} against your baseline`}
+            {!soulsync.state.active
+              ? `Start Soulsync · score this ${practice} against your baseline`
+              : runningPractice && !heldByUser
+                // Already measuring, but because of something else — a walk,
+                // or beads arriving. Tapping adds this practice to the same
+                // recording rather than starting a second one.
+                ? `◉ Recording your ${runningPractice} · ${fmtElapsed(elapsed)} · tap to add ${practice}`
+                : `◉ Recording your body · ${fmtElapsed(elapsed)}`}
           </Text>
           {soulsync.state.active && soulsync.state.liveBpm != null && (
             <Text style={styles.liveStats}>
@@ -190,7 +205,7 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
           )}
         </View>
         <Text style={[styles.action, soulsync.state.active && styles.actionActive]}>
-          {otherPractice ? '' : soulsync.state.active ? 'Stop' : 'Start'}
+          {heldByUser ? 'Stop' : soulsync.state.active ? 'Add' : 'Start'}
         </Text>
       </TouchableOpacity>
 
