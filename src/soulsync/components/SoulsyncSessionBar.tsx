@@ -19,6 +19,7 @@ import { useSoulsyncSession, type SoulsyncSessionState } from '../hooks/useSouls
 import { useSoulsync, type SoulsyncValue } from '../SoulsyncContext';
 import { sessionDirector, useHolds } from '../services/sessionDirector';
 import { SessionScorePopup } from './SessionScorePopup';
+import { SessionInsightsPopup } from './SessionInsightsPopup';
 import type { SessionKind, SessionDepth } from '../analytics/SadhanaDepth';
 
 interface Props {
@@ -117,6 +118,9 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
 
   const [elapsed, setElapsed] = useState(0);
   const [showScoreModal, setShowScoreModal] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
+  const [endedSession, setEndedSession] =
+    useState<{ id: string | null; practice: SessionKind | null }>({ id: null, practice: null });
   const [sessionDepth, setSessionDepth] = useState<SessionDepth | null>(null);
 
   /*
@@ -173,7 +177,11 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
     if (!lastEnd || lastEnd.at === seenEndRef.current) return;
     seenEndRef.current = lastEnd.at;
     setSessionDepth(lastEnd.depth);
-    setShowScoreModal(lastEnd.depth != null);
+    setEndedSession({ id: lastEnd.sessionId, practice: lastEnd.practice });
+    // Insights open for EVERY sitting. The score popup is for the ones that
+    // have a score — exercise and walks never do, and used to end in silence
+    // with their vitals written to the database and shown nowhere.
+    setShowInsights(true);
     onSessionEnd?.(lastEnd.depth);
   }, [lastEnd, onSessionEnd]);
 
@@ -244,6 +252,15 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
           </Text>
         </View>
       )}
+
+      <SessionInsightsPopup
+        visible={showInsights}
+        sessionId={endedSession.id}
+        practice={endedSession.practice ?? practice}
+        depth={sessionDepth}
+        onClose={() => setShowInsights(false)}
+        onViewInsights={onViewInsights}
+      />
 
       <SessionScorePopup
         visible={showScoreModal}

@@ -110,6 +110,18 @@ class VitalsScheduler {
     await this.run();
   }
 
+  /**
+   * Whether the japa counter currently holds the ring.
+   *
+   * Distinct from `mode === 'japa'`, which also depends on the user's
+   * `japaLiveEnabled` preference. Callers that need to know "are beads being
+   * counted right now" — so they can keep off the link and leave the ring in
+   * tasbih mode — want this, not the mode.
+   */
+  get isJapaActive(): boolean {
+    return this.japaActive;
+  }
+
   get mode(): VitalsMode {
     const p = this.prefs ?? vitalsPrefs.peek();
     if (this.japaActive && p.japaLiveEnabled) return 'japa';

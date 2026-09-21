@@ -178,13 +178,52 @@ export class SadhanaRing {
    */
   async setLiveMetric(metric: LiveMetric, on: boolean): Promise<void> {
     const payload = new Uint8Array([LIVE_METRIC_BYTE[metric], 0x05, on ? 0x01 : 0x00]);
-    await this.queue.send(OP_INFO_6_9_0, payload, {
-      expectReply: true,
-      timeoutMs: 2000,
-      maxRetries: 0,
-    });
+
+    /*
+     * Record the intent BEFORE the send, not after it.
+     *
+     * The bookkeeping used to run only on success, so a disarm that timed out
+     * threw before reaching it and the metric was quietly dropped from
+     * `liveMetrics` — while the ring stayed physically armed. SpO2 is the last
+     * metric in the session cycle, which is why "stuck monitoring SpO2" is the
+     * shape this takes in practice.
+     *
+     * Marking ON before sending means a failed arm is remembered as armed,
+     * which is the safe direction to be wrong in: the worst case is one
+     * redundant disarm.
+     */
     if (on) this.liveMetrics.add(metric);
-    else this.liveMetrics.delete(metric);
+
+    if (on) {
+      await this.queue.send(OP_INFO_6_9_0, payload, {
+        expectReply: true, timeoutMs: 2000, maxRetries: 0,
+      });
+      return;
+    }
+
+    try {
+      // One retry on the way OFF. Getting the sensor released matters more
+      // than the two seconds it costs to ask twice.
+      await this.queue.send(OP_INFO_6_9_0, payload, {
+        expectReply: true, timeoutMs: 2000, maxRetries: 1,
+      });
+      this.liveMetrics.delete(metric);
+    } catch (e) {
+      /*
+       * A disarm that will not land must not be swallowed.
+       *
+       * It leaves the ring in a measurement mode nothing can talk it out of:
+       * its display stuck on that metric and, during japa, no longer counting
+       * beads — with no opcode in this app able to put tasbih mode back.
+       * `setHealthMonitorMaster(false)` drops the whole sensor loop, which the
+       * Ring Debug screen has always used for exactly this. Blunt, and far
+       * better than walking away with the sensor on.
+       */
+      console.log(`[RING] ${metric} disarm failed — dropping monitor master: ${(e as Error).message}`);
+      await this.device.setHealthMonitorMaster(false).catch(() => {});
+      this.liveMetrics.delete(metric);
+      throw e;
+    }
   }
 
   /**
@@ -451,7 +490,33 @@ export class SadhanaRing {
         console.log(`[RINGCLOCK] refused: ${(e as Error).message}`);
       });
 
+    // The ring is up. Anything waiting on that — a day queued for close-out
+    // while the ring sat on its charger — gets its chance now.
+    SadhanaRing.announceConnect();
+
     return sr.instance;
+  }
+
+  /**
+   * Called whenever a ring finishes a PHYSICAL connect.
+   *
+   * A subscription rather than a direct call, so the things that care about a
+   * ring turning up — the deferred day close-out, chiefly — do not have to be
+   * imported here. This file is at the bottom of the dependency graph and an
+   * import pointing back up it would be a cycle.
+   */
+  private static connectSubs = new Set<() => void>();
+
+  /** Subscribe to "a ring just connected". Returns an unsubscribe. */
+  static onAnyConnect(fn: () => void): () => void {
+    SadhanaRing.connectSubs.add(fn);
+    return () => SadhanaRing.connectSubs.delete(fn);
+  }
+
+  private static announceConnect(): void {
+    for (const fn of SadhanaRing.connectSubs) {
+      try { fn(); } catch { /* one listener must not break the connect path */ }
+    }
   }
 
   /**

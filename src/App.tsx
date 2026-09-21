@@ -11,7 +11,7 @@ import { initNotifications } from './services/notifications';
 import { startStepTracking } from './services/stepTracker';
 import { dayRollover } from './services/dayRollover';
 import { SoulsyncProvider } from './soulsync/SoulsyncContext';
-import { closeOutDay } from './soulsync/ring/dailyReset';
+import { queueCloseOut, runPendingCloseOuts, startCloseOutRetries } from './soulsync/ring/dailyReset';
 import { ConsentScreen } from './screens/ConsentScreen';
 import { consentRepo } from './services/consentRepo';
 import { telemetry } from './services/telemetry';
@@ -695,20 +695,23 @@ export default function App() {
     const off = dayRollover.subscribe((today, previous) => {
       console.log(`[DAYROLL] ${previous} → ${today}`);
       /*
-       * Close out the day that just ENDED, not the one that just began.
+       * QUEUE the close-out of the day that just ended — do not perform it.
        *
-       * `closeOutDay` purges that day's figures off the ring, checks the app's
-       * stored totals against what the ring reported, and only zeroes anything
-       * once the two agree. If they do not — a page went missing, the ring was
-       * out of range — it leaves the ring exactly as it is. A day left on the
-       * ring can still be collected tomorrow; a day zeroed before it was
-       * copied is gone, and the ring drops a page the moment it is ACKed.
+       * At midnight the ring is usually on a charger in another room. Running
+       * the close-out once, right now, would mean the attempt that matters
+       * almost always happens when the ring cannot be reached. Queuing instead
+       * lets it be retried the moment the ring is back: on the retry timer, on
+       * app foreground, or when something reports the ring available.
+       *
+       * The work itself still purges, verifies and only then resets — see
+       * ring/dailyReset. A day waits as long as it needs to.
        */
-      void closeOutDay(previous).catch((e) => {
-        console.log(`[DAYROLL] close-out failed, ring left untouched: ${e?.message}`);
-      });
+      void queueCloseOut(previous).then(runPendingCloseOuts);
     });
-    return () => { off(); dayRollover.stop(); };
+    // Retries for any day still waiting — including one queued last night
+    // while the app was closed and the ring was on its charger.
+    const stopRetries = startCloseOutRetries();
+    return () => { off(); dayRollover.stop(); stopRetries(); };
   }, []);
 
   return (

@@ -72,10 +72,21 @@ export interface QueueEvents {
   onSendError?: (err: Error, op?: Opcode) => void;
 }
 
+/**
+ * How long an incomplete multi-packet frame may sit before it is abandoned.
+ *
+ * Generous next to how long a healthy reply takes to stream — the point is
+ * only to guarantee the single reassembly slot cannot be held forever, not to
+ * cut short a slow but working transfer.
+ */
+const REASSEMBLY_TIMEOUT_MS = 4_000;
+
 export class RingCommandQueue {
   private queue: PendingRequest[] = [];
   private inFlight: PendingRequest | null = null;
   private reassembler: FrameReassembler | null = null;
+  /** When the in-progress reassembly began, for the stall timeout below. */
+  private reassemblyStartedAt = 0;
   private unsubscribe: (() => void) | null = null;
 
   constructor(private readonly ring: ConnectedRing, private readonly events: QueueEvents = {}) {}
@@ -185,6 +196,28 @@ export class RingCommandQueue {
 
   private handleNotify(bytes: Uint8Array): void {
     if (this.reassembler) {
+      /*
+       * A partial frame must not be able to swallow the link.
+       *
+       * There is one reassembly slot, and while it is occupied EVERY incoming
+       * packet is appended to it as body bytes. That is correct for the
+       * continuation packets it is waiting for — and catastrophic if the final
+       * one never arrives, because nothing else clears the slot: no timeout,
+       * and the request-level timeout does not touch it. From that moment the
+       * queue silently eats every notification the ring sends, including the
+       * `{2,0x53,0}` bead pushes, until the link drops and the japa counter
+       * reconnects. "It counts for a while and then stops" is this.
+       *
+       * So a reassembly that has gone quiet for longer than a reply could
+       * plausibly take is abandoned, and this packet is re-read as the start
+       * of a new frame — which is usually exactly what it is.
+       */
+      if (Date.now() - this.reassemblyStartedAt > REASSEMBLY_TIMEOUT_MS) {
+        console.log('[RING] abandoning a stalled multi-packet frame; resyncing');
+        this.reassembler = null;
+        this.handleNotify(bytes);
+        return;
+      }
       this.reassembler.append(bytes);
       if (this.reassembler.done()) {
         const { frame, crcOk } = this.reassembler.finalize();
@@ -205,6 +238,7 @@ export class RingCommandQueue {
         return;
       case 'multi_start':
         this.reassembler = new FrameReassembler(parsed.header, parsed.firstChunk);
+        this.reassemblyStartedAt = Date.now();
         return;
       case 'bad_magic':
       case 'short':

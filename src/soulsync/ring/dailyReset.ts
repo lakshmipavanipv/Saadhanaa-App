@@ -36,11 +36,30 @@
  *     are cleared explicitly — and only after the same verification.
  */
 
+import { AppState, type AppStateStatus } from 'react-native';
+
 import { SadhanaRing } from './SadhanaRing';
 import { readSr16DeviceId } from './japaCounter';
 import { syncJapaHistory } from './japaHistorySync';
 import { syncAllRingVitals, foldStepSamples } from './ringVitalsSync';
 import { getDB } from '../db/database';
+import { Storage } from '../../storage';
+
+/** Days whose close-out has not succeeded yet. */
+const PENDING_KEY = 'ring.closeout.pending.v1';
+
+/**
+ * How many days may be waiting at once.
+ *
+ * A ring left in a drawer for a fortnight should not accumulate a fortnight of
+ * retries. The oldest are dropped: their steps are already in the app from
+ * whatever syncs did run, and the bead counter being a few days late to zero
+ * is a far smaller problem than a queue that grows without end.
+ */
+const MAX_PENDING_DAYS = 7;
+
+/** How often to retry a pending close-out while the app is running. */
+const RETRY_EVERY_MS = 15 * 60 * 1000;
 
 /**
  * How far apart the ring's and the app's step totals may be and still count as
@@ -184,4 +203,106 @@ export async function closeOutDay(day: string): Promise<DailyResetResult> {
     `beads recovered=${out.beadsRecovered} cleared=${out.beadsCleared}`
   );
   return out;
+}
+
+// ── Deferred close-out ──────────────────────────────────────────────────────
+
+/**
+ * At midnight the ring is usually off the finger, on a charger, or simply out
+ * of range — asleep in another room is the ordinary case, not the exception.
+ * A close-out that runs once at 00:00 and gives up would therefore almost
+ * never be the one that runs, and the day would be left half-closed: steps
+ * uncopied, beads still accumulating.
+ *
+ * So midnight does not perform the close-out. It QUEUES one. The queue is
+ * persisted, survives the app being killed, and is retried whenever there is a
+ * reason to think the ring might be reachable again — on a timer, when the app
+ * comes back to the foreground, and whenever a caller says the ring just
+ * connected.
+ *
+ * A day leaves the queue only once `closeOutDay` reports it verified. Failure
+ * is not an error state here; it is the normal state at 3am, and the day
+ * simply waits.
+ */
+
+const readPending = (): Promise<string[]> => Storage.get<string[]>(PENDING_KEY, []);
+
+/** Queue a day for close-out. Idempotent. */
+export async function queueCloseOut(day: string): Promise<void> {
+  const pending = await readPending();
+  if (pending.includes(day)) return;
+  const next = [...pending, day].sort().slice(-MAX_PENDING_DAYS);
+  await Storage.set(PENDING_KEY, next);
+  console.log(`[DAYROLL] queued ${day} for close-out (${next.length} pending)`);
+}
+
+/** Days still waiting, oldest first. */
+export async function pendingCloseOuts(): Promise<string[]> {
+  return readPending();
+}
+
+/**
+ * Attempt every pending close-out, oldest first.
+ *
+ * Stops at the first day that does not complete: if the ring is unreachable
+ * for one it will be unreachable for the next, and there is no value in
+ * hammering BLE through the whole backlog to learn the same thing.
+ */
+export async function runPendingCloseOuts(): Promise<void> {
+  const pending = await readPending();
+  if (!pending.length) return;
+
+  const remaining = [...pending];
+  for (const day of pending) {
+    const res = await closeOutDay(day).catch((e) => ({
+      ...blank(day), error: (e as Error).message,
+    }));
+    if (!res.verified) {
+      console.log(`[DAYROLL] ${day} still pending: ${res.error ?? 'not verified'}`);
+      break;
+    }
+    remaining.shift();
+  }
+
+  if (remaining.length !== pending.length) await Storage.set(PENDING_KEY, remaining);
+}
+
+/**
+ * Keep trying until the ring turns up.
+ *
+ * Returns a stop function. Retries are cheap when there is nothing queued —
+ * `runPendingCloseOuts` reads one key and returns — so the timer is left
+ * running rather than being armed and disarmed around the queue's state.
+ */
+export function startCloseOutRetries(): () => void {
+  let running = false;
+  const attempt = () => {
+    // One at a time. A foreground event landing on top of a timer tick would
+    // otherwise have two purges racing for the same destructive channel reads.
+    if (running) return;
+    running = true;
+    void runPendingCloseOuts()
+      .catch((e) => console.log(`[DAYROLL] retry failed: ${(e as Error).message}`))
+      .finally(() => { running = false; });
+  };
+
+  const timer = setInterval(attempt, RETRY_EVERY_MS);
+  const onState = (st: AppStateStatus) => { if (st === 'active') attempt(); };
+  const sub = AppState.addEventListener('change', onState);
+  // The ring coming back is the signal that actually matters — far better
+  // than waiting out a fifteen-minute interval after it reappears.
+  const offConnect = SadhanaRing.onAnyConnect(attempt);
+  attempt();   // and once now, for a day queued while the app was closed
+
+  return () => { clearInterval(timer); sub.remove(); offConnect(); };
+}
+
+/**
+ * Called when the ring has just become reachable.
+ *
+ * The strongest signal there is that a pending day can now be closed out, and
+ * far better than waiting out the retry interval.
+ */
+export function onRingAvailable(): void {
+  void runPendingCloseOuts().catch(() => { /* it stays queued */ });
 }

@@ -29,7 +29,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useSoulsyncSession } from './hooks/useSoulsyncSession';
 import { sessionDirector } from './services/sessionDirector';
-import type { SessionDepth } from './analytics/SadhanaDepth';
+import type { SessionDepth, SessionKind } from './analytics/SadhanaDepth';
 
 /**
  * The last sitting to end, and when.
@@ -41,6 +41,15 @@ import type { SessionDepth } from './analytics/SadhanaDepth';
  */
 export interface LastEnd {
   depth: SessionDepth | null;
+  /**
+   * The sitting that just ended.
+   *
+   * Carried separately from `depth` because `depth` is null for every
+   * unscoreable practice — an exercise or walk sitting has no score, but it
+   * does have vitals, and the insights window still has something to show.
+   */
+  sessionId: string | null;
+  practice: SessionKind | null;
   at: number;
 }
 
@@ -77,8 +86,11 @@ export const SoulsyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     sessionDirector.attach({
       start: (meta) => sessionRef.current.start(meta),
       stop: async () => {
+        // Read before stopping — `stop()` clears both on its way out.
+        const sessionId = sessionRef.current.state.sessionId;
+        const practice = sessionRef.current.state.practice;
         const depth = await sessionRef.current.stop();
-        setLastEnd({ depth, at: Date.now() });
+        setLastEnd({ depth, sessionId, practice, at: Date.now() });
         return depth;
       },
       // The hook's ref-backed answer, not `state.active` — the latter is a

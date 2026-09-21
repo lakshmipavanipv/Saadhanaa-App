@@ -36,6 +36,7 @@ import {
 } from '../ring';
 import type { BuzzPattern, RingSample, RingService, SampleHandler } from './RingTelemetryService';
 import { readSr16DeviceId } from '../ring/japaCounter';
+import { vitalsScheduler } from '../ring/vitalsScheduler';
 import { vitalsRepo } from '../db/vitalsRepo';
 
 /** SpO2/temperature older than this no longer describes the current moment. */
@@ -82,20 +83,21 @@ const COMPANION_FRESHNESS_MS = 6 * 60 * 60 * 1000;   // 6 h
 const LIVE_DWELL_MS: Record<'hrv' | 'spo2', number> = { hrv: 10_000, spo2: 4_000 };
 
 /**
- * Idle between windows.
+ * Idle between windows — the interval in which NOTHING is armed.
  *
- * Was 20 s, which with two 10 s windows put each metric on a 60 s rotation —
- * a live "graph" that moved once a minute. With the per-metric dwells above,
- * 4 s brings the full cycle to ~22 s, so HRV and SpO2 each refresh roughly
- * every 20 s.
+ * This was briefly cut to 4 s to make the live graphs move more often. That
+ * was wrong, and the field disproved it: with the sensors re-armed every few
+ * seconds the ring drops out of tasbih counting mode on its own after a few
+ * beads, gets stuck monitoring SpO2, and stops delivering bead pushes
+ * promptly. The graph refreshing three times a minute instead of once is not
+ * worth a ring that stops counting.
  *
- * Deliberately NOT zero. The gap is the interval in which NOTHING is armed,
- * and that is the property the ring's sensor loop depends on — back-to-back
- * arming is what froze the ring mid-japa before this cycler existed. The gain
- * from 4 s to 0 s is one sample per minute per metric; the cost is the failure
- * mode that requires rebooting the ring. Not a trade worth making.
+ * 20 s restores the cadence that was observed to be stable. The quiet interval
+ * is not dead time — it is the window in which the ring is free to run its own
+ * sensor loop and service its own UI, and squeezing it is what breaks the
+ * device. See the LiveMetric notes in SadhanaRing.ts.
  */
-const LIVE_GAP_MS = 4_000;
+const LIVE_GAP_MS = 20_000;
 /** Metrics rotated through the cycler, in order. */
 const LIVE_CYCLE: ('hrv' | 'spo2')[] = ['hrv', 'spo2'];
 
@@ -126,6 +128,8 @@ export class SadhanaRingService implements RingService {
   /** True when THIS service opened the GATT link rather than joining one. */
   private ownsLink = false;
   private liveTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Unsubscribe from japa-active changes while a session is running. */
+  private unsubJapa: (() => void) | null = null;
   private liveCycleIndex = 0;
   private liveRunning = false;
   /** Metrics whose live push frames we have successfully decoded at least once. */
@@ -223,13 +227,48 @@ export class SadhanaRingService implements RingService {
       }
     }
 
-    // A session — and only a session — drives the ring to actually measure HRV
-    // and SpO2 while the user is watching. Ambient capture leaves that to the
-    // on-ring timer configured in monitoring.ts.
-    if (mode === 'session') this.startLiveVitalsCycle();
+    /*
+     * A session — and only a session — drives the ring to actually measure HRV
+     * and SpO2 while the user is watching. Ambient capture leaves that to the
+     * on-ring timer configured in monitoring.ts.
+     *
+     * NOT WHILE JAPA IS COUNTING.
+     *
+     * `{6,9,0}` is a measurement-MODE switch, not a passive sampler: arming
+     * SpO2 puts the ring's own display into SpO2-measuring state, which takes
+     * it out of tasbih counting. Nothing in this app can put it back — the
+     * tasbih-mode opcode is never sent, and the one write that tried was
+     * disabled for dropping the GATT link. So the ring stops counting beads
+     * and the user has to fix it on the hardware.
+     *
+     * Heart rate is unaffected: it arrives as continuous notify frames, costs
+     * nothing on the command queue, and is the vital the live wave is actually
+     * built from. HRV and SpO2 during japa come from the ring's own monitoring
+     * timer and are picked up by the next sync — later, but without breaking
+     * the thing the user is doing right now.
+     */
+    if (mode === 'session' && !vitalsScheduler.isJapaActive) this.startLiveVitalsCycle();
+
+    /*
+     * Follow japa starting or stopping underneath a running session.
+     *
+     * Someone can begin a sitting on the Yoga tab and then pick up a mala, or
+     * put the mala down and keep sitting. The cycler has to yield the moment
+     * beads start arriving and may resume once they stop — checking only at
+     * start() would leave the ring being knocked out of counting mode by a
+     * session that began before the japa did.
+     */
+    if (mode === 'session') {
+      this.unsubJapa = vitalsScheduler.subscribe(() => {
+        const japa = vitalsScheduler.isJapaActive;
+        if (japa && this.liveRunning) this.stopLiveVitalsCycle();
+        else if (!japa && !this.liveRunning && this.ring) this.startLiveVitalsCycle();
+      });
+    }
   }
 
   async stop(): Promise<void> {
+    this.unsubJapa?.(); this.unsubJapa = null;
     this.stopLiveVitalsCycle();
     if (this.batteryTimer) { clearInterval(this.batteryTimer); this.batteryTimer = null; }
     this.unsubscribeFrames?.();
