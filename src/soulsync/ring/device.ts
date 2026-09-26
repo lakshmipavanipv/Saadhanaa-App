@@ -24,6 +24,8 @@ import {
   OP_HEALTH_2_11_0,
   OP_HEALTH_2_11_16,
   OP_HEALTH_2_99_16,
+  OP_HEALTH_2_101_0,
+  OP_HEALTH_2_101_16,
   OP_INFO_6_5_0,
   OP_INFO_6_4_16,
   lookupOpcode,
@@ -356,6 +358,63 @@ export class DeviceApi {
       await this.setLed(false);
       if (i < times - 1) await new Promise((r) => setTimeout(r, offMs));
     }
+  }
+
+  /**
+   * Longest name the ring will store. RWfit copies at most 24 bytes into the
+   * frame regardless of what was typed [ui/mine/activity/h.java:B], so a
+   * longer name is silently cut there; we cut it here instead, by BYTES, so
+   * the length byte we send always matches what follows it.
+   */
+  static readonly BT_NAME_MAX_BYTES = 24;
+
+  /**
+   * Rename the ring itself — the name it advertises over Bluetooth, which is
+   * what both this app's scan list and the phone's own Bluetooth settings
+   * show. With several identical rings in a room, this is the only thing that
+   * tells them apart: the MAC address is not something anyone recognises.
+   *
+   * Wire layout [capture: ui/mine/activity/h.java:B, getSetNameWCmdJL]:
+   *   {2,101,0} + [nameLen, ...asciiBytes]
+   * `payload` here begins at body[3], which is that length byte.
+   *
+   * Gated by the `hasSetBTName` capability bit ({2,99,16} byte 8, decoded in
+   * parseCapabilitiesV2) — firmware without it nacks the opcode, and a nack
+   * surfaces as a send-queue timeout rather than anything a caller can read.
+   */
+  async setBtName(name: string): Promise<void> {
+    const enc = new TextEncoder();
+    const bytes = enc.encode(name.trim()).slice(0, DeviceApi.BT_NAME_MAX_BYTES);
+    if (bytes.length === 0) throw new Error('ring name cannot be empty');
+
+    const payload = new Uint8Array(1 + bytes.length);
+    payload[0] = bytes.length & 0xff;
+    payload.set(bytes, 1);
+
+    await this.ring.queue.send(OP_HEALTH_2_101_0, payload, {
+      expectReply: true,
+      timeoutMs: 3000,
+    });
+  }
+
+  /**
+   * Read back the name the ring is advertising.
+   *
+   * The reply carries its own length byte, and the ring pads the rest of the
+   * frame with NULs — trusting the frame length instead would hand back a
+   * name with invisible characters glued to the end, which then fails every
+   * comparison against what was written.
+   */
+  async getBtName(): Promise<string | null> {
+    const reply = await this.ring.queue.send(OP_HEALTH_2_101_16, new Uint8Array(0), {
+      expectReply: true,
+      timeoutMs: 3000,
+    });
+    const p = reply.payload;
+    if (!p || p.length < 1) return null;
+    const len = Math.min(p[0] & 0xff, p.length - 1);
+    if (len <= 0) return null;
+    return new TextDecoder('utf-8').decode(p.slice(1, 1 + len)).replace(/\0+$/, '') || null;
   }
 
   /**

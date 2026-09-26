@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getDB } from './soulsync/db/database';
 import { ambientIngestion } from './soulsync/services/AmbientIngestion';
 import { vitalsScheduler } from './soulsync/ring/vitalsScheduler';
+import { ringLink } from './soulsync/ring/ringLink';
 import { useEmotionalState } from './soulsync/hooks/useEmotionalState';
 import { GroundingOverlay } from './soulsync/components/GroundingOverlay';
 import { CoolingOverlay } from './soulsync/components/CoolingOverlay';
@@ -663,6 +664,12 @@ export default function App() {
       };
 
       await step('db', async () => { await getDB(); });   // runs migrations on first launch
+      // The link supervisor comes first and outlives every screen: it is what
+      // brings the ring back after the phone restarts, after airplane mode,
+      // and after the ring itself is switched off and on. Everything below
+      // goes through SadhanaRing's shared per-device instance, so they inherit
+      // the link this holds open rather than each racing their own connect.
+      await step('ring-link', async () => { ringLink.start(); });
       await step('ambient', () => ambientIngestion.start());
       // Cadence engine — measures on the user's chosen interval, every 30
       // min inside the sleep window, and continuously during japa.

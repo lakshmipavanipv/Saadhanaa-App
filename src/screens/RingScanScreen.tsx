@@ -43,9 +43,11 @@ import {
   waitForBluetoothOn,
   saveSr16DeviceId,
   clearSr16DeviceId,
-  readSr16DeviceId,
+  readSr16Device,
+  saveSr16DeviceName,
   type ScannedRing,
 } from '../soulsync/ring';
+import { ringLink } from '../soulsync/ring/ringLink';
 
 /** Pinned dark palette — the app's own tokens. See the theming note above. */
 const M = {
@@ -109,6 +111,10 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
   const [showAll, setShowAll] = useState(false);
   /** The ring already remembered, if any — the one Unbind would forget. */
   const [bound, setBound] = useState<string | null>(null);
+  /** Its name, so the saved ring reads as "Pavani" and not as a MAC address. */
+  const [boundName, setBoundName] = useState<string | null>(null);
+  /** True while reconnecting to the saved ring directly, without a scan. */
+  const [reconnecting, setReconnecting] = useState(false);
   const [connectedName, setConnectedName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -208,7 +214,10 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
     setError(null);
     try {
       const ring = await SadhanaRing.connect(r.id);
-      await saveSr16DeviceId(r.id);
+      await saveSr16DeviceId(r.id, r.name);
+      // The supervisor's target just changed — tell it now rather than let it
+      // discover the new pairing on its next backoff tick.
+      ringLink.pairingChanged();
       // Buzz once so pairing is confirmed on the finger, not only on screen.
       void ring.device.vibrate(1).catch(() => { /* some firmware nacks; harmless */ });
       setVerified('done');
@@ -219,7 +228,48 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
     }
   }, []);
 
-  useEffect(() => { void readSr16DeviceId().then(setBound); }, [connectedName]);
+  useEffect(() => {
+    void readSr16Device().then((rec) => {
+      setBound(rec?.id ?? null);
+      setBoundName(rec?.name ?? null);
+    });
+  }, [connectedName]);
+
+  /**
+   * Reconnect to the ring we already know, without scanning for it first.
+   *
+   * A saved ring is a known address, and connecting to a MAC does not require
+   * having just heard an advertisement. Scanning first is in fact worse than
+   * useless here: a ring already connected to the phone stops advertising, so
+   * the scan that "proves" it is there can never see it — which is exactly
+   * the case where the phone's own Bluetooth settings list it happily and the
+   * app claims there is no ring nearby.
+   */
+  const reconnectSaved = useCallback(async () => {
+    if (!bound) return;
+    stopScanRef.current?.();
+    stopScanRef.current = null;
+    setScanning(false);
+    setReconnecting(true);
+    setError(null);
+    try {
+      const ring = await SadhanaRing.connect(bound);
+      void ring.device.vibrate(1).catch(() => { /* harmless */ });
+      let name = boundName;
+      try {
+        const live = await ring.device.getBtName();
+        if (live) { name = live; await saveSr16DeviceName(live); setBoundName(live); }
+      } catch { /* firmware may not answer; the saved name stands */ }
+      setVerified('done');
+      setConnectedName(name || bound);
+      ringLink.retryNow('manual-reconnect');
+    } catch (e) {
+      setError('Could not reach your ring: ' + (e as Error).message +
+        '. Make sure it is charged and on your finger, then try again.');
+    } finally {
+      setReconnecting(false);
+    }
+  }, [bound, boundName]);
 
   /**
    * Forget the paired ring.
@@ -243,6 +293,8 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
           style: 'destructive',
           onPress: async () => {
             await clearSr16DeviceId();
+            // Stop the supervisor reconnecting to the ring we just forgot.
+            ringLink.pairingChanged();
             setBound(null);
             setConnectedName(null);
             setVerified('pending');
@@ -449,6 +501,28 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
             <ActivityIndicator color={M.gold} />
             <Text style={styles.scanNoteTxt}>Listening for nearby rings…</Text>
           </View>
+        ) : null}
+
+        {/* Your ring, by name, reachable without a scan finding it first.
+            Offered whenever one is remembered and we are not already on it —
+            a ring that is out of range, on charge, or simply not advertising
+            because it is still connected to this phone all end up here. */}
+        {bound && !connected ? (
+          <TouchableOpacity
+            style={styles.saved}
+            onPress={() => void reconnectSaved()}
+            activeOpacity={0.85}
+            disabled={reconnecting}
+          >
+            <View style={[styles.deviceDot, { backgroundColor: M.green }]} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.savedName} numberOfLines={1}>{boundName || 'Your paired ring'}</Text>
+              <Text style={styles.savedId} numberOfLines={1}>{bound.toUpperCase()}</Text>
+            </View>
+            {reconnecting
+              ? <ActivityIndicator color={M.green} />
+              : <Text style={styles.savedCta}>Reconnect</Text>}
+          </TouchableOpacity>
         ) : null}
 
         {/* Unbind — only offered when there is something to forget. */}
@@ -760,4 +834,15 @@ const styles = StyleSheet.create({
   deviceName: { color: M.ink, fontSize: 14.5, fontWeight: '600' },
   deviceId: { color: M.label, fontSize: 11, marginTop: 2, letterSpacing: 0.4 },
   deviceRssi: { color: M.body, fontSize: 11.5, fontWeight: '700', minWidth: 28, textAlign: 'right' },
+
+  saved: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: 'rgba(52,211,153,0.07)', borderRadius: 14,
+    borderWidth: 1, borderColor: 'rgba(52,211,153,0.28)',
+    paddingHorizontal: 14, paddingVertical: 14,
+    marginTop: 14,
+  },
+  savedName: { color: M.ink, fontSize: 15, fontWeight: '700' },
+  savedId: { color: M.label, fontSize: 11, marginTop: 2, letterSpacing: 0.4 },
+  savedCta: { color: M.green, fontSize: 13, fontWeight: '700' },
 });

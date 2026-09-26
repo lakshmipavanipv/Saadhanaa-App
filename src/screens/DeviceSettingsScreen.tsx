@@ -16,6 +16,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Switch, Modal,
+  TextInput, ActivityIndicator,
 } from 'react-native';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../theme';
 import { useTheme } from '../ThemeContext';
@@ -23,8 +24,8 @@ import { VitalsMeasurementSection } from './SettingsScreen';
 import { RespirationProbeScreen } from './RespirationProbeScreen';
 import { ThemePicker } from '../components/ThemePicker';
 import { SadhanaRing } from '../soulsync/ring/SadhanaRing';
-import { readSr16DeviceId } from '../soulsync/ring/japaCounter';
-import type { BatteryStatus, FirmwareInfo } from '../soulsync/ring/device';
+import { readSr16DeviceId, readSr16DeviceName, saveSr16DeviceName } from '../soulsync/ring/japaCounter';
+import { DeviceApi, type BatteryStatus, type FirmwareInfo } from '../soulsync/ring/device';
 
 interface Props {
   onClose: () => void;
@@ -57,6 +58,20 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
   const [showRespProbe, setShowRespProbe] = useState(false);
   const [showThemePicker, setShowThemePicker] = useState(false);
 
+  /**
+   * The ring's own Bluetooth name.
+   *
+   * Seeded from the saved pairing so the card reads "Pavani" even before the
+   * link is up — the ring is out of range as often as not when this screen
+   * opens, and falling back to the model number there is what made every ring
+   * look identical.
+   */
+  const [btName, setBtName] = useState<string | null>(null);
+  const [canRename, setCanRename] = useState<boolean | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [savingName, setSavingName] = useState(false);
+
   const soon = (feature: string) =>
     Alert.alert(feature, 'Requires opcode we haven\'t verified live yet. Coming soon.');
 
@@ -66,6 +81,9 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
       const id = await readSr16DeviceId();
       if (!id) return;
       setMac(id);
+      // Remembered name first: this paints immediately and survives the ring
+      // being out of range, which is the case the card used to handle worst.
+      try { const saved = await readSr16DeviceName(); if (!disposed && saved) setBtName(saved); } catch { /* ignore */ }
       try {
         const r = await SadhanaRing.connect(id);
         if (disposed) { await r.disconnect(); return; }
@@ -73,6 +91,14 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
         setConnected(true);
         try { setBattery(await r.device.getBattery()); } catch { /* ignore */ }
         try { setFw(await r.device.getFirmwareInfo()); } catch { /* ignore */ }
+        try {
+          const caps = await r.device.getCapabilities();
+          if (!disposed) setCanRename(caps.hasSetBTName);
+        } catch { /* leave unknown — the row stays, the write reports its own failure */ }
+        try {
+          const live = await r.device.getBtName();
+          if (!disposed && live) { setBtName(live); void saveSr16DeviceName(live); }
+        } catch { /* older firmware may not answer the read */ }
       } catch { /* stayed disconnected */ }
     })();
     return () => { disposed = true; ring?.disconnect().catch(() => {}); };
@@ -89,6 +115,43 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
       }},
     ]
   );
+
+  /**
+   * Write the typed name to the ring, then remember it.
+   *
+   * Order matters: the ring is the source of truth for the name it
+   * advertises, so we only store what it accepted. Saving first and writing
+   * afterwards would leave the app showing a name no scan list agrees with —
+   * exactly the confusion this feature exists to remove.
+   */
+  const handleRename = async () => {
+    const next = nameDraft.trim();
+    if (!next) return;
+    if (!ring) {
+      Alert.alert('Ring not connected', 'The name is stored on the ring itself, so it has to be connected. Put it on and try again.');
+      return;
+    }
+    setSavingName(true);
+    try {
+      await ring.device.setBtName(next);
+      await saveSr16DeviceName(next);
+      setBtName(next);
+      setRenaming(false);
+      Alert.alert(
+        'Ring renamed',
+        `This ring now advertises as "${next}". Some phones keep showing the old name in their own Bluetooth list until the ring is switched off and on.`,
+      );
+    } catch (e) {
+      Alert.alert(
+        'Could not rename',
+        canRename === false
+          ? 'This ring\'s firmware reports no rename support, and it refused the command.'
+          : 'The ring did not accept the new name: ' + (e as Error).message,
+      );
+    } finally {
+      setSavingName(false);
+    }
+  };
 
   const handleFactoryReset = () => Alert.alert(
     'Restore factory settings',
@@ -164,6 +227,17 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
         { text: 'Cancel', style: 'cancel' },
       ]
     ) },
+    // Naming the ring is the first thing worth doing with several of them in
+    // a house — the scan list is otherwise a column of identical MACs.
+    { icon: '🏷️', iconBg: '#a855f7', label: 'Ring name', value: btName ?? 'Not set',
+      onPress: () => {
+        if (!ring) {
+          Alert.alert('Ring not connected', 'The name lives on the ring itself, so it has to be connected before it can be changed.');
+          return;
+        }
+        setNameDraft(btName ?? '');
+        setRenaming(true);
+      } },
     { icon: '🔎', iconBg: '#0ea5e9', label: 'Find Ring (Buzz)', onPress: handleFindDevice },
     { icon: '🩺', iconBg: '#ef4444', label: 'Health Monitoring', onPress: () => ring?.device.setHealthMonitorMaster(true).then(() => Alert.alert('Monitor ON')).catch(() => soon('Health Monitoring')) },
     // A ring diagnostic belongs on the ring's own screen. It was reachable
@@ -203,7 +277,9 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
       {/* Ring header card */}
       <View style={styles.headerCard}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.ringName}>{fw?.deviceModel ?? 'SR16'}</Text>
+          {/* The ring's own name leads — the model number is the same on
+              every one of them and answers nothing about which is yours. */}
+          <Text style={styles.ringName}>{btName ?? fw?.deviceModel ?? 'SR16'}</Text>
           <Text style={styles.ringStatus}>{connected ? 'Connected' : 'Disconnected'}</Text>
           <Text style={styles.ringLine}>version number: V{fw?.version ?? '—'}</Text>
           <Text style={styles.ringLine}>MAC: {mac ?? '—'}</Text>
@@ -266,6 +342,44 @@ export const DeviceSettingsScreen: React.FC<Props> = ({ onClose, onOpenPair }) =
           <RespirationProbeScreen onClose={() => setShowRespProbe(false)} />
         </Modal>
       )}
+
+      {/* Rename. A plain Alert.prompt would have been shorter, but that is
+          iOS-only — on Android it renders as an alert with no text field at
+          all, so the row would do nothing on the one platform this ships to. */}
+      <Modal visible={renaming} transparent animationType="fade" onRequestClose={() => setRenaming(false)}>
+        <View style={styles.renameBackdrop}>
+          <View style={[styles.renameCard, { backgroundColor: palette.darkBg, borderColor: palette.border }]}>
+            <Text style={[styles.renameTitle, { color: palette.cream }]}>Name this ring</Text>
+            <Text style={[styles.renameBody, { color: palette.muted }]}>
+              Written to the ring itself, so it is what you&apos;ll see in the app&apos;s scan list and in
+              your phone&apos;s Bluetooth settings. Up to {DeviceApi.BT_NAME_MAX_BYTES} characters.
+            </Text>
+            <TextInput
+              value={nameDraft}
+              onChangeText={setNameDraft}
+              placeholder="e.g. Pavani"
+              placeholderTextColor={palette.muted}
+              maxLength={DeviceApi.BT_NAME_MAX_BYTES}
+              autoFocus
+              style={[styles.renameInput, { color: palette.cream, borderColor: palette.border }]}
+            />
+            <View style={styles.renameBtnRow}>
+              <TouchableOpacity style={styles.renameCancel} onPress={() => setRenaming(false)} disabled={savingName}>
+                <Text style={[styles.renameCancelTxt, { color: palette.muted }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.renameSave, (!nameDraft.trim() || savingName) && { opacity: 0.5 }]}
+                onPress={handleRename}
+                disabled={!nameDraft.trim() || savingName}
+              >
+                {savingName
+                  ? <ActivityIndicator size="small" color="#0b1220" />
+                  : <Text style={styles.renameSaveTxt}>Save to ring</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 };
@@ -330,4 +444,32 @@ const styles = StyleSheet.create({
   rowLabel: { color: COLORS.cream, fontSize: FONT_SIZES.base, flex: 1 },
   rowValue: { color: COLORS.muted, fontSize: FONT_SIZES.sm, marginRight: SPACING.xs },
   rowChev: { color: COLORS.muted, fontSize: FONT_SIZES.xl },
+
+  renameBackdrop: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center', justifyContent: 'center', padding: SPACING.lg,
+  },
+  renameCard: {
+    width: '100%', maxWidth: 420, borderRadius: BORDER_RADIUS.lg,
+    borderWidth: 1, padding: SPACING.lg,
+  },
+  renameTitle: { fontSize: FONT_SIZES.lg, fontWeight: '700', marginBottom: SPACING.xs },
+  renameBody: { fontSize: FONT_SIZES.sm, lineHeight: 19, marginBottom: SPACING.md },
+  renameInput: {
+    borderWidth: 1, borderRadius: BORDER_RADIUS.md,
+    paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm,
+    fontSize: FONT_SIZES.base,
+  },
+  renameBtnRow: {
+    flexDirection: 'row', justifyContent: 'flex-end',
+    alignItems: 'center', gap: SPACING.sm, marginTop: SPACING.lg,
+  },
+  renameCancel: { paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm },
+  renameCancelTxt: { fontSize: FONT_SIZES.base },
+  renameSave: {
+    backgroundColor: '#eab308', borderRadius: BORDER_RADIUS.md,
+    paddingHorizontal: SPACING.lg, paddingVertical: SPACING.sm,
+    minWidth: 128, alignItems: 'center',
+  },
+  renameSaveTxt: { color: '#0b1220', fontWeight: '700', fontSize: FONT_SIZES.base },
 });

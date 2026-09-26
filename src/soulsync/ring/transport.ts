@@ -39,6 +39,14 @@ export interface ScannedRing {
   rssi: number | null;
   manufacturerId: number | null;
   hint: 'a00a-service' | 'company-05d6' | 'company-06d6' | 'name-smartbox' | 'name-ac701n' | 'other';
+  /**
+   * RWfit's own device-type code for the advertiser, for parity when
+   * comparing our scan against theirs: 1 = 0xA00A service, 2 = company
+   * 0x05D6, 3 = either of those on a SmartBox/AC701N_watch name, 4 = company
+   * 0x06D6, 239 = the 0x05D6 "AT" record. Null when only our own looser
+   * parsed-field rules matched.
+   */
+  rwType: 1 | 2 | 3 | 4 | 239 | null;
 }
 
 export interface ConnectedRing {
@@ -110,28 +118,83 @@ export async function waitForBluetoothOn(timeoutMs = 6000): Promise<boolean> {
 }
 
 /**
- * Classify an advertising record against the four RWfit prefix rules.
- * `manufacturerData` (b64) format is [companyId_lo, companyId_hi, …].
+ * RWfit's four advertising patterns, matched against the raw record.
+ *
+ * Taken verbatim from its scanner (`r5/d.java`, tag "ScanBleService"). Two
+ * details there are easy to get wrong and both matter:
+ *
+ *   • It matches `contains`, not a prefix. The class copies the first 9 bytes
+ *     into an array and then never uses it — the comparison runs against the
+ *     whole advertising record, so a ring whose flags or name push these
+ *     bytes further along still matches.
+ *   • It requires the advertiser to have a name. An unnamed device is dropped
+ *     before the patterns are even tested.
+ *
+ * Ordering is RWfit's: 0xA00A first, then 0x06D6, then the "AT" record, with
+ * plain 0x05D6 as the fallback.
+ */
+const RW_AD_PATTERNS: { hex: string; type: 1 | 2 | 4 | 239; hint: ScannedRing['hint'] }[] = [
+  // 02 01 06 03 03 0a a0 — flags + 16-bit service 0xA00A
+  { hex: '02010603030aa0', type: 1,   hint: 'a00a-service' },
+  // d6 06 02 00 — company 0x06D6
+  { hex: 'd6060200',       type: 4,   hint: 'company-06d6' },
+  // 15 ff d6 05 41 54 — company 0x05D6 followed by ASCII "AT"
+  { hex: '15ffd6054154',   type: 239, hint: 'company-05d6' },
+  // d6 05 02 00 — company 0x05D6
+  { hex: 'd6050200',       type: 2,   hint: 'company-05d6' },
+];
+
+const toHex = (buf: Buffer): string => buf.toString('hex').toLowerCase();
+
+/**
+ * Classify an advertising record.
+ *
+ * The raw-record rules above are RWfit's and are tried first, because they see
+ * the bytes exactly as the ring sent them. The parsed-field rules that follow
+ * are ours and strictly looser — react-native-ble-plx has already split out
+ * service UUIDs and manufacturer data, which catches rings whose record is
+ * laid out differently than the four shapes RWfit happens to know about.
  */
 function classifyAd(
   name: string | null,
   serviceUUIDs: string[] | null,
-  manufacturerDataB64: string | null
-): { hint: ScannedRing['hint']; manufacturerId: number | null } | null {
+  manufacturerDataB64: string | null,
+  rawScanRecordB64: string | null
+): { hint: ScannedRing['hint']; manufacturerId: number | null; rwType: ScannedRing['rwType'] } | null {
   const lname = name?.toLowerCase() ?? '';
-  if (lname.includes('smartbox')) return { hint: 'name-smartbox', manufacturerId: null };
-  if (lname.includes('ac701n')) return { hint: 'name-ac701n', manufacturerId: null };
+  // RWfit treats these names as an upgrade of an already-matched advertiser
+  // (type 1 or 2 becomes 3), never as a match on their own.
+  const isBondableName = lname.includes('smartbox') || lname.includes('ac701n_watch');
+
+  if (rawScanRecordB64 && name) {
+    const raw = Buffer.from(rawScanRecordB64, 'base64');
+    if (raw.length >= 9) {
+      const hex = toHex(raw);
+      for (const p of RW_AD_PATTERNS) {
+        if (!hex.includes(p.hex)) continue;
+        const rwType = (p.type === 1 || p.type === 2) && isBondableName ? 3 : p.type;
+        const manufacturerId =
+          p.hint === 'company-05d6' ? 0x05d6 : p.hint === 'company-06d6' ? 0x06d6 : null;
+        return { hint: p.hint, manufacturerId, rwType };
+      }
+    }
+  }
+
+  // Our own rules. Unlike RWfit's, a bondable name alone is enough here — the
+  // debug screen relies on it to surface a ring whose advertising is odd.
+  if (lname.includes('smartbox')) return { hint: 'name-smartbox', manufacturerId: null, rwType: null };
+  if (lname.includes('ac701n')) return { hint: 'name-ac701n', manufacturerId: null, rwType: null };
 
   if (serviceUUIDs?.some((u) => u.toLowerCase() === SERVICE_DATA)) {
-    return { hint: 'a00a-service', manufacturerId: null };
+    return { hint: 'a00a-service', manufacturerId: null, rwType: null };
   }
 
   if (manufacturerDataB64) {
     const buf = Buffer.from(manufacturerDataB64, 'base64');
     if (buf.length >= 2) {
       const companyId = buf[0] | (buf[1] << 8);
-      if (companyId === 0x05d6) return { hint: 'company-05d6', manufacturerId: companyId };
-      if (companyId === 0x06d6) return { hint: 'company-06d6', manufacturerId: companyId };
+      if (companyId === 0x05d6) return { hint: 'company-05d6', manufacturerId: companyId, rwType: null };
+      if (companyId === 0x06d6) return { hint: 'company-06d6', manufacturerId: companyId, rwType: null };
     }
   }
   return null;
@@ -157,7 +220,9 @@ export function scanForRings(
     }
     if (!device || seen.has(device.id)) return;
 
-    const cls = classifyAd(device.name, device.serviceUUIDs, device.manufacturerData);
+    const cls = classifyAd(
+      device.name, device.serviceUUIDs, device.manufacturerData, device.rawScanRecord
+    );
     if (!cls && !permissive) return;
     if (!cls && permissive && !device.name) return;
 
@@ -168,6 +233,7 @@ export function scanForRings(
       rssi: device.rssi,
       manufacturerId: cls?.manufacturerId ?? null,
       hint: cls?.hint ?? 'other',
+      rwType: cls?.rwType ?? null,
     });
   });
 

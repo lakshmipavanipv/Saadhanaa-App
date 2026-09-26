@@ -80,11 +80,16 @@ export {
 export {
   JapaRingCounter,
   saveSr16DeviceId,
+  saveSr16DeviceName,
   clearSr16DeviceId,
   readSr16DeviceId,
+  readSr16Device,
+  readSr16DeviceName,
+  type Sr16DeviceRecord,
   type TapHandler,
   type CounterEvents,
 } from './japaCounter';
+export { ringLink, type RingLinkState, type RingLinkStatus } from './ringLink';
 export { getRingStepsToday, type RingStepsToday } from './ringSteps';
 export { syncAllRingVitals, loadStoredVitals, type RingVitalsSyncResult } from './ringVitalsSync';
 export {

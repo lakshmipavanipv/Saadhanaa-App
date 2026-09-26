@@ -84,3 +84,7 @@ server/firebase-service-account.json
 **/firebase-service-account*.json
 otp-worker/node_modules/
 otp-worker/.dev.vars
+
+# Local Expo modules — Gradle build output
+modules/*/android/build/
+modules/*/android/.cxx/

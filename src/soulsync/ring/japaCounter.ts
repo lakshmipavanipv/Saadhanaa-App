@@ -40,8 +40,42 @@ const RECONNECT_MAX_MS = 5_000;
 /** Attempts served at RECONNECT_MS before the delay starts growing. */
 const RECONNECT_FAST_ATTEMPTS = 8;
 
-export const saveSr16DeviceId = (id: string): Promise<void> =>
-  Storage.set(STORAGE_KEY, { id, savedAt: Date.now() });
+/**
+ * What we remember about the paired ring.
+ *
+ * `name` was added because the record held nothing but a MAC address, and a
+ * MAC is not an answer to "which of these rings is mine" — the pairing screen
+ * had to fall back to the raw id whenever the ring wasn't currently
+ * advertising. It holds the name the ring advertises, refreshed whenever we
+ * see or set it, so the UI can say "Pavani" while the ring is out of range.
+ */
+export interface Sr16DeviceRecord {
+  id: string;
+  savedAt: number;
+  name?: string | null;
+}
+
+export const saveSr16DeviceId = (id: string, name?: string | null): Promise<void> =>
+  Storage.set(STORAGE_KEY, { id, savedAt: Date.now(), name: name ?? null });
+
+/**
+ * Update the remembered name without disturbing the pairing.
+ *
+ * A no-op when nothing is paired: renaming a ring we are not bound to would
+ * invent a pairing record out of a name, and the next launch would try to
+ * connect to an id that was never saved.
+ */
+export const saveSr16DeviceName = async (name: string | null): Promise<void> => {
+  const rec = await Storage.get<Sr16DeviceRecord | null>(STORAGE_KEY, null);
+  if (!rec?.id) return;
+  await Storage.set(STORAGE_KEY, { ...rec, name });
+};
+
+export const readSr16Device = (): Promise<Sr16DeviceRecord | null> =>
+  Storage.get<Sr16DeviceRecord | null>(STORAGE_KEY, null);
+
+export const readSr16DeviceName = async (): Promise<string | null> =>
+  (await readSr16Device())?.name ?? null;
 
 /**
  * Forget the paired ring.
@@ -55,7 +89,7 @@ export const saveSr16DeviceId = (id: string): Promise<void> =>
 export const clearSr16DeviceId = (): Promise<void> => Storage.set(STORAGE_KEY, null);
 
 export const readSr16DeviceId = async (): Promise<string | null> => {
-  const rec = await Storage.get<{ id: string; savedAt: number } | null>(STORAGE_KEY, null);
+  const rec = await Storage.get<Sr16DeviceRecord | null>(STORAGE_KEY, null);
   return rec?.id ?? null;
 };
 

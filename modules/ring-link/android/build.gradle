@@ -1,0 +1,26 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.bodyandsoulring.ringlink'
+version = '0.1.0'
+
+android {
+  namespace 'expo.modules.ringlink'
+
+  // expo-module-gradle-plugin reads these back out when it wires the module
+  // into the app; without them configuration fails on the missing
+  // versionName rather than on anything to do with this module's code.
+  defaultConfig {
+    versionCode 1
+    versionName '0.1.0'
+  }
+}
+
+dependencies {
+  // HeadlessJsTaskService + the React host live in the app's own React Native,
+  // which is already on the classpath at build time. `compileOnly` keeps this
+  // module from pulling a second copy in.
+  compileOnly 'com.facebook.react:react-android'
+}
