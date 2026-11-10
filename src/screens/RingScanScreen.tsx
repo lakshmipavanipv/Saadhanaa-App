@@ -181,7 +181,13 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
 
     stopScanRef.current = SadhanaRing.scan(
       (r) => {
-        setCandidates((prev) => (prev.some((p) => p.id === r.id) ? prev : [...prev, r]));
+        setCandidates((prev) => {
+          const idx = prev.findIndex((p) => p.id === r.id);
+          if (idx < 0) return [...prev, r];
+          const next = prev.slice();
+          next[idx] = r;
+          return next;
+        });
         // "Ring found" means a ring, not any advertiser. A fridge in range used
         // to satisfy this step and turn the checklist green with nothing paired.
         if (r.hint !== 'other') setFound('done');

@@ -20,7 +20,10 @@
  * fall back to a user-picker if the auto-match misses.
  */
 
-import { BleManager, Device, Subscription, BleError, State } from 'react-native-ble-plx';
+import {
+  BleManager, Device, Subscription, BleError, State,
+  ScanMode, ScanCallbackType,
+} from 'react-native-ble-plx';
 import { Platform, PermissionsAndroid } from 'react-native';
 import { Buffer } from 'buffer';
 
@@ -252,31 +255,82 @@ export function scanForRings(
 ): () => void {
   const { timeoutMs = 15000, permissive = false } = opts;
   const m = getBleManager();
-  const seen = new Set<string>();
 
-  m.startDeviceScan(null, { allowDuplicates: false }, (err, device) => {
+  /*
+   * Why this is not a simple "fire once per device" loop.
+   *
+   * A BLE advertiser sends two packets on each hop: the initial ADV_IND,
+   * and — once the central asks — a SCAN_RSP. Many smart rings put only
+   * their id in ADV_IND and keep the human-readable name in SCAN_RSP, so
+   * the FIRST callback we get for a device has `name = null`. With the old
+   * `allowDuplicates: false` setting react-native-ble-plx drops every
+   * further callback for that device, so the name packet never reaches us
+   * and the device stays unnamed forever. It also skipped past our
+   * `permissive && !name` guard and was never reported at all, which is
+   * why users saw "no rings found" while other apps listed theirs.
+   *
+   * So: allowDuplicates: TRUE, a per-id merge of whichever packet carried
+   * the name, and onCandidate fires both when a device is first seen AND
+   * when a name/better RSSI arrives for one we already reported — the UI
+   * keys devices by id and simply replaces.
+   *
+   * ScanMode.LowLatency: the default LowPower mode has a long listen
+   * window and drops short advertisers. Pairing is bursty and user-facing;
+   * we accept the battery cost for the ten seconds the scan is live.
+   */
+  const seen = new Map<string, ScannedRing>();
+
+  const handle = (err: BleError | null, device: Device | null) => {
     if (err) {
       onError(err.message || 'scan failed');
       return;
     }
-    if (!device || seen.has(device.id)) return;
+    if (!device) return;
 
     const cls = classifyAd(
       device.name, device.serviceUUIDs, device.manufacturerData, device.rawScanRecord
     );
     if (!cls && !permissive) return;
-    if (!cls && permissive && !device.name) return;
 
-    seen.add(device.id);
-    onCandidate({
+    const prior = seen.get(device.id);
+    // Merge: keep the best name we have (a later SCAN_RSP may fill it in),
+    // keep the strongest RSSI we have seen, promote the hint if the newer
+    // packet classifies when the earlier one did not.
+    const merged: ScannedRing = {
       id: device.id,
-      name: device.name,
-      rssi: device.rssi,
-      manufacturerId: cls?.manufacturerId ?? null,
-      hint: cls?.hint ?? 'other',
-      rwType: cls?.rwType ?? null,
-    });
-  });
+      name: device.name ?? prior?.name ?? null,
+      rssi: prior?.rssi != null && device.rssi != null
+        ? Math.max(prior.rssi, device.rssi)
+        : (device.rssi ?? prior?.rssi ?? null),
+      manufacturerId: cls?.manufacturerId ?? prior?.manufacturerId ?? null,
+      hint: cls?.hint ?? prior?.hint ?? 'other',
+      rwType: cls?.rwType ?? prior?.rwType ?? null,
+    };
+
+    // Only publish once we have something to display: a name OR a
+    // classifier hint. A device with neither is just a MAC floating in
+    // the air — worth remembering in `seen` so a later packet upgrades it,
+    // not worth showing until then.
+    const displayable = !!merged.name || merged.hint !== 'other';
+    const changed =
+      !prior ||
+      prior.name !== merged.name ||
+      prior.hint !== merged.hint ||
+      prior.rssi !== merged.rssi;
+
+    seen.set(device.id, merged);
+    if (displayable && changed) onCandidate(merged);
+  };
+
+  m.startDeviceScan(
+    null,
+    {
+      allowDuplicates: true,
+      scanMode: ScanMode.LowLatency,
+      callbackType: ScanCallbackType.AllMatches,
+    },
+    handle,
+  );
 
   const t = setTimeout(() => m.stopDeviceScan(), timeoutMs);
   return () => {
