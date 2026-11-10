@@ -790,9 +790,23 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
     ).slice(0, 80);
   }, [shownEntries, search]);
 
-  const Step2Japa = (
-    <View>
-      {/* ── 1. The goal ── */}
+  /*
+   * ── Step 2 (japa), as two sub-views ───────────────────────────────────
+   *
+   * The first sub-view asks only "what is this japa for?" — a deity, a
+   * sandhya, or a self-designed path. Tapping one of the three cards
+   * REPLACES them with a focused picker for that kind, with a back row to
+   * return to the choices. The old layout kept all three cards visible and
+   * grew a scrolling list underneath them, which made the step look like
+   * three decisions stacked on one screen instead of the one it actually is.
+   *
+   * The goal (minutes or malas, and the target number) is asked in both
+   * sub-views so it is never lost on the way through: Next is only enabled
+   * once goal AND name are set, and we do not want the user to backtrack
+   * once they have reached the picker.
+   */
+  const GoalBlock = (
+    <>
       <Text style={ws.stepTitle}>Set your goal</Text>
       <Text style={ws.stepHint}>Count this japa in time, or in malas.</Text>
       <View style={ws.goalMetricRow}>
@@ -823,39 +837,66 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
         />
         <Text style={ws.durLabel}>{GOAL_UNIT_META[goalUnit].short}/day</Text>
       </View>
+    </>
+  );
 
-      {/* ── 2. Which sadhana ── */}
+  const Step2JapaKinds = (
+    <View>
+      {GoalBlock}
+
       <Text style={[ws.stepTitle, { marginTop: SPACING.lg }]}>Pick Sadhana</Text>
       <Text style={ws.stepHint}>What is this japa for?</Text>
 
-      {SADHANA_KINDS.map(k => {
-        const on = sadhanaKind === k.id;
-        return (
-          <TouchableOpacity
-            key={k.id}
-            style={[ws.sadhanaCard, on && ws.sadhanaCardActive]}
-            onPress={() => {
-              setSadhanaKind(on ? null : k.id);
-              setSearch('');
-              // A path is typed, not picked, so clear whatever was chosen
-              // before rather than leaving a stale deity name in the field.
-              if (k.id === 'path') { setPickedName(''); setPickedSub(''); }
-            }}
-            activeOpacity={0.75}
-          >
-            <Text style={ws.sadhanaCardIcon}>{k.icon}</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={ws.sadhanaCardTitle}>{k.title}</Text>
-              <Text style={ws.sadhanaCardSub}>{k.sub}</Text>
-            </View>
-            <Text style={ws.sadhanaCardArrow}>{on ? '▾' : '›'}</Text>
-          </TouchableOpacity>
-        );
-      })}
+      {SADHANA_KINDS.map(k => (
+        <TouchableOpacity
+          key={k.id}
+          style={ws.sadhanaCard}
+          onPress={() => {
+            setSadhanaKind(k.id);
+            setSearch('');
+            // A path is typed, not picked, so clear whatever was chosen
+            // before rather than leaving a stale deity name in the field.
+            if (k.id === 'path') { setPickedName(''); setPickedSub(''); }
+          }}
+          activeOpacity={0.75}
+        >
+          <Text style={ws.sadhanaCardIcon}>{k.icon}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={ws.sadhanaCardTitle}>{k.title}</Text>
+            <Text style={ws.sadhanaCardSub}>{k.sub}</Text>
+          </View>
+          <Text style={ws.sadhanaCardArrow}>›</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
 
-      {/* ── 3. The list, only once a kind is chosen ── */}
+  const activeKindMeta = SADHANA_KINDS.find(k => k.id === sadhanaKind);
+
+  const Step2JapaPicker = (
+    <View>
+      {/* Back row that returns to the three kind cards without leaving step 2. */}
+      <TouchableOpacity
+        style={ws.subStepBackRow}
+        onPress={() => { setSadhanaKind(null); setPickedName(''); setPickedSub(''); setSearch(''); }}
+        activeOpacity={0.7}
+      >
+        <Text style={ws.subStepBackArrow}>‹</Text>
+        <Text style={ws.subStepBackText}>Sadhana choices</Text>
+      </TouchableOpacity>
+
+      <Text style={ws.stepTitle}>
+        {activeKindMeta?.icon} {activeKindMeta?.title}
+      </Text>
+      <Text style={ws.stepHint}>{activeKindMeta?.sub}</Text>
+
+      {GoalBlock}
+
       {(sadhanaKind === 'deity' || sadhanaKind === 'sandhya') && (
         <>
+          <Text style={[ws.fieldLabel, { marginTop: SPACING.lg }]}>
+            {sadhanaKind === 'deity' ? 'Choose your deity' : 'Choose the juncture'}
+          </Text>
           <TextInput
             style={ws.searchInput}
             value={search}
@@ -864,7 +905,7 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
             placeholderTextColor={COLORS.muted}
             autoFocus={sadhanaKind === 'deity'}
           />
-          <ScrollView style={{ maxHeight: 300 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+          <ScrollView style={{ maxHeight: 340 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
             {filteredSadhana.length === 0 ? (
               <Text style={ws.orLabel}>
                 Nothing matches “{search.trim()}”. Type the name below and it is
@@ -892,7 +933,7 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
         </>
       )}
 
-      <Text style={ws.orLabel}>
+      <Text style={[ws.orLabel, { marginTop: SPACING.lg }]}>
         {sadhanaKind === 'path' ? 'Name your Sadhana Path:' : 'OR type your own:'}
       </Text>
       <TextInput
@@ -904,6 +945,8 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
       />
     </View>
   );
+
+  const Step2Japa = sadhanaKind ? Step2JapaPicker : Step2JapaKinds;
 
   const Step2 = (
     <View>
@@ -1189,6 +1232,16 @@ const WizardModal: React.FC<WizardProps> = ({ visible, userName, editing, initia
   // step is 2; a fresh add starts at 1. Back below the floor closes.
   const minStep = editing ? 2 : 1;
   const onBack = () => {
+    // On the japa picker sub-view, Back returns to the Sadhana kinds
+    // rather than walking out of step 2 — the user has not yet committed
+    // to any practice, so we keep them inside the one step.
+    if (step === 2 && category === 'japa' && !editing && sadhanaKind) {
+      setSadhanaKind(null);
+      setPickedName('');
+      setPickedSub('');
+      setSearch('');
+      return;
+    }
     if (step > minStep) setStep(step - 1);
     else onClose();
   };
@@ -1596,6 +1649,18 @@ const ws = StyleSheet.create({
   sadhanaCardTitle: { color: COLORS.cream, fontSize: 15, fontWeight: '700' },
   sadhanaCardSub: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
   sadhanaCardArrow: { color: COLORS.gold, fontSize: 18, fontWeight: '700' },
+
+  subStepBackRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    alignSelf: 'flex-start',
+    paddingVertical: 6, paddingHorizontal: 10,
+    marginBottom: SPACING.sm,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,184,0,0.08)',
+    borderWidth: 1, borderColor: 'rgba(255,184,0,0.30)',
+  },
+  subStepBackArrow: { color: COLORS.gold, fontSize: 16, fontWeight: '800', marginTop: -1 },
+  subStepBackText: { color: COLORS.gold, fontSize: 13, fontWeight: '700' },
 
   pickRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
