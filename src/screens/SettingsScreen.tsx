@@ -16,7 +16,6 @@ import { UserProfile } from '../types';
 import { COLORS, SPACING } from '../theme';
 import { RingDebugScreen } from './RingDebugScreen';
 import { RespirationProbeScreen } from './RespirationProbeScreen';
-import { RingScanScreen } from './RingScanScreen';
 import {
   vitalsPrefs, INTERVAL_CHOICES, SLEEP_INTERVAL_MIN, describeInterval, RING_MONITOR_INTERVALS,
   type VitalsPrefs,
@@ -37,7 +36,6 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
   const [editing, setEditing] = useState(false);
   const [showRingDebug, setShowRingDebug] = useState(false);
   const [showRespProbe, setShowRespProbe] = useState(false);
-  const [showRingScan, setShowRingScan] = useState(false);
 
 
   const confirmReset = () => {
@@ -97,53 +95,35 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
             not Profile, and duplicating them here meant two places to keep in
             agreement. */}
 
-        {/* Saadhana Ring (BLE) */}
-        <Text style={styles.sectionTitle}>Saadhana Ring</Text>
         {/*
-          * The whole row opens the scan screen, not just the button.
-          *
-          * The hint reads "Tap to pair", and the row was not tappable: only
-          * the small button on the right was, so following the instruction on
-          * screen did nothing. And once bleConnected went true that button
-          * became "Disconnect", which left no route to the pairing UI at all —
-          * exactly when someone wants it, to swap rings or re-pair one that
-          * has gone stale. Row opens pairing in both states; the button keeps
-          * its connect/disconnect job.
-          */}
-        <TouchableOpacity
-          style={styles.ringRow}
-          activeOpacity={0.7}
-          onPress={() => setShowRingScan(true)}
-        >
+         * Pairing deliberately lives in ONE place: the side drawer's
+         * "Bluetooth / Pair Ring" entry. Settings used to offer its own pair
+         * row with its own rescan, which gave two buttons that did the same
+         * job in two different ways — and when they diverged (as they did)
+         * users got stuck. Settings keeps the read-out and disconnect; it
+         * does not open the scan screen.
+         */}
+        <Text style={styles.sectionTitle}>Saadhana Ring</Text>
+        <View style={styles.ringRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.rowLabel}>
               {bleConnected ? '🟢 Ring paired & listening' : '⚪️ No ring paired'}
             </Text>
             <Text style={styles.rowHint}>
               {bleConnected
-                ? 'Hardware button auto-counts your malas · tap to re-pair'
-                : 'Tap to pair your physical Saadhana counter'}
+                ? 'Hardware button auto-counts your malas · disconnect below to stop'
+                : 'Pair from the side menu → Bluetooth / Pair Ring'}
             </Text>
           </View>
-          {/*
-            * Pairing opens the real scan screen, which lives here now rather
-            * than inside Device Settings.
-            *
-            * It used to call requestBlePair(), which forwards to a handler
-            * JapaScreen registers on mount. Until the Japa tab had been
-            * opened at least once, the registered default fired instead and
-            * answered a tap on "Pair Bluetooth" with a toast telling the user
-            * to go and open another tab — a pair button that refuses to pair.
-            */}
-          <TouchableOpacity
-            style={[styles.ringBtn, bleConnected && styles.ringBtnConnected]}
-            onPress={() => (bleConnected ? disconnectBleRing() : setShowRingScan(true))}
-          >
-            <Text style={[styles.ringBtnText, bleConnected && styles.ringBtnTextConnected]}>
-              {bleConnected ? 'Disconnect' : 'Pair Bluetooth'}
-            </Text>
-          </TouchableOpacity>
-        </TouchableOpacity>
+          {bleConnected ? (
+            <TouchableOpacity
+              style={[styles.ringBtn, styles.ringBtnConnected]}
+              onPress={() => disconnectBleRing()}
+            >
+              <Text style={[styles.ringBtnText, styles.ringBtnTextConnected]}>Disconnect</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
 
         {/* Smart Ring (Jieli SDK — developer preview) */}
         <TouchableOpacity style={styles.ringRow} onPress={() => setShowRingDebug(true)}>
@@ -208,12 +188,6 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
       {showRingDebug && (
         <Modal visible transparent={false} animationType="slide" onRequestClose={() => setShowRingDebug(false)}>
           <RingDebugScreen onClose={() => setShowRingDebug(false)} />
-        </Modal>
-      )}
-
-      {showRingScan && (
-        <Modal visible transparent={false} animationType="slide" onRequestClose={() => setShowRingScan(false)}>
-          <RingScanScreen navigation={{ goBack: () => setShowRingScan(false) }} />
         </Modal>
       )}
 

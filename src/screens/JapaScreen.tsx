@@ -46,13 +46,7 @@ import { PracticeHeader } from '../components/PracticeHeader';
 import { BeforeAfterVitals } from '../components/PracticeStats';
 import { RangeBar } from './health/RangeBar';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
-import {
-  requestBlePermissions,
-  scanForDevices,
-  connectAndListen,
-  ScannedDevice,
-  CounterConnection,
-} from '../services/ble';
+import { CounterConnection } from '../services/ble';
 import { JapaRingCounter, readSr16DeviceId, syncJapaHistory } from '../soulsync/ring';
 import { planBackfill, recordBackfilledBeads } from '../soulsync/ring/japaBackfill';
 import { useIsFocused } from '@react-navigation/native';
@@ -550,19 +544,21 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   const lifetime = React.useMemo(() => japaLifetime(history), [history]);
 
   // ── BLE state ──
-  const [showBleModal, setShowBleModal] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [scannedDevices, setScannedDevices] = useState<ScannedDevice[]>([]);
-  const [connectingId, setConnectingId] = useState<string | null>(null);
+  //
+  // Pairing lives in the drawer's Bluetooth/Pair Ring screen (RingScanScreen).
+  // Everything the Japa tab needs from BLE is a live tap stream and whether
+  // the ring is connected right now; the SR16 bits below handle both. The
+  // legacy generic-counter `connection` is kept for backwards compatibility
+  // with simple BLE-button devices paired on older builds — new pairings
+  // all go through SadhanaRing.
   const [connection, setConnection] = useState<CounterConnection | null>(null);
-  const stopScanRef = useRef<(() => void) | null>(null);
   const tapRef = useRef<(source?: JapaTapSource) => void>(() => {});
 
   // Debounce BLE taps so a single button press doesn't double-count
   const lastTapAtRef = useRef(0);
 
-  // Mirror connection status into context so Settings can show pair state
-  useEffect(() => { setBleConnected(!!connection); }, [connection, setBleConnected]);
+  // Mirror ring connection status into context further down — the SR16 state
+  // it reads is declared below, after the counter wiring.
 
   // When deity changes, load that deity's saved progress
   useEffect(() => {
@@ -800,7 +796,6 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   // Cleanup BLE on unmount
   useEffect(() => {
     return () => {
-      stopScanRef.current?.();
       connection?.disconnect();
     };
   }, []);
@@ -814,6 +809,12 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
   // taps (the ring's supervision timeout kicks in after ~7 s of silence).
   const sr16CounterRef = useRef<JapaRingCounter | null>(null);
   const [sr16Status, setSr16Status] = useState<'off' | 'connecting' | 'connected'>('off');
+  // Mirror ring connection status into context so Settings can show pair state.
+  // We OR the two sources: legacy generic-counter CounterConnection (kept for
+  // backwards compatibility) and the real SR16 link managed by JapaRingCounter.
+  useEffect(() => {
+    setBleConnected(!!connection || sr16Status === 'connected');
+  }, [connection, sr16Status, setBleConnected]);
   // Independent debug counter: every physical tap increments this even when
   // selectedDeity is null and tap() early-returns. Lets the user visually
   // confirm the ring is actually pushing frames to the Japa flow.
@@ -1003,10 +1004,17 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
     return () => { cancelled = true; syncRingHistoryRef.current = null; };
   }, [showToast]);
 
-  // Register pair / disconnect handlers in context so SettingsScreen can invoke them.
+  // The pair handler used to live here and drive a Japa-local modal; it is
+  // gone now. Settings' "disconnect" button still routes through the shared
+  // handler, so keep that half of the context contract.
   useEffect(() => {
     registerBleHandlers({
-      pair: () => { handleBlePress(); },
+      pair: () => {
+        // Guidance only — Settings' pair button has been replaced with a
+        // read-out, but if anything else in the app calls pair() it should
+        // not silently do nothing.
+        showToast('Pair your ring from the side menu → Bluetooth / Pair Ring');
+      },
       disconnect: () => {
         if (connection) {
           connection.disconnect();
@@ -1015,67 +1023,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
         }
       },
     });
-  }, [connection, registerBleHandlers]);
-
-  const handleBlePress = async () => {
-    if (connection) {
-      // Disconnect
-      await connection.disconnect();
-      setConnection(null);
-      showToast('Counter disconnected');
-      return;
-    }
-    if (Platform.OS === 'web') {
-      showToast('BLE only works on the installed Android APK');
-      return;
-    }
-    const granted = await requestBlePermissions();
-    if (!granted) {
-      showToast('Bluetooth permission denied');
-      return;
-    }
-    setScannedDevices([]);
-    setShowBleModal(true);
-    setScanning(true);
-    stopScanRef.current = scanForDevices(
-      d => setScannedDevices(p => [...p, d]),
-      err => {
-        showToast(err);
-        setScanning(false);
-      },
-      15000
-    );
-    setTimeout(() => setScanning(false), 15000);
-  };
-
-  const handleConnect = async (deviceId: string, deviceName: string) => {
-    stopScanRef.current?.();
-    setScanning(false);
-    setConnectingId(deviceId);
-    try {
-      const conn = await connectAndListen(
-        deviceId,
-        () => {
-          // Debounce 300ms — physical button bounce protection
-          const now = Date.now();
-          if (now - lastTapAtRef.current < 300) return;
-          lastTapAtRef.current = now;
-          tapRef.current('ring');
-        },
-        () => {
-          setConnection(null);
-          showToast('Counter disconnected');
-        }
-      );
-      setConnection(conn);
-      setShowBleModal(false);
-      showToast(`✓ Connected to ${deviceName}`);
-    } catch (e: any) {
-      showToast(`Connection failed: ${e?.message || 'unknown'}`);
-    } finally {
-      setConnectingId(null);
-    }
-  };
+  }, [connection, registerBleHandlers, showToast]);
 
   return (
     <View style={[styles.container, { backgroundColor: palette.deep }]}>
@@ -1247,7 +1195,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
           <TouchableOpacity style={styles.manualBtn} onPress={() => setShowManual(true)}>
             <Text style={styles.manualBtnText}>+ Log past</Text>
           </TouchableOpacity>
-          {connection && (
+          {sr16Status === 'connected' && (
             <View style={[styles.bleBtn, styles.bleBtnConnected]}>
               <View style={[styles.bleDot, styles.bleDotOn]} />
               <Text style={[styles.bleBtnText, styles.bleBtnTextOn]}>Ring connected</Text>
@@ -1665,75 +1613,10 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
         </View>
       </Modal>
 
-      {/* BLE Pair Modal */}
-      <Modal visible={showBleModal} transparent animationType="slide" onRequestClose={() => { stopScanRef.current?.(); setShowBleModal(false); }}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHandle} />
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-              <Text style={styles.modalTitle}>Pair Saadhana Ring</Text>
-              {scanning && <RingSpinner size={20} style={{ marginLeft: 12 }} />}
-            </View>
-            <Text style={{ fontSize: 12, color: COLORS.muted, marginBottom: SPACING.md }}>
-              Make sure your finger-counter is powered on and in pairing mode. Each button press will count as 1 japa.
-            </Text>
-            <FlatList
-              data={scannedDevices}
-              keyExtractor={d => d.id}
-              scrollEnabled={false}
-              ListEmptyComponent={
-                <Text style={{ color: COLORS.muted, fontSize: 13, textAlign: 'center', paddingVertical: SPACING.lg, fontStyle: 'italic' }}>
-                  {scanning ? 'Searching for devices…' : 'No devices found. Try again.'}
-                </Text>
-              }
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.deviceRow}
-                  onPress={() => handleConnect(item.id, item.name)}
-                  disabled={connectingId === item.id}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.deviceName}>{item.name}</Text>
-                    <Text style={styles.deviceMeta}>
-                      {item.id.slice(-8)}{item.rssi ? ` · ${item.rssi} dBm` : ''}
-                    </Text>
-                  </View>
-                  {connectingId === item.id ? (
-                    <RingSpinner size={22} />
-                  ) : (
-                    <Text style={styles.connectArrow}>Connect →</Text>
-                  )}
-                </TouchableOpacity>
-              )}
-            />
-            <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md }}>
-              {!scanning && (
-                <TouchableOpacity
-                  style={[styles.primaryBtn, { flex: 1 }]}
-                  onPress={() => {
-                    setScannedDevices([]);
-                    setScanning(true);
-                    stopScanRef.current = scanForDevices(
-                      d => setScannedDevices(p => [...p, d]),
-                      err => { showToast(err); setScanning(false); },
-                      15000
-                    );
-                    setTimeout(() => setScanning(false), 15000);
-                  }}
-                >
-                  <Text style={styles.primaryBtnText}>🔄 Rescan</Text>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity
-                style={[styles.cancelBtn, { flex: 1 }]}
-                onPress={() => { stopScanRef.current?.(); setShowBleModal(false); setScanning(false); }}
-              >
-                <Text style={styles.cancelBtnText}>Close</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {/* The Japa tab used to carry its OWN BLE pair modal here. It was the
+          second pair flow in the app, drifted away from the drawer's one over
+          time, and has been removed. Pairing happens in one place now: the
+          side menu → Bluetooth / Pair Ring. */}
 
       {/* Manual Japa Entry Modal */}
       <Modal visible={showManual} transparent animationType="slide" onRequestClose={() => setShowManual(false)}>

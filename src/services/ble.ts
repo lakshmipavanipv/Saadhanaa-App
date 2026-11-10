@@ -1,4 +1,7 @@
-import { BleManager, Device, Subscription, Characteristic } from 'react-native-ble-plx';
+import {
+  BleManager, Device, Subscription, Characteristic,
+  ScanMode, ScanCallbackType,
+} from 'react-native-ble-plx';
 import { Platform, PermissionsAndroid } from 'react-native';
 import { Storage } from '../storage';
 
@@ -43,16 +46,52 @@ export const scanForDevices = (
   timeoutMs = 12000
 ): (() => void) => {
   const manager = getBleManager();
-  const seen = new Set<string>();
-  manager.startDeviceScan(null, { allowDuplicates: false }, (error, device) => {
-    if (error) {
-      onError(error.message || 'Scan failed');
-      return;
-    }
-    if (!device || !device.name || seen.has(device.id)) return;
-    seen.add(device.id);
-    onDevice({ id: device.id, name: device.name, rssi: device.rssi });
-  });
+  /*
+   * See soulsync/ring/transport.ts for the long version. Short:
+   *   - allowDuplicates: true, because many rings publish their NAME in
+   *     the SCAN_RSP packet, not the initial ADV_IND. With duplicates
+   *     off, we see the nameless advert, drop it, and never hear from
+   *     the device again — which is why users saw an empty scan while
+   *     RWfit listed their ring just fine.
+   *   - scanMode: LowLatency, so Android doesn't collapse bursty
+   *     advertisers to save battery during a 12-second pair window.
+   *   - A per-id merge keeps the best name we have seen so far and the
+   *     strongest RSSI, and fires onDevice the first time a device
+   *     becomes displayable (acquires a name) and when its info
+   *     improves.
+   */
+  const seen = new Map<string, ScannedDevice>();
+  manager.startDeviceScan(
+    null,
+    {
+      allowDuplicates: true,
+      scanMode: ScanMode.LowLatency,
+      callbackType: ScanCallbackType.AllMatches,
+    },
+    (error, device) => {
+      if (error) {
+        onError(error.message || 'Scan failed');
+        return;
+      }
+      if (!device) return;
+      const prior = seen.get(device.id);
+      const name = device.name ?? prior?.name ?? null;
+      if (!name) {
+        // Nothing to show yet; remember the id so a later SCAN_RSP can
+        // upgrade it.
+        if (!prior) seen.set(device.id, { id: device.id, name: '', rssi: device.rssi });
+        return;
+      }
+      const rssi = prior?.rssi != null && device.rssi != null
+        ? Math.max(prior.rssi, device.rssi)
+        : (device.rssi ?? prior?.rssi ?? null);
+      const merged: ScannedDevice = { id: device.id, name, rssi };
+      const changed =
+        !prior || !prior.name || prior.name !== merged.name || prior.rssi !== merged.rssi;
+      seen.set(device.id, merged);
+      if (changed) onDevice(merged);
+    },
+  );
   const t = setTimeout(() => manager.stopDeviceScan(), timeoutMs);
   return () => {
     clearTimeout(t);
