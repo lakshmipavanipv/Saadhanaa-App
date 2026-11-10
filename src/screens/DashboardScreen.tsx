@@ -1497,6 +1497,11 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
 
   upcomingFest: {
     marginHorizontal: SPACING.md,
+    // Breathing room between Upcoming Reminders and Next Festival. Without
+    // this marginTop the two cards touch edges on home layouts where the
+    // intermediate "Today's festival" and "Other Reminders" blocks are
+    // empty — which, most days, they are.
+    marginTop: SPACING.md,
     backgroundColor: C.cardBg,
     borderRadius: 12,
     padding: SPACING.md,
