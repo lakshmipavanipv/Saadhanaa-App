@@ -263,37 +263,46 @@ const Figure: React.FC<{
   f: BoxFigure;
   s: ReturnType<typeof makeStyles>;
   aside?: { label: string; value: string };
-}> = ({ f, s, aside }) => (
-  <View style={s.figureCol}>
-    <View style={s.labelRow}>
-      <Text style={s.figureLabel}>{f.label}</Text>
-      {aside ? <Text style={s.asideLabel}>{aside.label}</Text> : null}
-    </View>
-    <View style={s.figureRow}>
-      <Text style={s.figureValue}>{f.value}</Text>
-      {f.goalText ? <Text style={s.figureGoal}> {f.goalText}</Text> : null}
-      {f.onEditGoal && (
-        <TouchableOpacity style={s.editGoalBtn} onPress={f.onEditGoal} activeOpacity={0.8}>
-          <Text style={s.editGoalText}>✎ goal</Text>
-        </TouchableOpacity>
-      )}
-      {aside ? (
-        <>
-          <View style={{ flex: 1 }} />
-          <Text style={s.asideValue}>{aside.value}</Text>
-        </>
-      ) : null}
-    </View>
-    {f.goalText ? (
-      <View style={s.track}>
-        <View style={[s.fill, { width: `${Math.max(0, Math.min(100, f.pct ?? 0))}%` }]} />
+}> = ({ f, s, aside }) => {
+  const hasGoal = !!f.goalText;
+  const pct = hasGoal ? Math.max(0, Math.min(100, f.pct ?? 0)) : 0;
+  return (
+    <View style={s.figureCol}>
+      <View style={s.labelRow}>
+        <Text style={s.figureLabel}>{f.label}</Text>
+        {aside ? <Text style={s.asideLabel}>{aside.label}</Text> : null}
       </View>
-    ) : (
-      // Keeps two columns level when only one of them has a target.
-      <View style={s.trackSpacer} />
-    )}
-  </View>
-);
+      <View style={s.figureRow}>
+        <Text style={s.figureValue}>{f.value}</Text>
+        {hasGoal ? <Text style={s.figureGoal}> {f.goalText}</Text> : null}
+        {f.onEditGoal && (
+          <TouchableOpacity style={s.editGoalBtn} onPress={f.onEditGoal} activeOpacity={0.8}>
+            <Text style={s.editGoalText}>{hasGoal ? '✎ goal' : '+ set goal'}</Text>
+          </TouchableOpacity>
+        )}
+        {aside ? (
+          <>
+            <View style={{ flex: 1 }} />
+            <Text style={s.asideValue}>{aside.value}</Text>
+          </>
+        ) : null}
+      </View>
+      {/*
+       * The horizontal goal bar is ALWAYS drawn — japa, yoga, meditation and
+       * walk now carry the same bar in the same place, so a glance across the
+       * tabs reads as the same thing in each. When no goal is set the track
+       * stays empty, there is no fill, and the "+ set goal" chip beside the
+       * figure (above) is the entry point for planning one. The earlier
+       * version of this file drew the bar only for figures with a `goalText`
+       * and inserted a transparent spacer otherwise, which left half the tabs
+       * looking like a different card altogether.
+       */}
+      <View style={s.track}>
+        {hasGoal ? <View style={[s.fill, { width: `${pct}%` }]} /> : null}
+      </View>
+    </View>
+  );
+};
 
 // Measurements lifted from ExerciseScreen's activityMetricCard, which is the
 // box the others are being matched to.

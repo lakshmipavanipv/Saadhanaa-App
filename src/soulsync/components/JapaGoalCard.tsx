@@ -136,15 +136,22 @@ export const JapaGoalCard: React.FC<Props> = ({
    * lands one query in each gap instead of one per bead. The wait is capped,
    * because a plain debounce would freeze the figure during fast counting —
    * if every bead fell inside the window the timer would never expire.
+   *
+   * Tightened from 900 ms / 4 s to 250 ms / 1 s: at the old values the Time
+   * Today and bead-count KPIs looked frozen while the user was actively
+   * counting — the number only moved three or four beads behind the mala,
+   * which read as "the app is not keeping up" even though the data was there
+   * on disk. At 250 ms the figure follows the bead within the length of its
+   * own pop animation.
    */
   const firstRun = useRef(true);
   const lastLoadAt = useRef(Date.now());
   useEffect(() => {
     if (firstRun.current) { firstRun.current = false; return; }
-    const MAX_WAIT = 4_000;
+    const MAX_WAIT = 1_000;
     const run = () => { lastLoadAt.current = Date.now(); load(); };
     if (Date.now() - lastLoadAt.current >= MAX_WAIT) { run(); return; }
-    const id = setTimeout(run, 900);
+    const id = setTimeout(run, 250);
     return () => clearTimeout(id);
   }, [beadTick, malasToday, load]);
 
