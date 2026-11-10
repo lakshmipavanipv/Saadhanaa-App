@@ -100,15 +100,6 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
   const [found, setFound] = useState<StepState>('pending');
   const [verified, setVerified] = useState<StepState>('pending');
   const [candidates, setCandidates] = useState<ScannedRing[]>([]);
-  /**
-   * Whether to list Bluetooth devices the classifier did not recognise as a
-   * ring. Off by default: a scan in a normal home turns up fridges, TVs and
-   * earbuds, and a pairing screen that offers to connect to a fridge is asking
-   * the user to do the classifier's job. The toggle stays because the four
-   * RWfit prefix rules cannot be exhaustive — a ring with unfamiliar firmware
-   * would otherwise be unpairable with no way out.
-   */
-  const [showAll, setShowAll] = useState(false);
   /** The ring already remembered, if any — the one Unbind would forget. */
   const [bound, setBound] = useState<string | null>(null);
   /** Its name, so the saved ring reads as "Pavani" and not as a MAC address. */
@@ -168,7 +159,6 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
   const startScan = useCallback(async () => {
     setError(null);
     setCandidates([]);
-    setShowAll(false);
     setFound('pending');
     setVerified('pending');
     setBt('in-progress');
@@ -314,40 +304,44 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
   const connected = verified === 'done';
   const connecting = verified === 'in-progress';
 
-  // Scanning stays permissive so the "show everything" toggle needs no rescan;
-  // the filtering happens here, at the point of display.
+  // Scanning stays permissive so every named BLE advertiser arrives here;
+  // the ranking happens at the point of display. Rings (anything the
+  // classifier recognised) float to the top so a user who sees the list can
+  // still pick their ring quickly — but we never auto-select, because an
+  // automatic Connect-now button pointed at a neighbour's device is the
+  // exact failure mode the previous hero caused.
   const rings = useMemo(() => candidates.filter((c) => c.hint !== 'other'), [candidates]);
   const unknown = useMemo(() => candidates.filter((c) => c.hint === 'other'), [candidates]);
+  const ranked = useMemo(() => {
+    const byRssi = (a: ScannedRing, b: ScannedRing) => (b.rssi ?? -999) - (a.rssi ?? -999);
+    return [...[...rings].sort(byRssi), ...[...unknown].sort(byRssi)];
+  }, [rings, unknown]);
 
-  // Strongest advertiser first — that is almost always the ring on the hand
-  // holding the phone, and it is the one the hero card speaks for.
-  const ranked = useMemo(
-    () => [...(showAll ? candidates : rings)].sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999)),
-    [showAll, candidates, rings]
-  );
-  const primary = ranked[0] ?? null;
-  const others = ranked.slice(1);
-  const signal = signalOf(primary?.rssi);
-
-  const failedScan = !scanning && !connected && !primary;
+  const failedScan = !scanning && !connected && ranked.length === 0;
 
   const eyebrow = connected ? { text: 'CONNECTED', tone: M.green }
     : connecting ? { text: 'VERIFYING', tone: M.amber }
-      : primary ? { text: 'RING DETECTED', tone: M.green }
-        : scanning ? { text: 'SCANNING', tone: M.gold }
-          : { text: 'NO RING FOUND', tone: M.danger };
+      : scanning
+        ? { text: ranked.length > 0 ? `${ranked.length} FOUND · STILL SCANNING` : 'SCANNING', tone: M.gold }
+        : ranked.length > 0
+          ? { text: `${ranked.length} DEVICE${ranked.length === 1 ? '' : 'S'} FOUND`, tone: M.gold }
+          : { text: 'NO DEVICES FOUND', tone: M.danger };
 
   const title = connected ? 'Ring connected'
     : connecting ? 'Verifying your ring'
-      : primary ? 'Saadhana Ring found'
-        : scanning ? 'Looking for your ring' : 'No ring nearby';
+      : scanning ? (ranked.length > 0 ? 'Tap your ring to pair' : 'Looking for your ring')
+        : ranked.length > 0 ? 'Tap your ring to pair'
+          : 'No devices nearby';
 
   const body = connected
     ? 'Paired with ' + (connectedName ?? 'your ring') + '. Taps and vitals now sync automatically.'
     : connecting ? 'Opening a secure connection and saving this ring to your profile.'
-      : primary ? 'Identified by its Bluetooth signature. Ready to synchronise your vitals.'
+      : ranked.length > 0
+        ? (rings.length > 0
+          ? 'Rings are at the top. Tap the one on your finger to pair.'
+          : 'None of these look like a ring, but nothing is being hidden. If yours is here, tap it.')
         : scanning ? 'Keep the ring within arm’s reach while we listen for it.'
-          : 'We could not find a ring nearby. Make sure it is charged and within arm’s reach.';
+          : 'We could not find anything nearby. Make sure your ring is charged and within arm’s reach, then tap the radar to search again.';
 
   // Core disc: a slow breath, and a lift in brightness once a ring is present.
   const coreScale = breath.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1.03] });
@@ -450,78 +444,16 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.subtitle}>{body}</Text>
 
-        {/* ── Identity card — the id we will actually open a GATT link to ── */}
-        {primary && !connected ? (
-          <View style={styles.idCard}>
-            <View style={styles.idTop}>
-              <View style={styles.idBadge}>
-                <Fingerprint tone={M.gold} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.idName} numberOfLines={1}>
-                  {primary.name || 'Saadhana Ring'}
-                </Text>
-                <Text style={styles.idValue} numberOfLines={1}>
-                  {primary.id.toUpperCase()}
-                </Text>
-              </View>
-              {signal ? (
-                <View style={styles.sigBox}>
-                  <SignalBars bars={signal.bars} />
-                  <Text style={styles.sigTxt}>{signal.label}</Text>
-                </View>
-              ) : null}
-            </View>
-
-            <View style={styles.idMetaRow}>
-              <Meta k="SIGNAL" v={primary.rssi != null ? primary.rssi + ' dBm' : '—'} />
-              <View style={styles.metaDivider} />
-              <Meta k="MATCHED BY" v={hintLabel(primary.hint)} />
-            </View>
-          </View>
-        ) : null}
-
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        {/* The checklist only earns its space when something went wrong. */}
+        {/* The checklist only earns its space when the whole scan returned
+            nothing, or when we caught an explicit error. On a good scan with
+            devices to pick from, it is noise. */}
         {failedScan || error ? (
           <View style={styles.checklist}>
             <Step label="Bluetooth enabled" state={bt} />
             <Step label="Ring found" state={found} />
             <Step label="Verified" state={verified} />
-          </View>
-        ) : null}
-
-        {/* ── Primary action ─────────────────────────────────────────── */}
-        {primary && !connected ? (
-          <TouchableOpacity
-            style={[styles.cta, connecting ? styles.ctaBusy : null]}
-            onPress={() => void connect(primary)}
-            activeOpacity={0.85}
-            disabled={connecting}
-          >
-            {connecting ? (
-              <ActivityIndicator color={M.ground} />
-            ) : (
-              <>
-                <Text style={styles.ctaTxt}>Connect now</Text>
-                <Text style={styles.ctaArrow}>→</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        ) : null}
-
-        {connected ? (
-          <TouchableOpacity style={styles.cta} onPress={() => navigation?.goBack?.()} activeOpacity={0.85}>
-            <Text style={styles.ctaTxt}>Done</Text>
-            <Text style={styles.ctaArrow}>→</Text>
-          </TouchableOpacity>
-        ) : null}
-
-        {scanning && !primary ? (
-          <View style={styles.scanNote}>
-            <ActivityIndicator color={M.gold} />
-            <Text style={styles.scanNoteTxt}>Listening for nearby rings…</Text>
           </View>
         ) : null}
 
@@ -547,58 +479,56 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
           </TouchableOpacity>
         ) : null}
 
-        {/* Unbind — only offered when there is something to forget. */}
-        {bound ? (
-          <TouchableOpacity onPress={unbind} activeOpacity={0.7} style={styles.unbind}>
-            <Text style={styles.unbindTxt}>Unbind this ring</Text>
-            <Text style={styles.unbindId} numberOfLines={1}>{bound.toUpperCase()}</Text>
+        {connected ? (
+          <TouchableOpacity style={styles.cta} onPress={() => navigation?.goBack?.()} activeOpacity={0.85}>
+            <Text style={styles.ctaTxt}>Done</Text>
+            <Text style={styles.ctaArrow}>→</Text>
           </TouchableOpacity>
         ) : null}
 
-        {/* Quiet escape hatch */}
-        {!connected && !scanning ? (
-          <TouchableOpacity onPress={() => void startScan()} activeOpacity={0.7} style={styles.again}>
-            <Text style={styles.againTxt}>
-              {primary ? 'Not your ring? ' : ''}
-              <Text style={styles.againLink}>Search again</Text>
-            </Text>
-          </TouchableOpacity>
-        ) : null}
-
-        {/* Escape hatch: the prefix rules cannot cover every firmware, so a
-            ring the classifier misses stays reachable — deliberately, behind a
-            tap, rather than by dumping every fridge into the list. */}
-        {!connected && !showAll && unknown.length > 0 ? (
-          <TouchableOpacity onPress={() => setShowAll(true)} activeOpacity={0.7} style={styles.again}>
-            <Text style={styles.againTxt}>
-              Don’t see your ring?{' '}
-              <Text style={styles.againLink}>
-                Show all {unknown.length} Bluetooth device{unknown.length === 1 ? '' : 's'}
-              </Text>
-            </Text>
-          </TouchableOpacity>
-        ) : null}
-
-        {/* More than one advertiser in range — keep the ability to pick. */}
-        {others.length > 0 && !connected ? (
+        {/*
+         * One flat list — every named device the scan has seen, rings first.
+         *
+         * The previous layout auto-promoted the strongest classified
+         * candidate to a hero card with a "Connect now" button pointed at
+         * it. That read as "we picked your ring for you"; in practice the
+         * picked device could easily be a neighbour's Ring doorbell that
+         * our broadened name rules matched on. A flat tap-to-pair list is
+         * what the user already expects from every other BLE pairing app,
+         * and it does not pretend to know which device is theirs.
+         */}
+        {ranked.length > 0 && !connected ? (
           <View style={styles.list}>
-            <Text style={styles.listHead}>{showAll ? 'Other devices nearby' : 'Other rings nearby'}</Text>
-            {others.map((c) => {
+            <Text style={styles.listHead}>
+              {scanning ? 'TAP A DEVICE TO PAIR' : 'NEARBY DEVICES · TAP TO PAIR'}
+            </Text>
+            {ranked.map((c) => {
               const s = signalOf(c.rssi);
               const isRing = c.hint !== 'other';
+              const isPending = connecting;
               return (
                 <TouchableOpacity
                   key={c.id}
-                  style={styles.device}
+                  style={[styles.device, isRing && styles.deviceRing]}
                   onPress={() => void connect(c)}
                   activeOpacity={0.8}
+                  disabled={isPending}
                 >
                   <View style={[styles.deviceDot, { backgroundColor: isRing ? M.gold : M.label }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.deviceName} numberOfLines={1}>
-                      {c.name || 'Unnamed device'}
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <View style={styles.deviceNameRow}>
+                      <Text style={styles.deviceName} numberOfLines={1}>
+                        {c.name || 'Unnamed device'}
+                      </Text>
+                      {isRing ? (
+                        <View style={styles.ringTag}>
+                          <Text style={styles.ringTagTxt}>RING</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={styles.deviceId} numberOfLines={1}>
+                      {c.id.toUpperCase()}{isRing ? '  ·  ' + hintLabel(c.hint) : ''}
                     </Text>
-                    <Text style={styles.deviceId} numberOfLines={1}>{c.id.toUpperCase()}</Text>
                   </View>
                   {s ? <SignalBars bars={s.bars} /> : null}
                   <Text style={styles.deviceRssi}>{c.rssi != null ? c.rssi : ''}</Text>
@@ -606,6 +536,31 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
               );
             })}
           </View>
+        ) : null}
+
+        {scanning && ranked.length === 0 ? (
+          <View style={styles.scanNote}>
+            <ActivityIndicator color={M.gold} />
+            <Text style={styles.scanNoteTxt}>Listening for nearby devices…</Text>
+          </View>
+        ) : null}
+
+        {/* Quiet escape hatch */}
+        {!connected && !scanning ? (
+          <TouchableOpacity onPress={() => void startScan()} activeOpacity={0.7} style={styles.again}>
+            <Text style={styles.againTxt}>
+              {ranked.length > 0 ? 'Not seeing your ring? ' : ''}
+              <Text style={styles.againLink}>Search again</Text>
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {/* Unbind — only offered when there is something to forget. */}
+        {bound ? (
+          <TouchableOpacity onPress={unbind} activeOpacity={0.7} style={styles.unbind}>
+            <Text style={styles.unbindTxt}>Unbind this ring</Text>
+            <Text style={styles.unbindId} numberOfLines={1}>{bound.toUpperCase()}</Text>
+          </TouchableOpacity>
         ) : null}
       </ScrollView>
     </View>
@@ -860,8 +815,18 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: M.line,
     paddingHorizontal: 14, paddingVertical: 13, marginBottom: 8,
   },
+  // Classified rings carry a gold accent — same information the primary
+  // card used to convey, without the auto-pick.
+  deviceRing: { borderColor: 'rgba(240,208,138,0.35)', backgroundColor: 'rgba(240,208,138,0.06)' },
   deviceDot: { width: 7, height: 7, borderRadius: 3.5 },
-  deviceName: { color: M.ink, fontSize: 14.5, fontWeight: '600' },
+  deviceNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  deviceName: { color: M.ink, fontSize: 14.5, fontWeight: '600', flexShrink: 1 },
+  ringTag: {
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
+    backgroundColor: 'rgba(240,208,138,0.18)',
+    borderWidth: 1, borderColor: 'rgba(240,208,138,0.40)',
+  },
+  ringTagTxt: { color: M.gold, fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
   deviceId: { color: M.label, fontSize: 11, marginTop: 2, letterSpacing: 0.4 },
   deviceRssi: { color: M.body, fontSize: 11.5, fontWeight: '700', minWidth: 28, textAlign: 'right' },
 
