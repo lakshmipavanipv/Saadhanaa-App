@@ -307,11 +307,15 @@ export function scanForRings(
       rwType: cls?.rwType ?? prior?.rwType ?? null,
     };
 
-    // Only publish once we have something to display: a name OR a
-    // classifier hint. A device with neither is just a MAC floating in
-    // the air — worth remembering in `seen` so a later packet upgrades it,
-    // not worth showing until then.
-    const displayable = !!merged.name || merged.hint !== 'other';
+    // Publish EVERY device the adapter reports, even if neither this packet
+    // nor the one before it carried a name or a classifier hint. The old
+    // "displayable" filter held back nameless ADV_IND packets in the hope
+    // a SCAN_RSP would arrive with a name shortly — but a ring already
+    // connected to a phone (which is exactly the state yours are in when
+    // you tap search) advertises more sparsely, sometimes with no name at
+    // all, and the user still has to be able to see and tap it. A MAC is
+    // enough to pair against. The UI shows it under "Unnamed device · MAC"
+    // and still routes the tap through SadhanaRing.connect(id).
     const changed =
       !prior ||
       prior.name !== merged.name ||
@@ -319,7 +323,7 @@ export function scanForRings(
       prior.rssi !== merged.rssi;
 
     seen.set(device.id, merged);
-    if (displayable && changed) onCandidate(merged);
+    if (changed) onCandidate(merged);
   };
 
   m.startDeviceScan(

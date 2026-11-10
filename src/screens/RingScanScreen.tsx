@@ -54,7 +54,14 @@ const M = {
   danger: '#FF7A85',
 };
 
-const SCAN_MS = 15_000;
+/**
+ * How long the transport will keep its own `startDeviceScan` open. Set well
+ * past any reasonable advertise interval so the UI's STOP button, not a
+ * timer, is what ends a scan — a ring worn on the hand advertises more
+ * sparsely than one in a packet, and the previous 15 s window cut users
+ * off before their own ring had broadcast.
+ */
+const SCAN_MS = 10 * 60_000;
 const RADAR = 236;
 
 type Signal = { label: string; bars: 1 | 2 | 3 };
@@ -90,7 +97,12 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
   const sweep = useRef(new Animated.Value(0)).current;
   const breath = useRef(new Animated.Value(0)).current;
 
+  // Idle breath on the search button — only while NOT scanning. During a
+  // live scan the three radar pings and the sweep carry the animation; the
+  // core should sit still as the thing being swept over, not add a fourth
+  // motion that fights them.
   useEffect(() => {
+    if (scanning) { breath.setValue(0); return; }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(breath, { toValue: 1, duration: 2600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
@@ -99,7 +111,7 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
     );
     loop.start();
     return () => loop.stop();
-  }, [breath]);
+  }, [breath, scanning]);
 
   useEffect(() => {
     if (!scanning) {
@@ -267,7 +279,7 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
   const body = connected
     ? 'Paired with ' + (connectedName ?? 'your ring') + '. Taps and vitals now sync automatically.'
     : scanning
-      ? 'Keep the ring within arm’s reach — this takes about 15 seconds.'
+      ? 'Keep the ring within arm’s reach. Tap STOP when yours appears.'
       : ranked.length > 0
         ? 'Rings are at the top. Tap the one on your finger.'
         : 'Make sure your ring is charged and near the phone, then tap the radar.';
@@ -333,6 +345,13 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
           <View style={[styles.orbit, { width: RADAR, height: RADAR, borderRadius: RADAR / 2 }]} />
           <View style={[styles.orbit, { width: RADAR * 0.72, height: RADAR * 0.72, borderRadius: RADAR * 0.36 }]} />
 
+          {/*
+           * The core is the search button, no longer disguised as a ring
+           * illustration. Big and legible: label on top, state underneath.
+           * The breath animation runs only while NOT scanning — so an idle
+           * screen reads as "button waiting to be pressed", a live scan
+           * reads as "working", and connected reads as a steady green mark.
+           */}
           <TouchableOpacity
             onPress={() => void startScan()}
             disabled={!!connectingId}
@@ -341,11 +360,25 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
             accessibilityLabel={scanning ? 'Stop scanning' : 'Search for rings'}
             accessibilityHint={scanning ? 'Stops the Bluetooth scan' : 'Starts a Bluetooth scan'}
           >
-            <Animated.View style={[styles.core, { transform: [{ scale: coreScale }] }]}>
-              <RingMark tone={connected ? M.green : M.gold} />
-              <Text style={styles.coreHint}>
-                {scanning ? 'TAP TO STOP' : connected ? 'CONNECTED' : 'TAP TO SEARCH'}
-              </Text>
+            <Animated.View
+              style={[
+                styles.core,
+                connected && styles.coreConnected,
+                scanning && styles.coreScanning,
+                { transform: [{ scale: scanning ? 1 : coreScale }] },
+              ]}
+            >
+              {connected ? (
+                <>
+                  <RingMark tone={M.green} />
+                  <Text style={[styles.coreLabel, { color: M.green }]}>CONNECTED</Text>
+                </>
+              ) : (
+                <>
+                  <SearchGlyph tone={scanning ? M.gold : M.gold} />
+                  <Text style={styles.coreLabel}>{scanning ? 'STOP' : 'SEARCH'}</Text>
+                </>
+              )}
             </Animated.View>
           </TouchableOpacity>
         </View>
@@ -480,10 +513,24 @@ const SweepArc: React.FC = () => (
 );
 
 const RingMark: React.FC<{ tone: string }> = ({ tone }) => (
-  <Svg width={80} height={80} viewBox="0 0 80 80">
+  <Svg width={64} height={64} viewBox="0 0 80 80">
     <Circle cx={40} cy={40} r={29} stroke={tone} strokeWidth={4.5} fill="none" />
     <Circle cx={40} cy={40} r={29} stroke={tone} strokeWidth={12} strokeOpacity={0.12} fill="none" />
     <Circle cx={40} cy={40} r={10} fill={tone} />
+  </Svg>
+);
+
+/** Magnifying-glass glyph — the search button's visual hook. */
+const SearchGlyph: React.FC<{ tone: string }> = ({ tone }) => (
+  <Svg width={52} height={52} viewBox="0 0 24 24">
+    <Circle cx={10.5} cy={10.5} r={6.5} stroke={tone} strokeWidth={2.2} fill="none" />
+    <Path
+      d="M15.5 15.5 L21 21"
+      stroke={tone}
+      strokeWidth={2.4}
+      strokeLinecap="round"
+      fill="none"
+    />
   </Svg>
 );
 
@@ -540,17 +587,21 @@ const styles = StyleSheet.create({
   sweep: { position: 'absolute', width: RADAR, height: RADAR },
   orbit: { position: 'absolute', borderWidth: 1, borderColor: M.line },
   core: {
-    width: 128, height: 128, borderRadius: 64,
+    width: 136, height: 136, borderRadius: 68,
     backgroundColor: M.card,
-    borderWidth: 1, borderColor: M.lineStrong,
+    borderWidth: 2, borderColor: 'rgba(240,208,138,0.55)',
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: M.gold, shadowOpacity: 0.28, shadowRadius: 26,
-    shadowOffset: { width: 0, height: 0 }, elevation: 8,
+    gap: 8,
+    shadowColor: M.gold, shadowOpacity: 0.35, shadowRadius: 26,
+    shadowOffset: { width: 0, height: 0 }, elevation: 10,
   },
-  coreHint: {
-    position: 'absolute', bottom: 14,
-    fontSize: 8.5, fontWeight: '800', letterSpacing: 1.4,
-    color: M.gold, opacity: 0.9,
+  // While scanning, soften the border so the pings read as the primary
+  // activity instead of fighting the core.
+  coreScanning: { borderColor: 'rgba(240,208,138,0.32)' },
+  coreConnected: { borderColor: 'rgba(123,228,184,0.55)', shadowColor: M.green },
+  coreLabel: {
+    fontSize: 13, fontWeight: '800', letterSpacing: 2.2,
+    color: M.gold,
   },
 
   eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 12 },
