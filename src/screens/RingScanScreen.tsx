@@ -415,9 +415,31 @@ export const RingScanScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
           <View style={[styles.orbit, { width: RADAR, height: RADAR, borderRadius: RADAR / 2 }]} />
           <View style={[styles.orbit, { width: RADAR * 0.72, height: RADAR * 0.72, borderRadius: RADAR * 0.36 }]} />
 
-          <Animated.View style={[styles.core, { transform: [{ scale: coreScale }] }]}>
-            <RingMark tone={connected ? M.green : M.gold} />
-          </Animated.View>
+          {/*
+           * The radar core is also the search button.
+           *
+           * The circular hero sat on screen as pure decoration, so users
+           * who hit "No ring nearby" were tapping it expecting a rescan
+           * and getting nothing. It is the most obvious thing to press, so
+           * make it do the obvious thing — a tap here starts a fresh scan,
+           * same as the "Search again" link lower down. Busy only while a
+           * scan is active or a verification is in flight.
+           */}
+          <TouchableOpacity
+            onPress={() => void startScan()}
+            disabled={scanning || connecting}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={scanning ? 'Scanning for rings' : 'Search for your ring'}
+            accessibilityHint="Starts a fresh Bluetooth scan"
+          >
+            <Animated.View style={[styles.core, { transform: [{ scale: coreScale }] }]}>
+              <RingMark tone={connected ? M.green : M.gold} />
+              {!scanning && !connected ? (
+                <Text style={styles.coreHint}>TAP TO SEARCH</Text>
+              ) : null}
+            </Animated.View>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.eyebrowRow}>
@@ -598,6 +620,9 @@ const hintLabel = (h: ScannedRing['hint']): string => {
     case 'company-06d6': return 'Vendor 06D6';
     case 'name-smartbox': return 'Name';
     case 'name-ac701n': return 'Name';
+    case 'name-generic-ring': return 'Ring name';
+    case 'jieli-ota-service': return 'Jieli OTA';
+    case 'pxi-ota-service': return 'PXI OTA';
     default: return 'Unverified';
   }
 };
@@ -740,6 +765,11 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     shadowColor: M.gold, shadowOpacity: 0.28, shadowRadius: 26,
     shadowOffset: { width: 0, height: 0 }, elevation: 8,
+  },
+  coreHint: {
+    position: 'absolute', bottom: 14,
+    fontSize: 8.5, fontWeight: '800', letterSpacing: 1.4,
+    color: M.gold, opacity: 0.85,
   },
 
   eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 12 },

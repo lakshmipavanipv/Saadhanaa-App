@@ -38,7 +38,7 @@ export interface ScannedRing {
   name: string | null;
   rssi: number | null;
   manufacturerId: number | null;
-  hint: 'a00a-service' | 'company-05d6' | 'company-06d6' | 'name-smartbox' | 'name-ac701n' | 'other';
+  hint: 'a00a-service' | 'company-05d6' | 'company-06d6' | 'name-smartbox' | 'name-ac701n' | 'name-generic-ring' | 'jieli-ota-service' | 'pxi-ota-service' | 'other';
   /**
    * RWfit's own device-type code for the advertiser, for parity when
    * comparing our scan against theirs: 1 = 0xA00A service, 2 = company
@@ -189,12 +189,53 @@ function classifyAd(
     return { hint: 'a00a-service', manufacturerId: null, rwType: null };
   }
 
+  // Vendor OTA services are a strong tell — these are the firmware-update
+  // services Jieli/PXI rings advertise alongside their data service, and
+  // they identify a ring even when the main data UUID is renamed.
+  if (serviceUUIDs?.some((u) => u.toLowerCase() === SERVICE_JIELI_OTA)) {
+    return { hint: 'jieli-ota-service', manufacturerId: null, rwType: null };
+  }
+  if (serviceUUIDs?.some((u) => u.toLowerCase() === SERVICE_PXI_OTA)) {
+    return { hint: 'pxi-ota-service', manufacturerId: null, rwType: null };
+  }
+
   if (manufacturerDataB64) {
     const buf = Buffer.from(manufacturerDataB64, 'base64');
     if (buf.length >= 2) {
       const companyId = buf[0] | (buf[1] << 8);
       if (companyId === 0x05d6) return { hint: 'company-05d6', manufacturerId: companyId, rwType: null };
       if (companyId === 0x06d6) return { hint: 'company-06d6', manufacturerId: companyId, rwType: null };
+    }
+  }
+
+  // Name-based catch-all for rings whose advertising shape we don't know.
+  // Other smart-ring apps pair with the user's ring and this app doesn't
+  // because the four RWfit prefix rules only cover one OEM. These patterns
+  // cover what every mainstream ring on the market names itself:
+  //   SR16 / SR20 / SR21     → common Jieli-family SmartRings (user's ring)
+  //   R02 / R06 / R09 / R10  → COLMI ring family
+  //   LIVSMT-xx              → LIVSMT variant
+  //   KSPM-xx                → KSPM / KSmart Pro
+  //   FN-… / JL-…            → Jieli reference firmware name prefixes
+  //   "…ring…"               → anything that calls itself a ring
+  // A device whose name matches is advertised as what the user intends to
+  // pair with; adding it to the ring list is accurate, not a guess.
+  if (name) {
+    if (
+      /^sr\d/i.test(name) ||
+      /^r\d{2,}/i.test(name) ||
+      /^fn[-_ ]/i.test(name) ||
+      /^jl[-_ ]/i.test(name) ||
+      lname.includes('livsmt') ||
+      lname.includes('kspm') ||
+      lname.includes('colmi') ||
+      lname.includes('smart ring') ||
+      lname.includes('smartring') ||
+      lname.includes('saadhana') ||
+      lname.includes('sadhana') ||
+      /\bring\b/i.test(name)
+    ) {
+      return { hint: 'name-generic-ring', manufacturerId: null, rwType: null };
     }
   }
   return null;
