@@ -43,6 +43,22 @@ export const exerciseRepo = {
       .reduce((s, e) => s + e.durationMin, 0);
   },
 
+  /**
+   * Total exercise minutes across the last N local days, including today.
+   * Used by the Home tab's commitment score to average daily completion
+   * over a week rather than resetting to zero every midnight — a user who
+   * hit their walk goal four days running doesn't feel like they are
+   * starting over on the fifth morning.
+   */
+  async rangeMinutes(days: number): Promise<number> {
+    const windowDays = Math.max(1, days | 0);
+    const cutoff = isoDayOf(new Date(Date.now() - (windowDays - 1) * 86_400_000));
+    const all = await load();
+    return all
+      .filter(e => e.date >= cutoff)
+      .reduce((s, e) => s + e.durationMin, 0);
+  },
+
   /** Breakdown by activity for the given window (default last 7 days). */
   async breakdown(days: number = 7): Promise<{ activity: BodyActivity; minutes: number; count: number }[]> {
     const cutoff = isoDayOf(new Date(Date.now() - days * 86_400_000));

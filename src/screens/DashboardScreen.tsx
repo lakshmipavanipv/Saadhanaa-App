@@ -137,6 +137,12 @@ export const DashboardScreen = ({ navigation }: any) => {
   const [sandhyaSettings, setSandhyaSettings] = useState<SandhyaSettings | null>(null);
   const [_tick, setTick] = useState(0);   // refresh "in X mins" every minute
   const [todayBodyMin, setTodayBodyMin] = useState(0);
+  // 7-day totals so the commitment score reflects sustained practice, not
+  // just today. Without these the big number read as "you've done 0 % today"
+  // every morning at 00:01 even for a user who had hit their goals four
+  // days running — a daily reset dressed up as an overall score.
+  const [weekBodyMin, setWeekBodyMin] = useState(0);
+  const [weekSoulMin, setWeekSoulMin] = useState(0);
   // ── Composite health scores for the 4-box grid ──
   const [healthBoxes, setHealthBoxes] = useState({
     stress: null as number | null,
@@ -157,6 +163,28 @@ export const DashboardScreen = ({ navigation }: any) => {
   const [showVitals, setShowVitals] = useState(false);
   useEffect(() => {
     exerciseRepo.todayMinutes().then(setTodayBodyMin);
+    // 7-day rolling totals. Include soul-activity entries so meditation /
+    // breathwork / tratak logged there count toward soul minutes, same as
+    // the per-day todayMinutes() aggregates them.
+    void exerciseRepo.rangeMinutes(7).then(setWeekBodyMin).catch(() => setWeekBodyMin(0));
+    (async () => {
+      try {
+        const { soulActivityRepo } = await import('../services/soulActivityRepo');
+        const nonJapa = await soulActivityRepo.rangeMinutes(7);
+        // Sum japa minutes across the last 7 days.
+        let japa = 0;
+        const today = new Date();
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(today); d.setDate(today.getDate() - i);
+          const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          try {
+            const r = await japaMinutesOnDate(iso);
+            japa += Math.round((r.minutes ?? 0));
+          } catch { /* ignore a bad day */ }
+        }
+        setWeekSoulMin(japa + nonJapa);
+      } catch { setWeekSoulMin(0); }
+    })();
     (async () => {
       try {
         // Age and sex change these scores materially — HRV norms nearly halve
@@ -728,25 +756,24 @@ export const DashboardScreen = ({ navigation }: any) => {
           const colorFor = (s: number) =>
             s >= 80 ? '#3ddc84' : s >= 60 ? '#FFB800' : s >= 40 ? '#FFD54F' : '#FF8C42';
           /*
-           * The commitment number now summarises goal COMPLETION, not the
-           * ring-derived health score beneath the hero.
+           * Commitment score summarises how well the user is MEETING their
+           * daily targets, averaged across the last seven days — not just
+           * today. A score that resets to 0 every midnight regardless of
+           * the prior week is the behaviour the user flagged ("not getting
+           * overall aggregated... getting reset every day").
            *
-           * Before: finalCommitment was set to `commitmentScore`, which is
-           * `computeScores().overall` — a blend of ambient baseline + japa
-           * effect driven entirely by ring readings. That meant hitting
-           * today's walk target and today's japa target moved the two bars
-           * on this card but LEFT THE BIG NUMBER ALONE, because the big
-           * number was a different thing entirely. Users reasonably read
-           * "Commitment Score" as "am I meeting my commitments today?" and
-           * expected the big figure to climb as those targets closed.
+           * The two bars BELOW this number still show today's progress, so
+           * the user sees their live standing against today's goal without
+           * losing the week-long context in the headline figure.
            *
-           * Now it is the mean of the two percentages the bars already show,
-           * null if neither goal has been set so we never advertise 0/100
-           * for a user who hasn't told us what they're aiming for.
+           * Null when neither goal is set — we never advertise 0/100 for a
+           * user who hasn't told us what they're aiming for.
            */
+          const weekBodyPct = Math.min(100, Math.round(((weekBodyMin / 7) / Math.max(1, bodyGoal)) * 100));
+          const weekSoulPct = Math.min(100, Math.round(((weekSoulMin / 7) / Math.max(1, soulGoal)) * 100));
           const goalParts: number[] = [];
-          if (bodyGoal > 0) goalParts.push(workoutPct);
-          if (soulGoal > 0) goalParts.push(soulPct);
+          if (bodyGoal > 0) goalParts.push(weekBodyPct);
+          if (soulGoal > 0) goalParts.push(weekSoulPct);
           const finalCommitment: number | null = goalParts.length === 0
             ? null
             : Math.round(goalParts.reduce((a, b) => a + b, 0) / goalParts.length);

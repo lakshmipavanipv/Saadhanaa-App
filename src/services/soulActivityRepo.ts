@@ -55,6 +55,16 @@ export const soulActivityRepo = {
       .reduce((s, e) => s + e.durationMin, 0);
   },
 
+  /** Total soul-activity minutes across the last N local days, today included. */
+  async rangeMinutes(days: number): Promise<number> {
+    const windowDays = Math.max(1, days | 0);
+    const cutoff = isoDayOf(new Date(Date.now() - (windowDays - 1) * 86_400_000));
+    const all = await load();
+    return all
+      .filter(e => e.date >= cutoff)
+      .reduce((s, e) => s + e.durationMin, 0);
+  },
+
   /** Breakdown by activity for the given window (default 7 days). */
   async breakdown(days: number = 7): Promise<{ activity: SoulActivity; minutes: number; count: number }[]> {
     const cutoff = isoDayOf(new Date(Date.now() - days * 86_400_000));

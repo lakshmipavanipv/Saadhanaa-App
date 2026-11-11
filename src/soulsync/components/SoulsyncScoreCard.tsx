@@ -52,27 +52,32 @@ export const computeScores = async (): Promise<ScorePack> => {
   const dash = await computeHealthDashboard();
   const [bpm, hrv, spo2, tempC] = dash.metrics;
 
-  // ── DAY BASELINE: how the body is at rest TODAY (ambient/passive state)
-  //    Source: ambient_baseline table — readings from non-session times only.
-  //    A metric the ring never measured contributes nothing: it used to
-  //    default to 50, which quietly manufactured a mid-range score out of
-  //    an empty database (no ring data at all still rendered a confident
-  //    "50/100"). Now each missing metric drops out and the surviving
-  //    weights are renormalised, so the number always describes something
-  //    that was actually measured — and stays null when nothing was.
-  // One model, not two. These four lines used to carry their own constants —
-  // (hrv/60)*100, bpm*1.8, (spo2-90)*10, |temp-36.6|*30 — while the Home tiles
-  // used HealthScoreModel, so the same body was scored two different ways on
-  // one screen and "Body Health" could disagree with "Heart" beside it.
-  // Everything now goes through the documented model.
+  // ── BODY HEALTH: scored off the 30-day BASELINE values the health
+  //    dashboard already keeps, not today's single reading.
+  //
+  //    The old implementation passed `bpm.today / hrv.today / spo2.today`
+  //    straight into heartScore/lungScore, so a day the ring was off the
+  //    hand for half the morning scored low on "Body Health" even for
+  //    someone whose weekly baseline was excellent. The user flagged
+  //    this as the score "resetting every day" — accurate: there was
+  //    nothing being aggregated.
+  //
+  //    Falling back to `today` only when no baseline exists keeps a
+  //    first-day user from seeing a blank score.
   const val = (n: number) => (n > 0 ? n : null);
+  const pick = (today: number, baseline: number) =>
+    baseline > 0 ? baseline : (today > 0 ? today : null);
   const parts: { score: number; weight: number }[] = [];
   const push = (sc: { value: number | null }, weight: number) => {
     if (sc.value != null) parts.push({ score: sc.value, weight });
   };
 
-  push(heartScore({ restingBpm: val(bpm.today), rmssd: val(hrv.today), age: null }), 0.6);
-  push(lungScore(val(spo2.today)), 0.3);
+  push(heartScore({
+    restingBpm: pick(bpm.today,  bpm.baseline),
+    rmssd:      pick(hrv.today,  hrv.baseline),
+    age: null,
+  }), 0.6);
+  push(lungScore(pick(spo2.today, spo2.baseline)), 0.3);
   push(skinTempScore(val(tempC.today), val(tempC.baseline)), 0.1);
 
   // A metric the ring never measured contributes nothing and the surviving

@@ -48,9 +48,23 @@ const fmtDelta = (today: number, baseline: number): { pct: number; direction: Me
  *   • Session duration up to 30 min                                      [0-2]
  *   • SpO2 stability (within 1.5pp of baseline)                          [0-1]
  */
+/**
+ * Depth score averaged across the user's last 7 completed sessions, not
+ * the single most recent one.
+ *
+ * Earlier this returned the latest session's score alone, so a user who
+ * skipped japa today saw a 0 (no session) and a user whose latest session
+ * was a bad five-minute one saw that, not the deeper 30-minute session the
+ * day before. Both read as "my score resets" — which was accurate, because
+ * it did.
+ *
+ * `samples` now reports how many sessions the average used, which the UI
+ * can show as "avg of 7" rather than pretending one session's score is
+ * the aggregate.
+ */
 const computeDepthScore = async (): Promise<{ score: number | null; samples: number }> => {
   const db = await getDB();
-  const session = await db.getFirstAsync<{
+  const sessions = await db.getAllAsync<{
     session_id: string;
     start_time: string;
     end_time: string | null;
@@ -63,37 +77,33 @@ const computeDepthScore = async (): Promise<{ score: number | null; samples: num
      FROM session_spiritual
      WHERE end_time IS NOT NULL
      ORDER BY start_time DESC
-     LIMIT 1`
+     LIMIT 7`
   );
-  if (!session) return { score: null, samples: 0 };
+  if (!sessions || sessions.length === 0) return { score: null, samples: 0 };
 
   const { avgBpm: baselineBpm, avgSpo2: baselineSpo2 } =
     await ambientBaselineRepo.normalcyBaseline(30).then(r => ({ avgBpm: r.bpm, avgSpo2: r.spo2 }));
 
-  // HRV component — 0..4
-  const peaks = session.hrv_peaks_registered;
-  const hrvComp = Math.min(4, peaks * 0.7);
+  const scoreOne = (session: typeof sessions[number]): number => {
+    const hrvComp = Math.min(4, session.hrv_peaks_registered * 0.7);
+    const bpmDrop = baselineBpm > 0 && session.session_avg_bpm != null
+      ? Math.max(0, baselineBpm - session.session_avg_bpm)
+      : 0;
+    const bpmComp = Math.min(3, bpmDrop / 4);
+    const start = new Date(session.start_time).getTime();
+    const end = session.end_time ? new Date(session.end_time).getTime() : start;
+    const minutes = (end - start) / 60_000;
+    const durComp = Math.min(2, minutes / 15);
+    const spo2Diff = baselineSpo2 > 0 && session.avg_spo2 != null
+      ? Math.abs(session.avg_spo2 - baselineSpo2)
+      : 99;
+    const spo2Comp = spo2Diff < 1.5 ? 1 : spo2Diff < 3 ? 0.5 : 0;
+    return Math.min(10, hrvComp + bpmComp + durComp + spo2Comp);
+  };
 
-  // BPM-drop component — 0..3 (3 = 12+ bpm drop)
-  const bpmDrop = baselineBpm > 0 && session.session_avg_bpm != null
-    ? Math.max(0, baselineBpm - session.session_avg_bpm)
-    : 0;
-  const bpmComp = Math.min(3, bpmDrop / 4);
-
-  // Duration component — 0..2 (2 = 30+ min)
-  const start = new Date(session.start_time).getTime();
-  const end = session.end_time ? new Date(session.end_time).getTime() : start;
-  const minutes = (end - start) / 60_000;
-  const durComp = Math.min(2, minutes / 15);
-
-  // SpO2 stability — 0..1
-  const spo2Diff = baselineSpo2 > 0 && session.avg_spo2 != null
-    ? Math.abs(session.avg_spo2 - baselineSpo2)
-    : 99;
-  const spo2Comp = spo2Diff < 1.5 ? 1 : spo2Diff < 3 ? 0.5 : 0;
-
-  const score = Math.round((hrvComp + bpmComp + durComp + spo2Comp) * 10) / 10;
-  return { score: Math.min(10, score), samples: 1 };
+  const scores = sessions.map(scoreOne);
+  const avg = scores.reduce((s, v) => s + v, 0) / scores.length;
+  return { score: Math.round(avg * 10) / 10, samples: scores.length };
 };
 
 /**
