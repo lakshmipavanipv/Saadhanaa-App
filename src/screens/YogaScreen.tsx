@@ -29,7 +29,7 @@ import { exerciseRepo } from '../services/exerciseRepo';
 import { useSadhana } from '../context';
 import { todayStr, isoDayOf } from '../utils';
 import { useSoulsync } from '../soulsync/SoulsyncContext';
-import { SessionList, BeforeAfterVitals } from '../components/PracticeStats';
+import { BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import { PracticeAssistant, PracticeCatalogItem } from '../components/PracticeAssistant';
 import { SessionDepthReport } from '../soulsync/components/SessionDepthReport';
@@ -367,9 +367,12 @@ export const YogaScreen = ({ navigation }: any) => {
             poses, techniques, timers — and repeating the summary here would
             be a second copy of a figure that has one source. */}
 
-        {/* One card per session today — name (from Sadhana Path or "Session N · yoga"),
-              minutes, depth score, week sparkline of scores, week total in small font. */}
-        <SessionList practice="yoga" />
+        {/* SessionList used to render here — one card per sitting with its
+            depth score and a 7-day sparkline. It duplicated the depth
+            number that SessionDepthReport shows at the bottom of this
+            same screen with more detail, so the user was reading "Soul
+            Depth" twice. Removed; SessionDepthReport is the single
+            source for the last-sitting figure. */}
 
         {/* Soulsync — start before yoga to capture HRV / BPM changes */}
         {/* Plan CTA removed — Plan Your Wellbeing is in the ☰ drawer. */}

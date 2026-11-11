@@ -201,7 +201,14 @@ export const SoulsyncSessionBar: React.FC<Props> = ({
                 // Already measuring, but because of something else — a walk,
                 // or beads arriving. Tapping adds this practice to the same
                 // recording rather than starting a second one.
-                ? `◉ Recording your ${runningPractice} · ${fmtElapsed(elapsed)} · tap to add ${practice}`
+                //
+                // Say "your body" rather than naming the other practice.
+                // A user on the Yoga tab seeing "Recording your japa" reads
+                // as "I'm doing japa", which is the opposite of what the
+                // tab suggests. The underlying recording is one stream
+                // across every practice — the body does not know which
+                // tab it is on — so the generic label fits better.
+                ? `◉ Recording your body · ${fmtElapsed(elapsed)} · tap to add ${practice}`
                 : `◉ Recording your body · ${fmtElapsed(elapsed)}`}
           </Text>
           {soulsync.state.active && soulsync.state.liveBpm != null && (

@@ -42,6 +42,20 @@ const PRACTICE_WORD: Record<Practice, string> = {
   japa: 'japa', yoga: 'yoga', meditation: 'meditation',
 };
 
+/*
+ * The card is a per-practice soul-depth report — and the user complained
+ * that seeing "SADHANA DEPTH" on two cards side by side on the Yoga &
+ * Meditation tab read as duplication. Qualifying the kicker with the
+ * practice name makes them obviously distinct ("SOUL DEPTH · YOGA" vs
+ * "SOUL DEPTH · MEDITATION") and renames to the "Soul Depth" wording the
+ * user asked for, matching the hero breakdown on Home.
+ */
+const KICKER: Record<Practice, string> = {
+  japa: 'SOUL DEPTH · JAPA',
+  yoga: 'SOUL DEPTH · YOGA',
+  meditation: 'SOUL DEPTH · MEDITATION',
+};
+
 const BASELINE_WORD: Record<string, string> = {
   'pre-session': 'the hour before you sat',
   'personal-30d': 'your usual day over the last month',
@@ -73,7 +87,7 @@ export const SessionDepthReport: React.FC<Props> = ({ practice, refreshKey }) =>
   if (!depth) {
     return (
       <View style={styles.card}>
-        <Text style={styles.kicker}>SADHANA DEPTH</Text>
+        <Text style={styles.kicker}>{KICKER[practice]}</Text>
         <Text style={styles.empty}>
           Start Soul Sync before you sit and this fills in when you stop. It
           measures what your {PRACTICE_WORD[practice]} did to your body —
@@ -97,7 +111,7 @@ export const SessionDepthReport: React.FC<Props> = ({ practice, refreshKey }) =>
   if (depth.score == null) {
     return (
       <View style={styles.card}>
-        <Text style={styles.kicker}>SADHANA DEPTH · LAST SITTING</Text>
+        <Text style={styles.kicker}>{KICKER[practice]} · LAST SITTING</Text>
         <Text style={styles.when}>{whenText} · {Math.round(depth.durationMin)} min</Text>
         <Text style={styles.empty}>{depth.whyBlank}</Text>
       </View>
@@ -109,7 +123,7 @@ export const SessionDepthReport: React.FC<Props> = ({ practice, refreshKey }) =>
 
   return (
     <View style={[styles.card, { borderColor: band.color + '55' }]}>
-      <Text style={styles.kicker}>SADHANA DEPTH · LAST SITTING</Text>
+      <Text style={styles.kicker}>{KICKER[practice]} · LAST SITTING</Text>
       <Text style={styles.when}>
         {whenText} · {Math.round(depth.durationMin)} min
         {depth.deityName ? ` · ${depth.deityName}` : ''}

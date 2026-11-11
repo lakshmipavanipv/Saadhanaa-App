@@ -27,7 +27,7 @@ import { soulActivityRepo } from '../services/soulActivityRepo';
 import { useSadhana } from '../context';
 import { useSoulsync } from '../soulsync/SoulsyncContext';
 import { todayStr, isoDayOf } from '../utils';
-import { SessionList, BeforeAfterVitals } from '../components/PracticeStats';
+import { BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import { PracticeAssistant, PracticeCatalogItem } from '../components/PracticeAssistant';
 import { SessionDepthReport } from '../soulsync/components/SessionDepthReport';
@@ -422,8 +422,10 @@ export const MeditationScreen: React.FC<Props> = ({ route, navigation }) => {
             poses, techniques, timers — and repeating the summary here would
             be a second copy of a figure that has one source. */}
 
-        {/* One card per session today (name, minutes, depth score, week trend, week total) */}
-        <SessionList practice="meditation" />
+        {/* SessionList previously rendered per-session depth scores here;
+            removed because SessionDepthReport further down covers the
+            same figure with more context and users were reading "Soul
+            Depth" twice on one screen. */}
 
         {/* SOS — quick relief block (kept here because anxiety can hit
             before the user even thinks about Soul Sync) */}
