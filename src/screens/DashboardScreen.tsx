@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Animated,
   Easing,
+  Modal,
 } from 'react-native';
 import { useSadhana } from '../context';
 import { japaMinutesOnDate } from '../soulsync/analytics/JapaTime';
@@ -136,6 +137,8 @@ export const DashboardScreen = ({ navigation }: any) => {
   const [festReminders, setFestReminders] = useState<Record<string, FestReminder>>({});
   const [sandhyaSettings, setSandhyaSettings] = useState<SandhyaSettings | null>(null);
   const [_tick, setTick] = useState(0);   // refresh "in X mins" every minute
+  // Festival shopping-list modal state. Card itself is short now; opens on tap.
+  const [festDetail, setFestDetail] = useState<FestDetail | null>(null);
   const [todayBodyMin, setTodayBodyMin] = useState(0);
   // 7-day totals so the commitment score reflects sustained practice, not
   // just today. Without these the big number read as "you've done 0 % today"
@@ -827,9 +830,18 @@ export const DashboardScreen = ({ navigation }: any) => {
             the Plan CTA.  The vitals toggle + SaadhanaScoreCard pair
             moved up too — they now sit BEFORE the Plan CTA. */}
 
-        {/* ── 7. Today's Planned Activities (restored to original position) ── */}
-        <View style={styles.tpaBox}>
-          <Text style={styles.tpaTitle}>📅  Today&apos;s Planned Activities</Text>
+        {/* ── Reminders (merged) ─────────────────────────────────────
+             Today's Planned Activities + Upcoming Reminders used to be
+             two separate sections — the first was today only, the
+             second a 10-day look-ahead that also includes today, so
+             the same walk/japa/sandhya showed up twice on the same
+             home scroll. Collapsed into one card:
+               • three summary tiles across the top (workout · sadhana
+                 · planned items) — preserves the TPA at-a-glance.
+               • time-sorted list from `nextReminders` underneath, with
+                 festival / ekadashi stripped. Festivals live in their
+                 own section below so they never get double-counted. */}
+        <View style={styles.remBox}>
           <View style={styles.tpaSummary}>
             <View style={styles.tpaSummaryCol}>
               <Text style={styles.tpaSummaryValue}>{todayBodyMin}</Text>
@@ -844,78 +856,17 @@ export const DashboardScreen = ({ navigation }: any) => {
               <Text style={styles.tpaSummaryLabel}>📋 planned{'\n'}items</Text>
             </View>
           </View>
-          {todayRoutine.length === 0 ? (
-            <Text style={styles.tpaEmpty}>
-              No activities planned yet. Tap &quot;Plan your well-being&quot; above to set up your routine.
-            </Text>
-          ) : (
-            todayRoutine.slice(0, 6).map(item => {
-              const isWorkout = ['exercise'].includes(item.category);
-              const isSoul    = ['japa','meditate','sandhya'].includes(item.category);
-              const minDone   = isWorkout ? todayBodyMin : isSoul ? Math.round(sadhanaSeconds / 60) : 0;
-              const done = minDone >= item.durationMin;
-              const categoryMeta: Record<string, { tab: string; icon: string }> = {
-                exercise: { tab: 'Exercise', icon: '🏃' },
-                yoga:     { tab: 'Yoga',     icon: '🧘‍♀️' },
-                meditate: { tab: 'Yoga',     icon: '🪷' },
-                japa:     { tab: 'Japa',     icon: '📿' },
-                sandhya:  { tab: 'Japa',     icon: '🌅' },
-                shraadha: { tab: 'Panchang', icon: '🕯️' },
-                tithi:    { tab: 'Panchang', icon: '🌗' },
-                festival: { tab: 'Panchang', icon: '🛕' },
-              };
-              const meta = categoryMeta[item.category] ?? { tab: 'Dashboard', icon: '📌' };
-              const until = timeUntilLabel(item.time);
+          <Text style={styles.remTitle}>🔔  Reminders</Text>
+          {(() => {
+            const nonFest = nextReminders.filter(r => r.kind !== 'festival' && r.kind !== 'ekadashi');
+            if (nonFest.length === 0) {
               return (
-                <TouchableOpacity
-                  key={item.id}
-                  style={styles.tpaCard}
-                  onPress={() => navigation?.navigate?.(meta.tab)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.tpaCardIcon}>{meta.icon}</Text>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.tpaCardName} numberOfLines={1}>
-                      {item.name}
-                      {done && <Text style={styles.tpaCardDone}>  ⭐</Text>}
-                    </Text>
-                    <Text style={styles.tpaCardMeta}>
-                      {item.durationMin} min
-                      {item.notificationIds && '  ·  🔔 on'}
-                      {item.time ? `  ·  ⏰ ${item.time}` : ''}
-                    </Text>
-                  </View>
-                  {/* "in 4h" countdown pill — same UI as the removed
-                       TodayPrayersCard so users see how far away each
-                       reminder is at a glance. */}
-                  {until && (
-                    <View style={styles.tpaCardUntilPill}>
-                      <Text style={styles.tpaCardUntil}>{until}</Text>
-                    </View>
-                  )}
-                  <Text style={styles.tpaCardChevron}>›</Text>
-                </TouchableOpacity>
+                <Text style={styles.remEmpty}>
+                  Nothing scheduled yet. Add a routine in the Plan tab to see it here.
+                </Text>
               );
-            })
-          )}
-        </View>
-
-        {/* TodayPrayersCard removed per the earlier ask — its "in 4h"
-            countdown semantics now live inline on each TPA row above. */}
-
-        {/* ── v62: Upcoming Reminders feed ─────────────────────────────
-             Unified, time-sorted list of next walk / jog / sadhana /
-             japa / ekadashi / sandhya / festival / shopping.  Sits
-             right below Today's Planned Activities. */}
-        <View style={styles.remBox}>
-          <Text style={styles.remTitle}>🔔  Upcoming Reminders</Text>
-          {nextReminders.length === 0 ? (
-            <Text style={styles.remEmpty}>
-              Nothing scheduled yet. Add a routine in the Plan tab or set a festival reminder
-              under Panchang to see it here.
-            </Text>
-          ) : (
-            nextReminders.map(r => (
+            }
+            return nonFest.map(r => (
               <TouchableOpacity
                 key={r.id}
                 style={styles.remCard}
@@ -934,8 +885,8 @@ export const DashboardScreen = ({ navigation }: any) => {
                 </View>
                 <Text style={styles.remChevron}>›</Text>
               </TouchableOpacity>
-            ))
-          )}
+            ));
+          })()}
         </View>
 
         {/* #9 — Today's festival banner */}
@@ -966,9 +917,15 @@ export const DashboardScreen = ({ navigation }: any) => {
           </View>
         )}
 
-        {/* Next Festival info */}
+        {/* Next Festival — tappable to open the shopping list; the list
+            itself is no longer previewed inline, so this card stays short
+            and the detail opens on demand when the user cares. */}
         {upcoming && (
-          <View style={styles.upcomingFest}>
+          <TouchableOpacity
+            style={styles.upcomingFest}
+            activeOpacity={0.85}
+            onPress={() => setFestDetail(upcoming as unknown as FestDetail)}
+          >
             <View style={styles.upcomingTopRow}>
               <Text style={{ fontSize: 32 }}>{upcoming.deityIcon}</Text>
               <View style={{ flex: 1, marginLeft: SPACING.sm }}>
@@ -984,29 +941,139 @@ export const DashboardScreen = ({ navigation }: any) => {
                   })()}
                 </Text>
               </View>
+              {upcoming.checklist.length > 0 && (
+                <Text style={styles.upcomingOpenChip}>
+                  {upcoming.checklist.length} items ›
+                </Text>
+              )}
             </View>
             <Text style={styles.upcomingDeity}>{upcoming.deity}</Text>
-            {upcoming.checklist.length > 0 && (
-              <View style={styles.checklistPreview}>
-                {upcoming.checklist.slice(0, 3).map(it => (
-                  <View key={it.id} style={styles.checklistItem}>
-                    <Text style={styles.checklistTag}>{it.tag}</Text>
-                    <Text style={styles.checklistText}>{it.text}</Text>
-                  </View>
-                ))}
-                {upcoming.checklist.length > 3 && (
-                  <Text style={styles.checklistMore}>
-                    +{upcoming.checklist.length - 3} more in Festivals tab
-                  </Text>
-                )}
-              </View>
-            )}
-          </View>
+          </TouchableOpacity>
         )}
+
+        {/* Explore all festivals — jump to the Panchang/Festivals tab. */}
+        <TouchableOpacity
+          style={styles.panchangLink}
+          activeOpacity={0.8}
+          onPress={() => navigation?.navigate?.('Panchang')}
+        >
+          <Text style={styles.panchangLinkIcon}>🛕</Text>
+          <Text style={styles.panchangLinkText}>Explore all festivals · Panchang</Text>
+          <Text style={styles.panchangLinkArrow}>›</Text>
+        </TouchableOpacity>
       </ScrollView>
+
+      {/* Festival shopping-list detail */}
+      <FestivalDetailModal
+        fest={festDetail}
+        onClose={() => setFestDetail(null)}
+        onOpenPanchang={() => { setFestDetail(null); navigation?.navigate?.('Panchang'); }}
+      />
     </View>
   );
 };
+
+// ─── Festival detail modal ────────────────────────────────────────────
+
+/**
+ * Shape the modal needs from a festival — a subset of PanchangFestival that
+ * covers both the real catalogue type and anything `getUpcoming()` returns.
+ * Kept as its own interface so a widened future PanchangFestival doesn't
+ * break the modal and vice versa.
+ */
+interface FestDetail {
+  id: string;
+  name: string;
+  deity: string;
+  deityIcon: string;
+  date: string;
+  checklist: { id: string; text: string; tag: string }[];
+  [key: string]: unknown;
+}
+
+const FestivalDetailModal: React.FC<{
+  fest: FestDetail | null;
+  onClose: () => void;
+  onOpenPanchang: () => void;
+}> = ({ fest, onClose, onOpenPanchang }) => {
+  if (!fest) return null;
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <View style={festStyles.overlay}>
+        <View style={festStyles.sheet}>
+          <View style={festStyles.header}>
+            <Text style={{ fontSize: 42 }}>{fest.deityIcon}</Text>
+            <View style={{ flex: 1, marginLeft: SPACING.sm }}>
+              <Text style={festStyles.name}>{fest.name}</Text>
+              <Text style={festStyles.deity}>{fest.deity}</Text>
+              <Text style={festStyles.date}>{formatShortDate(fest.date)}</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}>
+              <Text style={festStyles.close}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={festStyles.sectionTitle}>
+            Things to arrange ({fest.checklist.length})
+          </Text>
+          <ScrollView style={{ maxHeight: 440 }} contentContainerStyle={{ paddingBottom: SPACING.md }}>
+            {fest.checklist.map(it => (
+              <View key={it.id} style={festStyles.row}>
+                <Text style={festStyles.tag}>{it.tag}</Text>
+                <Text style={festStyles.text}>{it.text}</Text>
+              </View>
+            ))}
+            {fest.checklist.length === 0 && (
+              <Text style={festStyles.empty}>No shopping list for this festival yet.</Text>
+            )}
+          </ScrollView>
+          <TouchableOpacity style={festStyles.openBtn} activeOpacity={0.85} onPress={onOpenPanchang}>
+            <Text style={festStyles.openBtnText}>🛕 Open in Panchang</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const festStyles = StyleSheet.create({
+  overlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: COLORS.cardBg, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: SPACING.lg, borderTopWidth: 1, borderColor: COLORS.border,
+  },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md },
+  name: { color: COLORS.cream, fontSize: 18, fontWeight: '800' },
+  deity: { color: COLORS.saffron, fontSize: 13, fontStyle: 'italic', marginTop: 2 },
+  date: { color: COLORS.muted, fontSize: 12, marginTop: 2 },
+  close: { color: COLORS.cream, fontSize: 22, fontWeight: '700', paddingHorizontal: 8 },
+  sectionTitle: {
+    color: COLORS.gold, fontSize: 11, fontWeight: '800',
+    letterSpacing: 1.4, textTransform: 'uppercase',
+    marginBottom: SPACING.sm,
+  },
+  row: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    paddingVertical: 10, paddingHorizontal: 12,
+    backgroundColor: COLORS.deep, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.border,
+    marginBottom: 6, gap: 10,
+  },
+  tag: {
+    color: COLORS.gold, fontSize: 11, fontWeight: '800',
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
+    backgroundColor: 'rgba(240,208,138,0.12)', minWidth: 48, textAlign: 'center',
+  },
+  text: { color: COLORS.cream, fontSize: 14, flex: 1, lineHeight: 19 },
+  empty: { color: COLORS.muted, fontSize: 13, textAlign: 'center', paddingVertical: SPACING.md, fontStyle: 'italic' },
+  openBtn: {
+    marginTop: SPACING.md, paddingVertical: 14, borderRadius: 12,
+    backgroundColor: COLORS.gold, alignItems: 'center',
+  },
+  openBtnText: { color: COLORS.deep, fontSize: 15, fontWeight: '800' },
+});
 
 // Module-level dark `styles` object — kept so helper components outside
 // DashboardScreen (rendered before we have palette in scope) still resolve.
@@ -1568,6 +1635,25 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   upcomingName: { fontSize: 16, color: C.cream, fontWeight: '700', marginTop: 2 },
   upcomingDays: { fontSize: 12, color: C.gold, marginTop: 2 },
   upcomingDeity: { fontSize: 12, color: C.saffron, fontStyle: 'italic', marginBottom: SPACING.sm },
+  upcomingOpenChip: {
+    color: C.gold, fontSize: 11, fontWeight: '800', letterSpacing: 0.4,
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999,
+    backgroundColor: 'rgba(240,208,138,0.12)',
+    borderWidth: 1, borderColor: 'rgba(240,208,138,0.35)',
+  },
+
+  // Explore-all-festivals strip, bottom of the Home scroll.
+  panchangLink: {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
+    paddingHorizontal: SPACING.md, paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: 'rgba(244,114,182,0.10)',
+    borderWidth: 1, borderColor: 'rgba(244,114,182,0.35)',
+  },
+  panchangLinkIcon: { fontSize: 22, marginRight: 10 },
+  panchangLinkText: { color: C.cream, fontSize: 14, fontWeight: '700', flex: 1 },
+  panchangLinkArrow: { color: '#f472b6', fontSize: 20, fontWeight: '800' },
   checklistPreview: { gap: 4 },
   checklistItem: { flexDirection: 'row', alignItems: 'center' },
   checklistTag: { fontSize: 14, marginRight: SPACING.sm },

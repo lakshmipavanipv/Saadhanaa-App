@@ -140,8 +140,17 @@ export const computeJapaEffect = async (): Promise<JapaEffectSnapshot> => {
   const today = isoDayOf(new Date());
   const db = await getDB();
 
-  // 1. Get today's baseline (rest-of-day ambient — when NOT in a session)
-  const ambient = await ambientBaselineRepo.todaysAvg();
+  // 1. Baseline is the rolling 7-day ambient average, NOT just today.
+  //
+  //    The subtitle on this card has always said "7-day vs current", but
+  //    the code was calling `ambientBaselineRepo.todaysAvg()` — one day's
+  //    rest-of-day readings. So the card compared today's japa against
+  //    today's rest-of-day, which is why the user reported "its not
+  //    functioning" the way a 7-day baseline card should.
+  //
+  //    normalcyBaseline(7) excludes today and sleep, which is exactly
+  //    what the subtitle claims this number is.
+  const ambient = await ambientBaselineRepo.normalcyBaseline(7);
   const baselineBpm    = ambient.bpm   > 0 ? ambient.bpm   : null;
   const baselineRmssd  = ambient.rmssd > 0 ? ambient.rmssd : null;
   const baselineSpo2   = ambient.spo2  > 0 ? ambient.spo2  : null;
