@@ -115,7 +115,7 @@ export const YogaMeditationWrapper: React.FC<any> = ({ navigation }) => {
           onSessionEnd={refresh}
           refreshKey={epoch}
           onDetails={() => navigation?.navigate?.('YogaLibrary')}
-          onOpenPlan={() => navigation?.navigate?.('Plan', { preset: 'yoga' })}
+          onOpenPlan={() => navigation?.navigate?.('Plan', { category: 'yoga' })}
         />
 
         <SoulPracticeBox
@@ -130,7 +130,7 @@ export const YogaMeditationWrapper: React.FC<any> = ({ navigation }) => {
           onSessionEnd={refresh}
           refreshKey={epoch}
           onDetails={() => navigation?.navigate?.('Meditation')}
-          onOpenPlan={() => navigation?.navigate?.('Plan', { preset: 'meditate' })}
+          onOpenPlan={() => navigation?.navigate?.('Plan', { category: 'meditate' })}
         />
 
         {/* The last scored sitting of each. Both are shown rather than one,

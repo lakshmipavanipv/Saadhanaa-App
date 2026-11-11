@@ -1109,7 +1109,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
               deityName={selectedDeity?.name ?? null}
               beadTick={count + malas * 108}
               onDetails={() => navigation?.navigate?.('JapaHistoryDetail')}
-              onOpenPlan={() => navigation?.navigate?.('Plan', { preset: 'japa' })}
+              onOpenPlan={() => navigation?.navigate?.('Plan', { category: 'japa' })}
             />
           );
         })()}
@@ -1144,7 +1144,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
             // Wellbeing with the japa category preset, same place every
             // other category adds a practice.
             if (deities.length === 0) {
-              navigation?.navigate?.('Plan', { preset: 'japa' });
+              navigation?.navigate?.('Plan', { category: 'japa' });
             } else {
               setShowSadhanaPicker(true);
             }
@@ -1486,7 +1486,7 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
                 style={styles.picAddRow}
                 onPress={() => {
                   setShowSadhanaPicker(false);
-                  navigation?.navigate?.('Plan', { preset: 'japa' });
+                  navigation?.navigate?.('Plan', { category: 'japa' });
                 }}
               >
                 <Text style={styles.picIcon}>＋</Text>

@@ -44,7 +44,7 @@ export const PlanWellbeingButton: React.FC<Props> = ({ navigation, preset }) => 
         // thing in the header and gives the title back most of the row.
         minWidth: 64,
       }}
-      onPress={() => navigation?.navigate?.('Plan', preset ? { preset } : undefined)}
+      onPress={() => navigation?.navigate?.('Plan', preset ? { category: preset } : undefined)}
       activeOpacity={0.85}
       accessibilityRole="button"
       accessibilityLabel="Plan your wellbeing"

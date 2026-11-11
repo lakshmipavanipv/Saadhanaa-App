@@ -68,6 +68,24 @@ const CATEGORIES: {
   { id: 'meditate', label: 'Meditate',  icon: '🪷',   color: '#c084fc', hint: 'Breath · stillness',       defaultMin: 15 },
 ];
 
+/**
+ * The four category boxes on the hub. "Yoga & Meditation" collapses two
+ * practices into one tile so the grid stays a 2x2 — the two share the
+ * same hub tile but still have distinct focused views ('yoga' /
+ * 'meditate'); the tile sends the user to the yoga view and from there
+ * the Meditation tab's button sends them to the meditate view.
+ *
+ * Festival is here too because the hub is the one page that answers
+ * "what am I planning for?", and festivals are a planning kind the user
+ * expects to find alongside the practice categories.
+ */
+const HUB_BOXES: { id: RoutineCategory | 'festival'; label: string; icon: string; color: string }[] = [
+  { id: 'exercise', label: 'Exercise',          icon: '🏃',   color: '#4ea8de' },
+  { id: 'japa',     label: 'Japa',              icon: '📿',   color: '#FF8C42' },
+  { id: 'yoga',     label: 'Yoga & Meditation', icon: '🧘‍♀️', color: '#FFB800' },
+  { id: 'festival', label: 'Festivals',         icon: '🛕',   color: '#f472b6' },
+];
+
 const CAT_META: Record<RoutineCategory, { label: string; icon: string; color: string }> = {
   exercise: { label: 'Exercise', icon: '🏃',  color: '#4ea8de' },
   yoga:     { label: 'Yoga',     icon: '🧘‍♀️', color: '#FFB800' },
@@ -206,17 +224,36 @@ export const WellBeingPlanScreen = ({ navigation, route }: any) => {
   const [wizardPreset, setWizardPreset] = useState<RoutineCategory | null>(null);
   const [editingItem, setEditingItem] = useState<RoutineItem | null>(null);
 
-  // Deep-link handling: `navigation.navigate('Plan', { preset: 'exercise' })`
-  // opens the wizard immediately with the given category pre-selected, so
-  // users tapping the big 🎯 button on the Exercise tab skip Step 1 and
-  // land on the activity picker (walk/jog/run/cycle/swim/hiit).
+  /*
+   * Two shapes for this screen:
+   *
+   *   • No category param → HUB. Four category boxes at the top, the goals
+   *     the user already has grouped underneath in category order. This is
+   *     what the Home tab's "Plan Your Wellbeing" button opens.
+   *
+   *   • category param set → FOCUSED view. Only that category's goals and
+   *     its own Add-wizard entry. A back chip at the top clears the param
+   *     and returns to the hub without changing tabs. This is what the
+   *     Exercise / Japa / Yoga / Meditation tabs all open, and what the
+   *     hub's category boxes open too.
+   *
+   * The old `preset` param is treated as a category-plus-auto-open-wizard
+   * shortcut, kept for backwards compatibility with navigation.navigate
+   * calls scattered through the practice screens.
+   */
+  const filterCategory =
+    (route?.params?.category as RoutineCategory | 'festival' | undefined) ??
+    (route?.params?.preset as RoutineCategory | undefined) ??
+    null;
+  const inHub = !filterCategory;
+
   React.useEffect(() => {
     const preset = route?.params?.preset as RoutineCategory | undefined;
     if (preset) {
       setWizardPreset(preset);
       setWizardOpen(true);
-      // Clear the param so navigating back and forth doesn't keep re-opening.
-      navigation?.setParams?.({ preset: undefined });
+      // Clear ONLY the preset (keep category so the filtered view sticks).
+      navigation?.setParams?.({ preset: undefined, category: preset });
     }
   }, [route?.params?.preset]);
   // v61: AI plan card — collapsed by default; expands to show the
@@ -265,16 +302,64 @@ export const WellBeingPlanScreen = ({ navigation, route }: any) => {
   return (
     <View style={s.container}>
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+        {/* Back-to-hub chip, shown only in focused mode. Matches the chip
+            style elsewhere in the hub and never jumps to another category —
+            one tap returns to the four-box hub without a tab switch. */}
+        {!inHub && (
+          <TouchableOpacity
+            style={s.hubBackChip}
+            onPress={() => navigation?.setParams?.({ category: undefined, preset: undefined })}
+            activeOpacity={0.75}
+          >
+            <Text style={s.hubBackArrow}>‹</Text>
+            <Text style={s.hubBackText}>All plans</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Header */}
         <View style={s.header}>
-          <Text style={s.title}>Plan Your Well-Being</Text>
+          <Text style={s.title}>
+            {inHub
+              ? 'Plan Your Well-Being'
+              : filterCategory === 'festival'
+                ? 'Festivals & Occasions'
+                : `${CAT_META[filterCategory as RoutineCategory]?.label ?? 'Plan'} plans`}
+          </Text>
           <Text style={s.subtitle}>
-            Tap any reminder to edit. Tap the gold button below to add a new one.
+            {inHub
+              ? 'Pick a category to plan, or tap any existing reminder below to edit.'
+              : 'Tap any reminder to edit. Tap the gold button below to add a new one.'}
           </Text>
         </View>
 
-        {/* AI Recommendations — collapsible card */}
-        {aiPlan && (
+        {/* ── HUB: four category boxes. Each jumps into the focused view
+             for that category by setting the route param — no navigation
+             push, same screen, so the back chip returns here. */}
+        {inHub && (
+          <View style={s.hubGrid}>
+            {HUB_BOXES.map(b => (
+              <TouchableOpacity
+                key={b.id}
+                style={[s.hubBox, { borderColor: b.color + '55', backgroundColor: b.color + '12' }]}
+                onPress={() => navigation?.setParams?.({ category: b.id })}
+                activeOpacity={0.8}
+              >
+                <Text style={s.hubBoxIcon}>{b.icon}</Text>
+                <Text style={s.hubBoxLabel}>{b.label}</Text>
+                <Text style={s.hubBoxCount}>
+                  {b.id === 'festival'
+                    ? `${occasions.length} set`
+                    : `${(grouped[b.id] ?? []).length} set`}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* AI Recommendations — collapsible card. Hub only; the focused
+            views are about one practice and shouldn't carry the whole
+            five-bucket plan. */}
+        {inHub && aiPlan && (
           <View style={s.aiCard}>
             <TouchableOpacity
               style={s.aiHeader}
@@ -323,13 +408,21 @@ export const WellBeingPlanScreen = ({ navigation, route }: any) => {
           </View>
         )}
 
-        {/* ── PRIMARY section: Daily Practice Reminders (body & soul) ── */}
+        {/* Daily Practice Reminders — hidden when the focused view is on
+            the festival/occasion bucket (that screen is about dated
+            events, not a repeating daily rhythm). */}
+        {(inHub || filterCategory !== 'festival') && (
         <View style={s.occHeaderRow}>
           <Text style={s.groupLabel}>🔔  DAILY PRACTICE REMINDERS</Text>
         </View>
+        )}
+        {(inHub || filterCategory !== 'festival') && (
         <Text style={s.occIntro}>
-          Walk · yoga · japa · meditation · sandhya — your everyday body & soul practice.
+          {inHub
+            ? 'Walk · yoga · japa · meditation · sandhya — your everyday body & soul practice.'
+            : 'Reminders in this category only.'}
         </Text>
+        )}
 
         {/* Empty state */}
         {items.length === 0 && (
@@ -344,8 +437,12 @@ export const WellBeingPlanScreen = ({ navigation, route }: any) => {
           </View>
         )}
 
-        {/* Reminder cards grouped by category */}
-        {CATEGORIES.map(cat => {
+        {/* Reminder cards grouped by category. In the focused view we
+            render only the one group; the festival-focused view skips
+            this section entirely (it has its own list below). */}
+        {(inHub || filterCategory !== 'festival') && CATEGORIES
+          .filter(c => inHub || c.id === filterCategory)
+          .map(cat => {
           const list = grouped[cat.id];
           if (!list || list.length === 0) return null;
           return (
@@ -419,29 +516,46 @@ export const WellBeingPlanScreen = ({ navigation, route }: any) => {
           );
         })}
 
-        {/* Inline gold CTA for the daily-practice section */}
+        {/* Inline gold CTA. In the focused view we pre-open the wizard
+            for that category so the user doesn't have to re-pick it. */}
+        {(inHub || filterCategory !== 'festival') && (
         <TouchableOpacity
           style={s.dailyAddBtn}
-          onPress={() => setWizardOpen(true)}
+          onPress={() => {
+            if (!inHub && filterCategory && (filterCategory as string) !== 'festival') {
+              setWizardPreset(filterCategory as RoutineCategory);
+            }
+            setWizardOpen(true);
+          }}
           activeOpacity={0.85}
         >
-          <Text style={s.dailyAddBtnText}>＋  Add a daily practice reminder</Text>
+          <Text style={s.dailyAddBtnText}>
+            {!inHub && filterCategory && (filterCategory as string) !== 'festival'
+              ? `＋  Add a ${CAT_META[filterCategory as RoutineCategory]?.label.toLowerCase() ?? 'practice'} reminder`
+              : '＋  Add a daily practice reminder'}
+          </Text>
         </TouchableOpacity>
+        )}
 
-        {/* ── Sacred Days & Occasions ── */}
-        <View style={s.occHeaderRow}>
-          <Text style={s.groupLabel}>🗓  SACRED DAYS & OCCASIONS</Text>
-        </View>
-        <Text style={s.occIntro}>
-          Festivals, tithi days, special dates and pitru shraadha — reminders that
-          fire on the right calendar day, not every day.
-        </Text>
+        {/* ── Sacred Days & Occasions — shown in hub and in the festival-
+            focused view. The per-practice focused views hide it. */}
+        {(inHub || filterCategory === 'festival') && (
+          <>
+            <View style={s.occHeaderRow}>
+              <Text style={s.groupLabel}>🗓  SACRED DAYS & OCCASIONS</Text>
+            </View>
+            <Text style={s.occIntro}>
+              Festivals, tithi days, special dates and pitru shraadha —
+              reminders that fire on the right calendar day, not every day.
+            </Text>
+          </>
+        )}
 
-        {occasions.length === 0 && (
+        {(inHub || filterCategory === 'festival') && occasions.length === 0 && (
           <Text style={s.occEmpty}>None yet. Tap below to add a festival, tithi or special day.</Text>
         )}
 
-        {occasions.map(o => {
+        {(inHub || filterCategory === 'festival') && occasions.map(o => {
           const meta = OCCASION_TYPES.find(t =>
             (o.trigger.kind === 'tithi' && t.id === 'tithi') ||
             (o.trigger.kind === 'dates' && t.id === (o.note === 'festival' ? 'festival' : 'special'))
@@ -466,9 +580,11 @@ export const WellBeingPlanScreen = ({ navigation, route }: any) => {
           );
         })}
 
+        {(inHub || filterCategory === 'festival') && (
         <TouchableOpacity style={s.occAddBtn} onPress={() => setOccasionOpen(true)} activeOpacity={0.8}>
           <Text style={s.occAddBtnText}>＋  Add a sacred day / occasion</Text>
         </TouchableOpacity>
+        )}
 
         {/* Bottom spacer */}
         <View style={{ height: 40 }} />
@@ -1466,6 +1582,35 @@ const s = StyleSheet.create({
   header: { paddingHorizontal: SPACING.md, marginBottom: SPACING.md },
   title:    { color: COLORS.cream, fontSize: 24, fontWeight: '800' },
   subtitle: { color: COLORS.muted, fontSize: 14, marginTop: 6, lineHeight: 19 },
+
+  // Hub-mode back chip (focused view → hub)
+  hubBackChip: {
+    flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
+    gap: 6, paddingHorizontal: 12, paddingVertical: 7,
+    marginHorizontal: SPACING.md, marginBottom: SPACING.sm,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,184,0,0.10)',
+    borderWidth: 1, borderColor: 'rgba(255,184,0,0.35)',
+  },
+  hubBackArrow: { color: COLORS.gold, fontSize: 16, fontWeight: '800' },
+  hubBackText:  { color: COLORS.gold, fontSize: 13, fontWeight: '700' },
+
+  // 2x2 category grid, shown on the hub only
+  hubGrid: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    paddingHorizontal: SPACING.md,
+    marginBottom: SPACING.lg,
+    gap: SPACING.sm,
+  },
+  hubBox: {
+    width: '48%', aspectRatio: 1.35,
+    borderRadius: 16, borderWidth: 1,
+    paddingHorizontal: 14, paddingVertical: 14,
+    justifyContent: 'space-between',
+  },
+  hubBoxIcon:  { fontSize: 30 },
+  hubBoxLabel: { color: COLORS.cream, fontSize: 16, fontWeight: '700' },
+  hubBoxCount: { color: COLORS.muted, fontSize: 12 },
 
   // v61: AI Recommendations collapsible card
   aiCard: {
