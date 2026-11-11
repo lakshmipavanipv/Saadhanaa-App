@@ -26,6 +26,23 @@ export const HEALTH_COLORS = {
   tintFit:  'rgba(110,240,180,0.26)',   // fitter / rested
 } as const;
 
+/**
+ * Solid foreground colours per band — the big tile number paints in these
+ * so a 68 bpm reading looks healthy-green and a 140 bpm reading looks
+ * coral-red. Before this the value always took the metric's static accent
+ * (coral for HR), so every HR reading read as risk regardless of whether
+ * it was fit, healthy, elevated or high — the bug the user flagged.
+ *
+ * `fit` is a deeper green than `ok`, matching the user's ask that the best
+ * band ("Fitter") read as more intense than ordinary healthy.
+ */
+export const BAND_VALUE_COLORS: Record<'low' | 'ok' | 'warn' | 'fit', string> = {
+  low:  '#FF7A85',    // coral-red — flags risk, both directions
+  warn: '#F5C56B',    // amber — moderate / elevated
+  ok:   '#7BE4B8',    // mint green — healthy baseline
+  fit:  '#2FB37A',    // deeper green — the aspirational band ("Fitter")
+} as const;
+
 export type HealthMetric =
   | 'hr' | 'hrv' | 'spo2' | 'temp' | 'resp'
   | 'sleep' | 'stress' | 'exercise';

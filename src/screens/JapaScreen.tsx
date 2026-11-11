@@ -1133,12 +1133,22 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
 
 
         {/* ─── #2 · UNIFIED SADHANA SELECTOR ───
-             ONE dropdown that lists all existing deities + sandhya +
-             sadhana paths, plus "+ Add new Sadhana" at the bottom which
-             opens the 3-form menu (deity / sandhya / sadhana path). */}
+             Tapping the selector opens the picker if the user already has
+             sadhanas to choose between; with NONE yet set up it jumps
+             straight to the Plan tab's japa wizard rather than opening an
+             empty picker whose only action is a separate "Add new" flow. */}
         <TouchableOpacity
           style={styles.deitySelector}
-          onPress={() => setShowSadhanaPicker(true)}
+          onPress={() => {
+            // "Add sadhana" is now a single door: it goes to Plan Your
+            // Wellbeing with the japa category preset, same place every
+            // other category adds a practice.
+            if (deities.length === 0) {
+              navigation?.navigate?.('Plan', { preset: 'japa' });
+            } else {
+              setShowSadhanaPicker(true);
+            }
+          }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
             {selectedDeity && (
@@ -1467,15 +1477,22 @@ export const JapaScreen = ({ navigation, onOpenSandhya }: any) => {
                 </>
               )}
 
-              {/* ── + Add new Sadhana ── */}
+              {/* + Add new Sadhana: deep-links to Plan Your Wellbeing →
+                  japa. Used to open an in-tab 3-action sheet (deity /
+                  sandhya / sadhana path), which duplicated the Plan tab's
+                  own japa wizard — two doors to one room, drifting apart
+                  with each release. One door now. */}
               <TouchableOpacity
                 style={styles.picAddRow}
-                onPress={() => { setShowSadhanaPicker(false); setTimeout(() => setShowSadhanaMenu(true), 320); }}
+                onPress={() => {
+                  setShowSadhanaPicker(false);
+                  navigation?.navigate?.('Plan', { preset: 'japa' });
+                }}
               >
                 <Text style={styles.picIcon}>＋</Text>
                 <View style={{ flex: 1, marginLeft: 8 }}>
                   <Text style={[styles.picName, { color: COLORS.gold }]}>Add new Sadhana</Text>
-                  <Text style={styles.picSub}>Deity · Sandhya Japa · Sadhana Path</Text>
+                  <Text style={styles.picSub}>Set up in Plan Your Wellbeing — japa</Text>
                 </View>
                 <Text style={[styles.picArrow, { color: COLORS.gold }]}>›</Text>
               </TouchableOpacity>

@@ -727,7 +727,29 @@ export const DashboardScreen = ({ navigation }: any) => {
           // Same gradient as colorFor() in SoulsyncScoreCard
           const colorFor = (s: number) =>
             s >= 80 ? '#3ddc84' : s >= 60 ? '#FFB800' : s >= 40 ? '#FFD54F' : '#FF8C42';
-          const finalCommitment = commitmentScore;
+          /*
+           * The commitment number now summarises goal COMPLETION, not the
+           * ring-derived health score beneath the hero.
+           *
+           * Before: finalCommitment was set to `commitmentScore`, which is
+           * `computeScores().overall` — a blend of ambient baseline + japa
+           * effect driven entirely by ring readings. That meant hitting
+           * today's walk target and today's japa target moved the two bars
+           * on this card but LEFT THE BIG NUMBER ALONE, because the big
+           * number was a different thing entirely. Users reasonably read
+           * "Commitment Score" as "am I meeting my commitments today?" and
+           * expected the big figure to climb as those targets closed.
+           *
+           * Now it is the mean of the two percentages the bars already show,
+           * null if neither goal has been set so we never advertise 0/100
+           * for a user who hasn't told us what they're aiming for.
+           */
+          const goalParts: number[] = [];
+          if (bodyGoal > 0) goalParts.push(workoutPct);
+          if (soulGoal > 0) goalParts.push(soulPct);
+          const finalCommitment: number | null = goalParts.length === 0
+            ? null
+            : Math.round(goalParts.reduce((a, b) => a + b, 0) / goalParts.length);
           const overallColor = finalCommitment == null ? NO_DATA_COLOR : colorFor(finalCommitment);
           return (
             <View style={styles.cscBox}>

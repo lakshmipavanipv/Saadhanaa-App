@@ -20,7 +20,10 @@ import { COLORS, SPACING, DRAWER_CLEARANCE } from '../../theme';
 import { useTheme } from '../../ThemeContext';
 import { syncAllRingVitals, loadStoredVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
 import { groupSleepSessions } from '../../soulsync/ring/ringVitalsSync';
-import { HEALTH_COLORS, type HealthMetric } from './healthTokens';
+import {
+  HEALTH_COLORS, BAND_VALUE_COLORS, METRIC_CONFIG, STRESS_CONFIG, bandDefForValue,
+  type HealthMetric, type MetricConfig,
+} from './healthTokens';
 
 import { isoDay as isoLocalDay } from './rangeContext';
 
@@ -67,6 +70,30 @@ const TILES: TileSpec[] = [
   // well wide because its baseline comparison is a sentence, not a figure.
   { key: 'stress',name: 'Stress',       unit: '/100',route: 'StressDetail',                                   color: HEALTH_COLORS.stress, goodDelta: 'lower', wide: true },
 ];
+
+/**
+ * Paint colour for a tile's big reading, derived from the band it falls in.
+ *
+ * Without this every tile paints its number in the metric's static accent —
+ * HR in coral, HRV in green, SpO2 in blue — regardless of whether the value
+ * is fit, healthy, elevated or dangerous. A resting 68 bpm consequently
+ * read as risk-red, which is the bug the user flagged.
+ *
+ * Metrics with no banded config (sleep) keep the metric accent; the "—"
+ * placeholder (no reading) also keeps the metric accent so an empty tile
+ * is identifiable by colour.
+ */
+function valueColorFor(t: TileSpec, v: number | null): string {
+  if (v == null) return t.color;
+  const cfg: MetricConfig | undefined =
+    t.key === 'stress'
+      ? STRESS_CONFIG
+      : (METRIC_CONFIG as Record<string, MetricConfig>)[t.key];
+  if (!cfg) return t.color;
+  const band = bandDefForValue(cfg, v);
+  if (!band) return t.color;
+  return BAND_VALUE_COLORS[band.tint];
+}
 
 // ── Derivation helpers ─────────────────────────────────────────────────────
 
@@ -269,7 +296,7 @@ export const HealthHubScreen: React.FC<any> = ({ navigation }) => {
               </View>
               <Text style={styles.tileName}>{t.name}</Text>
               <View style={styles.tileNowRow}>
-                <Text style={[styles.tileNow, { color: t.color }]}>
+                <Text style={[styles.tileNow, { color: valueColorFor(t, cur) }]}>
                   {cur == null ? '—' : (t.precision ? cur.toFixed(t.precision) : Math.round(cur))}
                 </Text>
                 <Text style={styles.tileUnit}>{t.unit}</Text>
