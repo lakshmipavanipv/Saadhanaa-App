@@ -87,19 +87,41 @@ export const computeHealthDetail = async (profile?: ProfileBits): Promise<Health
     const dash = await computeHealthDashboard();
     const [bpm, hrv, spo2] = dash.metrics;   // order fixed in HealthDashboard
     const val = (v: number) => (v > 0 ? v : null);
+    /*
+     * Fall back from today to the 30-day baseline when today is empty.
+     *
+     * Before: Heart / Lung / Stress read strictly today's numbers. A day
+     * the ring was off the hand for the morning, or a phone cold-started
+     * before any new reading had arrived, left all three tiles showing
+     * "—" even though the Body & Soul Health Score hero beside them
+     * cheerfully reported a number derived from the same user's weekly
+     * baseline. Two tiles reading the same person should not disagree
+     * about whether that person has data.
+     *
+     * `pick()` mirrors the fallback the hero already uses
+     * (SoulsyncScoreCard.computeScores) so the tiles and the hero draw
+     * from the same ground truth.
+     */
+    const pick = (today: number, baseline: number): number | null =>
+      today > 0 ? today : (baseline > 0 ? baseline : null);
 
-    heart = heartScore({ restingBpm: val(bpm.today), rmssd: val(hrv.today), age, sex });
-    lung = lungScore(val(spo2.today));
+    heart = heartScore({
+      restingBpm: pick(bpm.today,  bpm.baseline),
+      rmssd:      pick(hrv.today,  hrv.baseline),
+      age, sex,
+    });
+    lung = lungScore(pick(spo2.today, spo2.baseline));
 
-    // The 30-day normalcy figures are this user's own baseline, which is what
-    // stress should be judged against. They only mean something once there is
-    // history, so they go in as null when absent and the model falls back to
-    // the population table.
+    // Stress still prefers today's live reading because that is what
+    // "stress right now" means — but if today has no reading at all,
+    // fall back to the baseline so the tile is populated rather than
+    // blank. Baselines on the right side keep their meaning: they are
+    // what today's reading is being judged against.
     stress = stressScore({
-      rmssd: val(hrv.today),
-      restingBpm: val(bpm.today),
+      rmssd:      pick(hrv.today, hrv.baseline),
+      restingBpm: pick(bpm.today, bpm.baseline),
       baselineRmssd: dash.hasNormalcyData ? val(hrv.baseline) : null,
-      baselineBpm: dash.hasNormalcyData ? val(bpm.baseline) : null,
+      baselineBpm:   dash.hasNormalcyData ? val(bpm.baseline) : null,
       age, sex,
     });
   } catch {

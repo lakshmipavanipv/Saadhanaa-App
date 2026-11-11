@@ -14,7 +14,7 @@
       "fallbackToCacheTimeout": 3000,
       "checkAutomatically": "ON_LOAD"
     },
-    "runtimeVersion": "129",
+    "runtimeVersion": "131",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.bodyandsoulring.app"
