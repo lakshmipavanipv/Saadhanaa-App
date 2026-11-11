@@ -201,11 +201,20 @@ interface HeroCardProps {
   /** Small line under the baseline number. */
   baselineSub?: string;
   accent: string;
+  /**
+   * Band-specific tone for the big number itself. When omitted the big
+   * number paints in the cream text colour. When set — passed by
+   * MetricDetailScreen based on where the current value falls in the
+   * metric's bands — the number carries the same red / amber / mint /
+   * deep-green as the Home tiles, so a 68 bpm reading reads green here
+   * too instead of staying coral because the accent stripe is coral.
+   */
+  valueAccent?: string | null;
 }
 
 export const HeroCard: React.FC<HeroCardProps> = ({
   eyebrow, current, unit, baseline, delta, deltaKind = 'good',
-  sub, baselineSub, accent,
+  sub, baselineSub, accent, valueAccent,
 }) => {
   const { palette } = useTheme();
   const styles = useMemo(() => heroStyles(palette, accent), [palette, accent]);
@@ -217,7 +226,7 @@ export const HeroCard: React.FC<HeroCardProps> = ({
       <View style={styles.col}>
         <Text style={styles.k}>{eyebrow}</Text>
         <View style={styles.bigRow}>
-          <Text style={styles.big}>{current}</Text>
+          <Text style={[styles.big, valueAccent ? { color: valueAccent } : null]}>{current}</Text>
           <Text style={styles.bigU}>{unit}</Text>
         </View>
         {delta ? <Text style={[styles.delta, chipStyle]}>{delta}</Text> : null}

@@ -18,7 +18,10 @@ import {
   ScreenHeader, ViewSwitch, WeekStrip, HeroCard, BandedChart, RangeCard, AboutCard,
   type HealthView, type DayQuality, useBackToHealth } from './HealthPrimitives';
 import { useRange } from './rangeContext';
-import { METRIC_CONFIG, qualityForValue, type HealthMetric } from './healthTokens';
+import {
+  METRIC_CONFIG, qualityForValue, bandDefForValue, BAND_VALUE_COLORS,
+  type HealthMetric,
+} from './healthTokens';
 import { syncAllRingVitals, loadStoredVitals, type RingVitalsSyncResult } from '../../soulsync/ring';
 import { isoDayOf as isoDay } from '../../utils';
 
@@ -283,6 +286,17 @@ export const MetricDetailScreen: React.FC<any> = ({ navigation, route }) => {
         deltaKind={deltaKind}
         sub={panel.min != null && panel.max != null ? `Range · ${fmt(panel.min)} – ${fmt(panel.max)} ${cfg.unit}` : undefined}
         accent={cfg.color}
+        /* Paint the big number in its band's colour — same palette as
+           the Home tile: coral < Healthy, mint for Healthy, deeper
+           green for Fitter, amber for Elevated, coral for High.
+           Without this a resting 68 bpm read in cream while the left
+           accent stripe stayed coral-red — the user's complaint that
+           the colour code was not following the band. */
+        valueAccent={(() => {
+          if (typeof current !== 'number') return null;
+          const band = bandDefForValue(cfg, current);
+          return band ? BAND_VALUE_COLORS[band.tint] : null;
+        })()}
       />
 
       <View style={styles.chartCard}>

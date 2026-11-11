@@ -8,7 +8,12 @@ import {
   Animated,
   Easing,
   Modal,
+  TextInput,
 } from 'react-native';
+import {
+  festivalChecklistRepo,
+  type FestivalChecklistOverlay,
+} from '../services/festivalChecklistRepo';
 import { useSadhana } from '../context';
 import { japaMinutesOnDate } from '../soulsync/analytics/JapaTime';
 import { Storage } from '../storage';
@@ -996,7 +1001,34 @@ const FestivalDetailModal: React.FC<{
   onClose: () => void;
   onOpenPanchang: () => void;
 }> = ({ fest, onClose, onOpenPanchang }) => {
+  const [overlay, setOverlay] = useState<FestivalChecklistOverlay>({ checkedIds: [], extras: [] });
+  const [newText, setNewText] = useState('');
+
+  useEffect(() => {
+    if (!fest) return;
+    void festivalChecklistRepo.read(fest.id).then(setOverlay);
+  }, [fest?.id]);
+
   if (!fest) return null;
+
+  const builtInsDone = fest.checklist.filter(it => overlay.checkedIds.includes(it.id)).length;
+  const extrasDone = overlay.extras.filter(e => e.checked).length;
+  const total = fest.checklist.length + overlay.extras.length;
+  const done = builtInsDone + extrasDone;
+
+  const toggleBuiltIn = (id: string) =>
+    void festivalChecklistRepo.toggleBuiltIn(fest.id, id).then(setOverlay);
+  const toggleExtra = (id: string) =>
+    void festivalChecklistRepo.toggleExtra(fest.id, id).then(setOverlay);
+  const removeExtra = (id: string) =>
+    void festivalChecklistRepo.removeExtra(fest.id, id).then(setOverlay);
+  const addItem = async () => {
+    const text = newText;
+    setNewText('');
+    const next = await festivalChecklistRepo.addExtra(fest.id, text);
+    setOverlay(next);
+  };
+
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <View style={festStyles.overlay}>
@@ -1013,19 +1045,56 @@ const FestivalDetailModal: React.FC<{
             </TouchableOpacity>
           </View>
           <Text style={festStyles.sectionTitle}>
-            Things to arrange ({fest.checklist.length})
+            Things to arrange · {done} of {total}
           </Text>
-          <ScrollView style={{ maxHeight: 440 }} contentContainerStyle={{ paddingBottom: SPACING.md }}>
-            {fest.checklist.map(it => (
-              <View key={it.id} style={festStyles.row}>
-                <Text style={festStyles.tag}>{it.tag}</Text>
-                <Text style={festStyles.text}>{it.text}</Text>
-              </View>
+          <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ paddingBottom: SPACING.sm }}>
+            {fest.checklist.map(it => {
+              const checked = overlay.checkedIds.includes(it.id);
+              return (
+                <ChecklistRow
+                  key={it.id}
+                  tag={it.tag}
+                  text={it.text}
+                  checked={checked}
+                  onToggle={() => toggleBuiltIn(it.id)}
+                />
+              );
+            })}
+            {overlay.extras.map(e => (
+              <ChecklistRow
+                key={e.id}
+                tag={e.tag ?? 'ADDED'}
+                text={e.text}
+                checked={e.checked}
+                onToggle={() => toggleExtra(e.id)}
+                onRemove={() => removeExtra(e.id)}
+              />
             ))}
-            {fest.checklist.length === 0 && (
-              <Text style={festStyles.empty}>No shopping list for this festival yet.</Text>
+            {fest.checklist.length === 0 && overlay.extras.length === 0 && (
+              <Text style={festStyles.empty}>No shopping list yet. Add items below.</Text>
             )}
           </ScrollView>
+
+          {/* Add-item row — user types a line, taps + to save. */}
+          <View style={festStyles.addRow}>
+            <TextInput
+              style={festStyles.addInput}
+              value={newText}
+              onChangeText={setNewText}
+              placeholder="Add an item…"
+              placeholderTextColor={COLORS.muted}
+              returnKeyType="done"
+              onSubmitEditing={addItem}
+            />
+            <TouchableOpacity
+              style={[festStyles.addBtn, !newText.trim() && { opacity: 0.4 }]}
+              onPress={addItem}
+              disabled={!newText.trim()}
+            >
+              <Text style={festStyles.addBtnTxt}>＋ Add</Text>
+            </TouchableOpacity>
+          </View>
+
           <TouchableOpacity style={festStyles.openBtn} activeOpacity={0.85} onPress={onOpenPanchang}>
             <Text style={festStyles.openBtnText}>🛕 Open in Panchang</Text>
           </TouchableOpacity>
@@ -1034,6 +1103,30 @@ const FestivalDetailModal: React.FC<{
     </Modal>
   );
 };
+
+/** One checklist row — tap the checkbox or the text to toggle. */
+const ChecklistRow: React.FC<{
+  tag: string;
+  text: string;
+  checked: boolean;
+  onToggle: () => void;
+  onRemove?: () => void;
+}> = ({ tag, text, checked, onToggle, onRemove }) => (
+  <View style={festStyles.row}>
+    <TouchableOpacity style={festStyles.rowMain} onPress={onToggle} activeOpacity={0.7}>
+      <View style={[festStyles.check, checked && festStyles.checkOn]}>
+        {checked ? <Text style={festStyles.checkMark}>✓</Text> : null}
+      </View>
+      <Text style={festStyles.tag}>{tag}</Text>
+      <Text style={[festStyles.text, checked && festStyles.textDone]}>{text}</Text>
+    </TouchableOpacity>
+    {onRemove ? (
+      <TouchableOpacity onPress={onRemove} hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+        <Text style={festStyles.removeX}>✕</Text>
+      </TouchableOpacity>
+    ) : null}
+  </View>
+);
 
 const festStyles = StyleSheet.create({
   overlay: {
@@ -1055,19 +1148,57 @@ const festStyles = StyleSheet.create({
     marginBottom: SPACING.sm,
   },
   row: {
-    flexDirection: 'row', alignItems: 'flex-start',
-    paddingVertical: 10, paddingHorizontal: 12,
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 8, paddingHorizontal: 10,
     backgroundColor: COLORS.deep, borderRadius: 10,
     borderWidth: 1, borderColor: COLORS.border,
-    marginBottom: 6, gap: 10,
+    marginBottom: 6,
   },
+  rowMain: {
+    flexDirection: 'row', alignItems: 'center',
+    flex: 1, gap: 10,
+  },
+  check: {
+    width: 22, height: 22, borderRadius: 11,
+    borderWidth: 1.5, borderColor: COLORS.muted,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  checkOn: { backgroundColor: COLORS.gold, borderColor: COLORS.gold },
+  checkMark: { color: COLORS.deep, fontSize: 13, fontWeight: '900' },
   tag: {
     color: COLORS.gold, fontSize: 11, fontWeight: '800',
     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
     backgroundColor: 'rgba(240,208,138,0.12)', minWidth: 48, textAlign: 'center',
   },
   text: { color: COLORS.cream, fontSize: 14, flex: 1, lineHeight: 19 },
+  textDone: {
+    color: COLORS.muted,
+    textDecorationLine: 'line-through',
+    textDecorationColor: COLORS.muted,
+  },
+  removeX: {
+    color: COLORS.muted, fontSize: 16, fontWeight: '700',
+    paddingHorizontal: 8,
+  },
   empty: { color: COLORS.muted, fontSize: 13, textAlign: 'center', paddingVertical: SPACING.md, fontStyle: 'italic' },
+
+  // Add-item row at the bottom of the sheet.
+  addRow: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: SPACING.sm, marginTop: SPACING.sm,
+  },
+  addInput: {
+    flex: 1, color: COLORS.cream, backgroundColor: COLORS.deep,
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10, fontSize: 14,
+  },
+  addBtn: {
+    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10,
+    backgroundColor: 'rgba(240,208,138,0.18)',
+    borderWidth: 1, borderColor: 'rgba(240,208,138,0.45)',
+  },
+  addBtnTxt: { color: COLORS.gold, fontSize: 14, fontWeight: '800' },
+
   openBtn: {
     marginTop: SPACING.md, paddingVertical: 14, borderRadius: 12,
     backgroundColor: COLORS.gold, alignItems: 'center',

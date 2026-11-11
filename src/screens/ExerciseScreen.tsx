@@ -339,26 +339,19 @@ export const ExerciseScreen = ({ navigation }: any) => {
           onViewInsights={() => navigation?.navigate?.('History')}
         />
 
-        {/* Live HR / SpO2 / HRV while the workout is recording. */}
-        {soulsync.state.active && (
-          <LiveVitalsTrends
-            bpmSeries={soulsync.state.bpmSeries}
-            liveSpo2={soulsync.state.liveSpo2}
-            liveHrv={soulsync.state.liveHrv}
-            isActive={soulsync.state.active}
-          />
-        )}
-
-        {/* What the sitting measured, once it is over. */}
-        <SessionVitalsReport practice="exercise" refreshKey={vitalsEpoch} />
-
-        {/* v58: only show walking by default + activities the user has
-            planned (via Plan tab) or has already logged history for.
-            Keeps the screen calm; other activities appear automatically
-            once added to the plan. */}
-        {EXERCISE_CATALOG
-          .filter(a => a.id !== 'yoga' && plannedActivities.has(a.id))
-          .map(item => {
+        {/* Walk card always first, planned or not — it is the daily
+            fundamental that the ring tracks automatically, and users
+            expect it at the top whether or not they have added a
+            specific walk plan. Everything else only shows when planned
+            or logged, same as before. Walk is forced to position 0 so
+            it does not reorder if a later activity gets planned first. */}
+        {(() => {
+          const visible = EXERCISE_CATALOG.filter(a =>
+            a.id !== 'yoga' && (a.id === 'walk' || plannedActivities.has(a.id))
+          );
+          visible.sort((a, b) => a.id === 'walk' ? -1 : b.id === 'walk' ? 1 : 0);
+          return visible;
+        })().map(item => {
           const isWalk = item.id === 'walk';
           const todaySeries = weeklyByActivity[item.id] ?? [0,0,0,0,0,0,0];
           const todayActivityMin = todaySeries[todaySeries.length - 1] || 0;
@@ -399,6 +392,20 @@ export const ExerciseScreen = ({ navigation }: any) => {
             />
           );
         })}
+
+        {/* Live vitals and the post-session report at the END of the
+            screen — same pattern the user asked for across every
+            practice tab. Live trace only renders while a session is
+            active; the report fills in once the session ends. */}
+        {soulsync.state.active && (
+          <LiveVitalsTrends
+            bpmSeries={soulsync.state.bpmSeries}
+            liveSpo2={soulsync.state.liveSpo2}
+            liveHrv={soulsync.state.liveHrv}
+            isActive={soulsync.state.active}
+          />
+        )}
+        <SessionVitalsReport practice="exercise" refreshKey={vitalsEpoch} />
       </ScrollView>
 
       {/* Edit goal modal */}
