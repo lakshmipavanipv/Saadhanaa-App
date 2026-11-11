@@ -3,6 +3,7 @@ import { RMSSDCalculator } from '../hrv/RMSSDCalculator';
 import { ambientBaselineRepo, ActivityState } from '../db/ambientBaselineRepo';
 import { EmotionalEngine, setEmotionalEngine, getEmotionalEngine } from '../emotional/EmotionalEngine';
 import { vitalsRepo } from '../db/vitalsRepo';
+import { vitalsSafetyWatcher } from '../safety/VitalsSafetyWatcher';
 
 /** A stored reading older than this is too stale to describe "now". */
 const FRESHNESS_MS = 6 * 60 * 60 * 1000;   // 6 h
@@ -65,6 +66,14 @@ export class AmbientIngestionService {
       if (s.bpm > 0) this.lastBpm = s.bpm;
       if (s.spo2 > 0) this.lastSpo2 = s.spo2;
       if (s.skinTempC > 0) this.lastSkinTempC = s.skinTempC;
+
+      // Feed the physical-crisis watcher. Distinct from the emotional engine
+      // just below — this one looks for hard thresholds (SpO2 < 90, HR too
+      // high or too low) and escalates to an SMS + dialler, not a breathing
+      // exercise. A zero/placeholder reading is skipped so a brief ring
+      // dropout doesn't look like a flatline.
+      if (s.bpm > 0) vitalsSafetyWatcher.ingestHr(s.bpm, s.receivedAt);
+      if (s.spo2 > 0) vitalsSafetyWatcher.ingestSpo2(s.spo2, s.receivedAt);
 
       // Only real R-R intervals feed the HRV calculator. On the SR16 this
       // stream is empty, so `liveRmssd` stays null and the flush falls back

@@ -23,7 +23,7 @@ const DRAWER_W = Math.min(320, SCREEN_W * 0.82);
 export interface DrawerAction {
   key: string;
   navigate?: string;    // bottom-tab route name
-  openModal?: 'settings' | 'ringDebug' | 'ringScan' | 'deviceSettings' | 'aiInsights' | 'themePicker';
+  openModal?: 'settings' | 'ringDebug' | 'ringScan' | 'deviceSettings' | 'aiInsights' | 'themePicker' | 'emergency';
 }
 
 interface Props {
@@ -71,6 +71,7 @@ const SECTIONS: MenuSection[] = [
       // tool — a raw frame log with a flat device list — which is why pairing
       // looked unchanged no matter how often the real screen was redesigned.
       { icon: '📶', label: 'Bluetooth / Pair Ring', action: { key: 'ble', openModal: 'ringScan' }, hint: 'Scan, connect or unbind your ring' },
+      { icon: '🚨', label: 'Emergency & Safety', action: { key: 'emergency', openModal: 'emergency' }, hint: 'Contact · low SpO2 / high HR / low HR alerts' },
     ],
   },
   {

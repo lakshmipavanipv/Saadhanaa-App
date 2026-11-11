@@ -58,6 +58,9 @@ import { YogaScreen } from './screens/YogaScreen';
 import { AnxietyReliefPopup } from './soulsync/components/AnxietyReliefPopup';
 import { AggressionReliefPopup } from './soulsync/components/AggressionReliefPopup';
 import { DailyRecommendationsPopup } from './soulsync/components/DailyRecommendationsPopup';
+import { EmergencySettingsScreen } from './screens/EmergencySettingsScreen';
+import { EmergencyAlertModal } from './components/EmergencyAlertModal';
+import { vitalsSafetyWatcher } from './soulsync/safety/VitalsSafetyWatcher';
 import { PrayerReminderPopup } from './soulsync/components/PrayerReminderPopup';
 import { VoiceAssistant } from './components/VoiceAssistant';
 import * as Notifications from 'expo-notifications';
@@ -292,6 +295,24 @@ const AppContent = () => {
   // never the intent of the 'pair my ring' button.
   const [showRingScan, setShowRingScan] = useState(false);
   const [showThemePicker, setShowThemePicker] = useState(false);
+  // Emergency & Safety modal — the hard physical-crisis settings form,
+  // mounted at the app root so any screen's side drawer can open it.
+  const [showEmergency, setShowEmergency] = useState(false);
+  // The current unhandled EmergencyAlert, if any. The VitalsSafetyWatcher
+  // sets this from ring samples; the modal clears it on dismiss or escalate.
+  const [emergencyAlert, setEmergencyAlert] = useState<import('./soulsync/safety/VitalsSafetyWatcher').EmergencyAlert | null>(null);
+
+  // Start the physical-crisis watcher once per app session. AmbientIngestion
+  // already pumps ring samples into the singleton `vitalsSafetyWatcher`, so
+  // this call only has to hand it an onAlert callback that lifts an event
+  // into React state for the modal to render. If an alert is already on
+  // screen, hold the new one back — stacking two crisis modals at once is
+  // worse than letting the user handle one.
+  React.useEffect(() => {
+    void vitalsSafetyWatcher.start((a) => {
+      setEmergencyAlert((prev) => prev ?? a);
+    });
+  }, []);
   // v75: DPDP consent gate — null = still loading, true = must show consent.
   const [needsConsent, setNeedsConsent] = useState<boolean | null>(null);
   // Listen for emotional events — routes to the right overlay
@@ -455,6 +476,8 @@ const AppContent = () => {
             navRef.current?.navigate('AIIntelligence' as never);
           } else if (action.openModal === 'themePicker') {
             setShowThemePicker(true);
+          } else if (action.openModal === 'emergency') {
+            setShowEmergency(true);
           }
         }}
       />
@@ -471,6 +494,13 @@ const AppContent = () => {
       <Modal visible={showRingScan} animationType="slide" onRequestClose={() => setShowRingScan(false)}>
         <RingScanScreen navigation={{ goBack: () => setShowRingScan(false) }} />
       </Modal>
+      <Modal visible={showEmergency} animationType="slide" onRequestClose={() => setShowEmergency(false)}>
+        <EmergencySettingsScreen onClose={() => setShowEmergency(false)} />
+      </Modal>
+      <EmergencyAlertModal
+        alert={emergencyAlert}
+        onDismiss={() => setEmergencyAlert(null)}
+      />
       {toast && <Toast message={toast} />}
 
       {/* ── Daily body↔soul recommendations popup (once per day) ── */}
