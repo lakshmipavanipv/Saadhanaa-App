@@ -84,6 +84,23 @@ export class VitalsSafetyWatcher {
     this.prefs = await emergencyPrefs.read();
   }
 
+  /**
+   * Fire a fake alert through the same callback the real detector uses, so
+   * the user can verify the whole SMS + dialler flow end-to-end from the
+   * Emergency Settings screen without waiting for a real low-SpO2 reading.
+   */
+  fireTestAlert(rule: AlertRule = 'lowSpo2'): void {
+    const sample: EmergencyAlert = rule === 'lowSpo2'
+      ? { rule: 'lowSpo2', severity: 'warn', value: 87, since: Date.now() - 65_000,
+          reason: 'a test alert — SpO2 reading at 87% (test)' }
+      : rule === 'highHr'
+        ? { rule: 'highHr', severity: 'warn', value: 134, since: Date.now() - 65_000,
+            reason: 'a test alert — heart rate at 134 bpm (test)' }
+        : { rule: 'lowHr', severity: 'warn', value: 45, since: Date.now() - 65_000,
+            reason: 'a test alert — heart rate at 45 bpm (test)' };
+    this.onAlert?.(sample);
+  }
+
   /** Call whenever the user saves the settings form so we pick up the new values. */
   async reloadPrefs(): Promise<void> {
     this.prefs = await emergencyPrefs.read();

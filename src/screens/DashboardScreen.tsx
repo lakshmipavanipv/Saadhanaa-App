@@ -1209,6 +1209,9 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
     borderRadius: 14,
     backgroundColor: 'rgba(212,160,23,0.10)',
     borderWidth: 1, borderColor: C.gold,
+    // No margins here — the AnimatedPlanCta wrapper (DashboardScreen.tsx:82)
+    // supplies marginHorizontal + marginBottom so the halo aligns with
+    // the card. Adding margins here would double-apply them.
   },
   // Soft gold halo behind the card (subtle)
   planCtaGlow: {
@@ -1338,7 +1341,13 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
 
   // v62: Upcoming Reminders feed (Home tab, below Today's Planned Activities)
   remBox: {
-    marginHorizontal: SPACING.md, marginTop: SPACING.md, padding: SPACING.md,
+    // Every Home section uses marginBottom: SPACING.md for its own gap
+    // to the one below it — Upcoming Reminders was the odd one out with
+    // marginTop + no marginBottom, which combined with the next card's
+    // own margins to make a visibly bigger gap on one side than the
+    // other. Normalised so Home reads as one rhythm.
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
+    padding: SPACING.md,
     borderRadius: 16, backgroundColor: C.cardBg,
     borderWidth: 1, borderColor: 'rgba(127,232,200,0.25)',
   },
@@ -1545,16 +1554,14 @@ const makeStyles = (C: typeof COLORS) => StyleSheet.create({
   deityCardMalas: { fontSize: 10, color: C.muted, marginTop: 2 },
 
   upcomingFest: {
-    marginHorizontal: SPACING.md,
-    // Breathing room between Upcoming Reminders and Next Festival. Without
-    // this marginTop the two cards touch edges on home layouts where the
-    // intermediate "Today's festival" and "Other Reminders" blocks are
-    // empty — which, most days, they are.
-    marginTop: SPACING.md,
+    // Match every other Home section: just marginBottom, no marginTop.
+    // The previous Upcoming Reminders / Today's Festival cards now carry
+    // their own marginBottom so this card no longer needs to compensate
+    // with its own top margin.
+    marginHorizontal: SPACING.md, marginBottom: SPACING.md,
     backgroundColor: C.cardBg,
     borderRadius: 12,
     padding: SPACING.md,
-    marginBottom: SPACING.lg,
   },
   upcomingTopRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   upcomingLabel: { fontSize: 10, color: C.muted, letterSpacing: 1.5, fontWeight: '600' },

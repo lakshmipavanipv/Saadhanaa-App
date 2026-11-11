@@ -193,6 +193,35 @@ export const EmergencySettingsScreen: React.FC<Props> = ({ onClose }) => {
           </Text>
         </View>
 
+        {/* Test alert — fires the full modal + SMS pre-fill + dialler flow
+            with a fake low-SpO2 reading. No real vital trigger needed. */}
+        <Text style={styles.sectionTitle}>Test the alert</Text>
+        <View style={styles.card}>
+          <Text style={styles.cardHint}>
+            Fires a fake low-SpO₂ alert so you can walk through the whole
+            check-in → messaging app → dialler sequence before you actually
+            need it. Your emergency contact is NOT messaged unless you pick
+            "Alert my contact" in the modal and tap Send in the SMS app.
+          </Text>
+          <TouchableOpacity
+            style={styles.testBtn}
+            activeOpacity={0.85}
+            onPress={() => {
+              if (!prefs.contactPhone.trim()) {
+                Alert.alert(
+                  'Set a contact first',
+                  'Add an emergency contact phone number above, save, then try the test.',
+                );
+                return;
+              }
+              onClose();
+              setTimeout(() => vitalsSafetyWatcher.fireTestAlert('lowSpo2'), 400);
+            }}
+          >
+            <Text style={styles.testBtnTxt}>🔔  Fire a test alert now</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* SMS template */}
         <Text style={styles.sectionTitle}>SMS message</Text>
         <View style={styles.card}>
@@ -370,4 +399,13 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   saveBtnTxt: { color: COLORS.deep, fontSize: 15, fontWeight: '800' },
+
+  testBtn: {
+    marginTop: SPACING.md,
+    paddingVertical: 14, borderRadius: 12,
+    backgroundColor: 'rgba(255,122,133,0.12)',
+    borderWidth: 1, borderColor: 'rgba(255,122,133,0.45)',
+    alignItems: 'center',
+  },
+  testBtnTxt: { color: '#FF7A85', fontSize: 15, fontWeight: '700' },
 });
