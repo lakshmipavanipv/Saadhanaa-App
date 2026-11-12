@@ -20,7 +20,9 @@ import { RangeBar } from './health/RangeBar';
 import { useTheme } from '../ThemeContext';
 import { PlanWellbeingButton } from '../components/PlanWellbeingButton';
 import { PracticeHeader } from '../components/PracticeHeader';
-import { SoulsyncSessionBar } from '../soulsync/components/SoulsyncSessionBar';
+// SoulsyncSessionBar removed from Yoga — the live graph below is always on now,
+// so a Start Soul Sync button added nothing except noise. A sitting still gets
+// opened automatically by the session director when activity is detected.
 // AddToPlanCta removed — Plan Your Wellbeing lives in the hamburger drawer.
 import { YogaPoseAnimation } from '../components/YogaPoseAnimation';
 import { createDefaultRing } from '../soulsync/services/RingTelemetryService';
@@ -33,7 +35,9 @@ import { BeforeAfterVitals } from '../components/PracticeStats';
 import { LiveVitalsTrends } from '../soulsync/components/LiveVitalsTrends';
 import { PracticeAssistant, PracticeCatalogItem } from '../components/PracticeAssistant';
 import { SessionDepthReport } from '../soulsync/components/SessionDepthReport';
-import { SessionVitalsReport } from '../soulsync/components/SessionVitalsReport';
+// SessionVitalsReport removed from Yoga — the depth report already shows
+// "BASELINE vs SADHANA TIME" for the last sitting, and the two cards side by
+// side read as the same sadhana info printed twice.
 
 // Single shared ring instance for yoga stage-mark buzzes
 const ring = createDefaultRing();
@@ -314,6 +318,14 @@ export const YogaScreen = ({ navigation }: any) => {
     return () => { cancelled = true; };
   }, []);
 
+  // Re-read the depth report whenever a sitting ends anywhere in the app.
+  // The Soul Sync bar used to do this via its own onSessionEnd callback, but
+  // it was removed from this screen. The context's lastEnd is the same signal.
+  const lastEndAt = soulsync.lastEnd?.at ?? 0;
+  useEffect(() => {
+    if (lastEndAt > 0) setDepthEpoch((n) => n + 1);
+  }, [lastEndAt]);
+
   // Map YogaItem → PracticeCatalogItem for the assistant modal
   const catalog: PracticeCatalogItem[] = React.useMemo(
     () => YOGA_CATALOG.map(i => ({
@@ -374,20 +386,10 @@ export const YogaScreen = ({ navigation }: any) => {
             Depth" twice. Removed; SessionDepthReport is the single
             source for the last-sitting figure. */}
 
-        {/* Soulsync — start before yoga to capture HRV / BPM changes */}
-        {/* Plan CTA removed — Plan Your Wellbeing is in the ☰ drawer. */}
-
-        <SoulsyncSessionBar
-          practice="yoga"
-          onViewInsights={() => navigation?.navigate?.('History')}
-          onSessionEnd={() => setDepthEpoch((n) => n + 1)}
-          session={soulsync}
-        />
-
-        {/* While a session is active → live heart + lung trend charts.
-              After the session stops → swap to the before-vs-during table.
-              The two components mutually exclude via isActive so we just
-              render both and let them gate themselves. */}
+        {/* Live heart + lung + HRV trends — always on. The component subscribes
+            to the ambient ring stream when no Soul Sync sitting is open, and
+            switches to the session's own feed when the director opens one, so
+            the graph is coming through from the moment the tab is opened. */}
         <LiveVitalsTrends
           bpmSeries={soulsync.state.bpmSeries}
           liveSpo2={soulsync.state.liveSpo2}
@@ -405,17 +407,14 @@ export const YogaScreen = ({ navigation }: any) => {
           iconFor={iconFor}
         />
 
-        {/* ─── Sadhana Depth — the sitting that just ended ───
+        {/* ─── Soul Depth — the sitting that just ended ───
              At the end of the screen, after the practice. It used to sit at
              the top as a daily average, where nothing the reader was about to
-             do could move it. */}
+             do could move it. The depth report already carries a
+             "BASELINE vs SADHANA TIME" table, so a separate SessionVitalsReport
+             next to it is not shown — it was the same sadhana info printed
+             twice on one tab. */}
         <SessionDepthReport practice="yoga" refreshKey={depthEpoch} />
-
-        {/* What the last sitting actually measured: averages plus the
-            shape of each vital over the session. The live charts above
-            wipe their buffers on stop, so without this the numbers
-            vanished at the moment they became worth keeping. */}
-        <SessionVitalsReport practice="yoga" refreshKey={depthEpoch} />
       </ScrollView>
 
       {/* Detail modal */}

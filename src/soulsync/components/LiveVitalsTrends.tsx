@@ -1,6 +1,6 @@
 /**
- * LiveVitalsTrends — shown DURING an active Soulsync session on the Yoga
- * and Meditation screens. Two stacked mini-charts:
+ * LiveVitalsTrends — always-on live heart / lung / HRV trend on the Yoga and
+ * Meditation screens. Three stacked mini-charts:
  *
  *   ❤️ HEART · LIVE         current 66 bpm
  *      ──────  baseline 71 bpm  (dashed)
@@ -23,6 +23,15 @@
  *   trace as a coloured bezier line — same UX for heart and lung so
  *   older users learn one mental model.
  *
+ * Now always-on:
+ *   The ring is pushing frames all the time; hiding this behind a Start
+ *   Soul Sync button just made the graph look broken whenever the user
+ *   hadn't tapped it. When a Soul Sync sitting is open, the component reads
+ *   the session hook's buffers (props `bpmSeries` / `liveSpo2` / `liveHrv`);
+ *   otherwise it subscribes to `ambientIngestion.subscribeLive(...)` and
+ *   fills its own buffers one frame at a time, so the trend is coming
+ *   through from the moment the tab opens.
+ *
  * SpO₂ / HRV note: the soulsync hook exposes each as a single current
  * number, so this component maintains its own rolling buffer locally,
  * sampled on a timer while the session is active.
@@ -40,29 +49,57 @@ import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { COLORS, SPACING } from '../../theme';
 import { ambientBaselineRepo } from '../db/ambientBaselineRepo';
+import { ambientIngestion } from '../services/AmbientIngestion';
 
 interface Props {
-  /** Live BPM series from useSoulsyncSession.state.bpmSeries. */
-  bpmSeries: number[];
-  /** Latest single SpO₂ reading from useSoulsyncSession.state.liveSpo2. */
-  liveSpo2: number | null;
   /**
-   * Latest ring-measured HRV (ms) from useSoulsyncSession.state.liveHrv.
-   * Optional so the screens that have not been given it yet still compile
-   * and simply omit the third card.
+   * Live BPM series. Optional — when omitted, the component subscribes to the
+   * ambient ring stream itself so Yoga and Meditation can show the live graph
+   * the moment the screen mounts, without the user having to tap Start first.
    */
+  bpmSeries?: number[];
+  /** Latest single SpO₂ reading. Optional, same reason as bpmSeries. */
+  liveSpo2?: number | null;
+  /** Latest ring-measured HRV (ms). Optional, same reason as bpmSeries. */
   liveHrv?: number | null;
-  /** Whether the session is actively recording. */
-  isActive: boolean;
+  /**
+   * Whether a session is actively recording.
+   *
+   * When true, the component trusts the three props above as its data source.
+   * When false (or omitted), it falls back to subscribing directly to the
+   * ambient ring stream — the ring is pushing frames either way, and the user
+   * wants to see them as soon as the tab opens.
+   */
+  isActive?: boolean;
 }
 
 const CHART_W = Dimensions.get('window').width - 32 - 24;   // page padding + card padding
 const CHART_H = 130;
 
-export const LiveVitalsTrends: React.FC<Props> = ({ bpmSeries, liveSpo2, liveHrv, isActive }) => {
+const BPM_BUFFER_MAX = 120;      // ~2 minutes at a frame per second
+const SAMPLE_BUFFER_MAX = 60;    // ~1 minute of HRV / SpO₂ at the ring's cycler rate
+
+export const LiveVitalsTrends: React.FC<Props> = ({
+  bpmSeries: propBpmSeries,
+  liveSpo2: propLiveSpo2,
+  liveHrv: propLiveHrv,
+  isActive = false,
+}) => {
   const [baselineBpm,  setBaselineBpm]  = useState<number | null>(null);
   const [baselineSpo2, setBaselineSpo2] = useState<number | null>(null);
   const [baselineHrv,  setBaselineHrv]  = useState<number | null>(null);
+
+  // Ambient fallback state — populated by subscribeLive when no session is on.
+  // These coexist with the props above: when `isActive` the component reads the
+  // props (the session hook already has a 4Hz flush loop); otherwise it draws
+  // from these buffers, fed straight from the ring one frame at a time.
+  const ambientBpmBufRef = useRef<number[]>([]);
+  const ambientSpo2BufRef = useRef<number[]>([]);
+  const ambientHrvBufRef = useRef<number[]>([]);
+  const [ambientBpmSeries, setAmbientBpmSeries] = useState<number[]>([]);
+  const [ambientLiveBpm, setAmbientLiveBpm] = useState<number | null>(null);
+  const [ambientLiveSpo2, setAmbientLiveSpo2] = useState<number | null>(null);
+  const [ambientLiveHrv, setAmbientLiveHrv] = useState<number | null>(null);
 
   // Local rolling buffers for SpO₂ and HRV — sampled while session is active
   const spo2BufferRef = useRef<number[]>([]);
@@ -95,14 +132,14 @@ export const LiveVitalsTrends: React.FC<Props> = ({ bpmSeries, liveSpo2, liveHrv
     if (!isActive) return;
     const id = setInterval(() => {
       // Only chart a real reading — never hold the line flat with a stand-in.
-      const v = liveSpo2 ?? baselineSpo2;
+      const v = propLiveSpo2 ?? baselineSpo2;
       if (v == null) return;
       spo2BufferRef.current.push(Number(v));
-      if (spo2BufferRef.current.length > 60) spo2BufferRef.current.shift();
+      if (spo2BufferRef.current.length > SAMPLE_BUFFER_MAX) spo2BufferRef.current.shift();
       setSpo2Series([...spo2BufferRef.current]);
     }, 1000);
     return () => clearInterval(id);
-  }, [isActive, liveSpo2, baselineSpo2]);
+  }, [isActive, propLiveSpo2, baselineSpo2]);
 
   // Sample HRV on the same tick. The ring only produces a new figure once a
   // measurement window closes, so most ticks re-chart the value already there
@@ -110,16 +147,16 @@ export const LiveVitalsTrends: React.FC<Props> = ({ bpmSeries, liveSpo2, liveHrv
   useEffect(() => {
     if (!isActive) return;
     const id = setInterval(() => {
-      const v = liveHrv ?? baselineHrv;
+      const v = propLiveHrv ?? baselineHrv;
       if (v == null) return;
       hrvBufferRef.current.push(Number(v));
-      if (hrvBufferRef.current.length > 60) hrvBufferRef.current.shift();
+      if (hrvBufferRef.current.length > SAMPLE_BUFFER_MAX) hrvBufferRef.current.shift();
       setHrvSeries([...hrvBufferRef.current]);
     }, 1000);
     return () => clearInterval(id);
-  }, [isActive, liveHrv, baselineHrv]);
+  }, [isActive, propLiveHrv, baselineHrv]);
 
-  // Reset buffers when session ends
+  // Reset session buffers when session ends
   useEffect(() => {
     if (!isActive) {
       spo2BufferRef.current = [];
@@ -129,11 +166,57 @@ export const LiveVitalsTrends: React.FC<Props> = ({ bpmSeries, liveSpo2, liveHrv
     }
   }, [isActive]);
 
-  if (!isActive) return null;
+  // Ambient fallback — subscribe to the ring stream when no session is active.
+  // The yoga and meditation tabs want the live graph the moment the screen
+  // opens, so there is no gating: the subscription mounts, the ring's frames
+  // flow in, and the buffers fill as readings arrive. When a session takes
+  // over the ring, ambientIngestion.pause() silences the fan-out on its own.
+  useEffect(() => {
+    if (isActive) return;
+    // Seed from the snapshot so the first render after mount isn't blank when
+    // the ambient service has already been running for a while.
+    const seed = ambientIngestion.snapshot();
+    if (seed.bpm != null) setAmbientLiveBpm(seed.bpm);
+    if (seed.spo2 != null) setAmbientLiveSpo2(seed.spo2);
+    if (seed.hrv != null) setAmbientLiveHrv(seed.hrv);
 
-  const liveBpm  = bpmSeries[bpmSeries.length - 1] ?? null;
-  const liveSpo2Now = spo2Series[spo2Series.length - 1] ?? liveSpo2;
-  const liveHrvNow  = hrvSeries[hrvSeries.length - 1] ?? liveHrv ?? null;
+    const unsub = ambientIngestion.subscribeLive((s) => {
+      if (s.bpm != null) {
+        ambientBpmBufRef.current.push(s.bpm);
+        if (ambientBpmBufRef.current.length > BPM_BUFFER_MAX) ambientBpmBufRef.current.shift();
+        setAmbientBpmSeries([...ambientBpmBufRef.current]);
+        setAmbientLiveBpm(s.bpm);
+      }
+      if (s.spo2 != null) {
+        ambientSpo2BufRef.current.push(s.spo2);
+        if (ambientSpo2BufRef.current.length > SAMPLE_BUFFER_MAX) ambientSpo2BufRef.current.shift();
+        setSpo2Series([...ambientSpo2BufRef.current]);
+        setAmbientLiveSpo2(s.spo2);
+      }
+      if (s.hrv != null) {
+        ambientHrvBufRef.current.push(s.hrv);
+        if (ambientHrvBufRef.current.length > SAMPLE_BUFFER_MAX) ambientHrvBufRef.current.shift();
+        setHrvSeries([...ambientHrvBufRef.current]);
+        setAmbientLiveHrv(s.hrv);
+      }
+    });
+    return () => {
+      unsub();
+      // Keep the ambient buffers across tab switches — they survive as long as
+      // the component stays mounted. If the component unmounts, the GC handles it.
+    };
+  }, [isActive]);
+
+  const bpmSeriesEff = isActive ? (propBpmSeries ?? []) : ambientBpmSeries;
+  const liveBpm = isActive
+    ? (propBpmSeries?.[propBpmSeries.length - 1] ?? null)
+    : ambientLiveBpm;
+  const liveSpo2Now = isActive
+    ? (spo2Series[spo2Series.length - 1] ?? propLiveSpo2 ?? null)
+    : (spo2Series[spo2Series.length - 1] ?? ambientLiveSpo2);
+  const liveHrvNow = isActive
+    ? (hrvSeries[hrvSeries.length - 1] ?? propLiveHrv ?? null)
+    : (hrvSeries[hrvSeries.length - 1] ?? ambientLiveHrv);
 
   return (
     <View style={{ marginHorizontal: SPACING.md, marginTop: SPACING.sm }}>
@@ -142,7 +225,7 @@ export const LiveVitalsTrends: React.FC<Props> = ({ bpmSeries, liveSpo2, liveHrv
         live={liveBpm}
         baseline={baselineBpm}
         unit="bpm"
-        series={bpmSeries}
+        series={bpmSeriesEff}
         color="#ff6b8a"
         hint="Going DOWN as you settle is healthy — practice is calming the heart."
       />

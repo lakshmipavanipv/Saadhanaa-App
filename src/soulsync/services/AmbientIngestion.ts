@@ -30,6 +30,29 @@ const FRESHNESS_MS = 6 * 60 * 60 * 1000;   // 6 h
  * this service must never touch daily_activity, or it would overwrite the
  * ring's real counts with a number it has no sensor to produce.
  */
+/**
+ * One live reading the UI can subscribe to while no Soul Sync sitting is open.
+ *
+ * The ring streams frames whether or not the user has tapped Start. Yoga and
+ * Meditation now show a live graph the moment the screen mounts — no bar to
+ * press — and that graph needs a data source outside the session hook. This
+ * mirrors a RingSample but is trimmed to the four channels the live tiles draw.
+ */
+export interface AmbientLiveSample {
+  /** Beats per minute. null means "not yet reported". */
+  bpm: number | null;
+  /** Blood oxygen %. null when the ring has not taken a reading. */
+  spo2: number | null;
+  /** The ring's own HRV figure in ms. null when the ring has not armed HRV. */
+  hrv: number | null;
+  /** Skin temperature °C. null when no reading exists. */
+  skinTempC: number | null;
+  /** When the ring reported this sample. */
+  at: number;
+}
+
+export type AmbientLiveListener = (s: AmbientLiveSample) => void;
+
 export class AmbientIngestionService {
   private ring: RingService = createDefaultRing();
   private rmssd = new RMSSDCalculator({ baselineDurationSec: 0 });
@@ -44,6 +67,8 @@ export class AmbientIngestionService {
   private currentActivity: ActivityState = 'idle';
   // Single-flight guard: don't run both ambient + session at the same time
   private paused = false;
+  /** UI listeners that want every ring frame — see subscribeLive(). */
+  private liveListeners = new Set<AmbientLiveListener>();
 
   async start(): Promise<void> {
     // `running` is claimed only once the ring is actually streaming. Setting it
@@ -66,6 +91,25 @@ export class AmbientIngestionService {
       if (s.bpm > 0) this.lastBpm = s.bpm;
       if (s.spo2 > 0) this.lastSpo2 = s.spo2;
       if (s.skinTempC > 0) this.lastSkinTempC = s.skinTempC;
+
+      // Fan out to any UI subscribers. The live graphs on Yoga and Meditation
+      // use this to draw whether or not a Soul Sync sitting is open — the ring
+      // is streaming either way, and hiding the trace behind a Start button
+      // just made the graph look broken whenever the user hadn't tapped it.
+      // 0 is this stream's "not measured" sentinel, so it is passed through as
+      // null to keep subscribers from charting zeros.
+      if (this.liveListeners.size > 0) {
+        const emit: AmbientLiveSample = {
+          bpm: s.bpm > 0 ? s.bpm : null,
+          spo2: s.spo2 > 0 ? s.spo2 : null,
+          hrv: s.hrv > 0 ? s.hrv : null,
+          skinTempC: s.skinTempC > 0 ? s.skinTempC : null,
+          at: s.receivedAt,
+        };
+        for (const fn of this.liveListeners) {
+          try { fn(emit); } catch { /* one bad listener must not stop the rest */ }
+        }
+      }
 
       // Feed the physical-crisis watcher. Distinct from the emotional engine
       // just below — this one looks for hard thresholds (SpO2 < 90, HR too
@@ -133,6 +177,33 @@ export class AmbientIngestionService {
   /** Pause writes while a Japa session owns the ring stream. */
   pause(): void { this.paused = true; }
   resume(): void { this.paused = false; }
+
+  /**
+   * Subscribe to every live ring sample while ambient capture is running.
+   *
+   * Returns an unsubscribe function. If ambient capture is currently paused
+   * (because a session owns the ring stream), subscribers simply wait quietly
+   * until it resumes — nothing is buffered.
+   */
+  subscribeLive(fn: AmbientLiveListener): () => void {
+    this.liveListeners.add(fn);
+    return () => { this.liveListeners.delete(fn); };
+  }
+
+  /**
+   * The latest snapshot the ambient stream has captured, for subscribers that
+   * want to seed their first render without waiting for the next ring frame.
+   * Any field may be null when nothing has been measured yet.
+   */
+  snapshot(): AmbientLiveSample {
+    return {
+      bpm: this.lastBpm,
+      spo2: this.lastSpo2,
+      hrv: this.liveRmssd,
+      skinTempC: this.lastSkinTempC,
+      at: Date.now(),
+    };
+  }
 
   setActivity(state: ActivityState): void {
     this.currentActivity = state;
