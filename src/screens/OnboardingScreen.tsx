@@ -89,6 +89,11 @@ export const OnboardingScreen = () => {
   // v132: Firebase Phone Auth confirmation — when set, the OTP step verifies
   // the code against Firebase rather than against the Cloudflare OTP worker.
   const [phoneConfirmation, setPhoneConfirmation] = useState<PhoneConfirmation | null>(null);
+  // v133: label to show in the Identity-step success banner right before
+  // setStep flips to 'ring'. Non-null for ~0.9s on a successful sign-in, so
+  // the user sees a clear "Signed in · you@…" confirmation instead of only a
+  // toast flash that disappears alongside the step itself.
+  const [signedInAs, setSignedInAs] = useState<string | null>(null);
 
   // About you
   const [dob, setDob] = useState('');
@@ -129,8 +134,13 @@ export const OnboardingScreen = () => {
     // Anonymous "skip" and Google sign-in both pass skipOtp — they've already
     // authenticated and should land straight on the ring step.
     if (override?.skipOtp) {
-      showToast('Welcome 🙏');
-      setStep('ring');
+      // v133: brief inline success banner before advancing to Ring so the
+      // user sees who they were signed in as (Google or anonymous skip).
+      setSignedInAs(n && c ? `${n} · ${c}` : n || c || 'Signed in');
+      setTimeout(() => {
+        setSignedInAs(null);
+        setStep('ring');
+      }, 900);
       return;
     }
 
@@ -142,19 +152,23 @@ export const OnboardingScreen = () => {
       try {
         try {
           await signInWithEmail(c, pw);
-          showToast('✓ Welcome back 🙏');
         } catch (err: any) {
           // "user not found" / "wrong password" at first attempt is fine on a
           // fresh sign-up, but "wrong password" for an existing account is not.
           // Only fall through to sign-up when the account really doesn't exist.
           if (err?.code === 'auth/user-not-found' || err?.code === 'auth/invalid-credential') {
             await signUpWithEmail(c, pw, n);
-            showToast(`Account created · welcome ${n} 🙏`);
           } else {
             throw err;
           }
         }
-        setStep('ring');
+        // v133: show inline success banner for ~0.9s before advancing. The old
+        // toast-and-navigate-immediately path flashed too fast to read.
+        setSignedInAs(c);
+        setTimeout(() => {
+          setSignedInAs(null);
+          setStep('ring');
+        }, 900);
       } catch (err: any) {
         const msg = err?.code === 'auth/wrong-password'
           ? 'Wrong password for this email — try again or reset it.'
@@ -215,20 +229,25 @@ export const OnboardingScreen = () => {
     }
   };
 
-  const verifyOtp = async (code: string) => {
+  const verifyOtp = async (code: string): Promise<boolean> => {
     // v132: phone path verifies via Firebase. Email path never lands here
     // any more (it finishes in submitIdentity directly), but if some older
     // caller still triggers it, fall back to the legacy OTP worker.
+    // Returns true on success so OtpStep can flash its success banner
+    // before the parent delays the setStep call.
     if (phoneConfirmation) {
       try {
         const u = await confirmPhoneCode(phoneConfirmation, code);
         if (u) {
-          showToast('✓ Verified 🙏');
           setPhoneConfirmation(null);
-          setStep('ring');
-        } else {
-          showToast('Could not verify — try again');
+          // v133: hold the OTP screen open for ~0.9s so the user sees the
+          // inline success banner instead of a bare toast flash before the
+          // Ring step snaps in.
+          setTimeout(() => setStep('ring'), 900);
+          return true;
         }
+        showToast('Could not verify — try again');
+        return false;
       } catch (err: any) {
         const msg = err?.code === 'auth/invalid-verification-code'
           ? 'Wrong code — check the SMS and try again.'
@@ -236,12 +255,16 @@ export const OnboardingScreen = () => {
             ? 'That code expired — tap resend.'
             : (err?.message || 'Could not verify — try again');
         showToast(msg);
+        return false;
       }
-      return;
     }
     const res = await otpClient.verify(contact, code, otpDemo ?? undefined);
-    if (res.verified) { showToast('✓ Verified 🙏'); setStep('ring'); }
-    else showToast('Incorrect code — please try again');
+    if (res.verified) {
+      setTimeout(() => setStep('ring'), 900);
+      return true;
+    }
+    showToast('Incorrect code — please try again');
+    return false;
   };
 
   // ── Bluetooth pairing ───────────────────────────────────────────
@@ -348,6 +371,7 @@ export const OnboardingScreen = () => {
             contact={contact}
             contactType={contactType}
             password={password}
+            signedInAs={signedInAs}
             onName={setName}
             onContact={setContact}
             onTypeChange={t => {
@@ -441,7 +465,9 @@ const OtpStep = ({
   contact: string;
   demoOtp: string | null;
   sending: boolean;
-  onVerify: (code: string) => void;
+  /** Returns true when verification succeeds — so this step can flash the
+   *  inline "Verified" banner before the parent swaps to the Ring step. */
+  onVerify: (code: string) => Promise<boolean>;
   onResend: () => void;
   onBack: () => void;
 }) => {
@@ -451,6 +477,20 @@ const OtpStep = ({
   const [code, setCode] = useState(demoOtp ?? '');
   useEffect(() => { if (demoOtp) setCode(demoOtp); }, [demoOtp]);
 
+  // v133: Local verify state so the button can show a spinner, reject double
+  // taps, and flip to a visible success banner before the parent navigates.
+  // The user said the old "✓ Verified 🙏" toast was easy to miss.
+  const [verifying, setVerifying] = useState(false);
+  const [verified, setVerified] = useState(false);
+
+  const doVerify = async () => {
+    if (verifying || verified || code.trim().length < 4) return;
+    setVerifying(true);
+    const ok = await onVerify(code);
+    setVerifying(false);
+    if (ok) setVerified(true);
+  };
+
   return (
     <View style={styles.stepContent}>
       <Text style={styles.stepLabel}>VERIFY</Text>
@@ -459,6 +499,16 @@ const OtpStep = ({
         We sent a 6-digit verification code to{'\n'}
         <Text style={{ color: COLORS.gold, fontWeight: '700' }}>{contact}</Text>
       </Text>
+
+      {verified && (
+        <View style={styles.successBanner}>
+          <Text style={styles.successBannerTick}>✓</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.successBannerTitle}>Verified</Text>
+            <Text style={styles.successBannerSub}>{contact}</Text>
+          </View>
+        </View>
+      )}
 
       {demoOtp ? (
         <View style={styles.otpDemoBanner}>
@@ -478,23 +528,47 @@ const OtpStep = ({
         placeholder="••••••"
         placeholderTextColor={COLORS.muted}
         textAlign="center"
+        editable={!verifying && !verified}
       />
 
       <TouchableOpacity
-        style={[styles.primaryBtn, { marginTop: SPACING.md }, code.trim().length < 4 && { opacity: 0.5 }]}
-        onPress={() => onVerify(code)}
-        disabled={code.trim().length < 4}
+        style={[
+          styles.primaryBtn,
+          { marginTop: SPACING.md },
+          (code.trim().length < 4 || verifying || verified) && { opacity: 0.5 },
+        ]}
+        onPress={doVerify}
+        disabled={code.trim().length < 4 || verifying || verified}
+        activeOpacity={0.8}
       >
-        <Text style={styles.primaryBtnText}>Verify &amp; continue →</Text>
+        {verifying
+          ? <RingSpinner size={20} color={COLORS.deep} />
+          : <Text style={styles.primaryBtnText}>
+              {verified ? '✓ Verified' : 'Verify & continue →'}
+            </Text>}
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={onResend} disabled={sending} style={{ alignSelf: 'center', marginTop: SPACING.md, padding: SPACING.sm }}>
-        <Text style={{ color: COLORS.gold, fontSize: 13, fontWeight: '600' }}>
+      <TouchableOpacity
+        onPress={onResend}
+        disabled={sending || verifying || verified}
+        style={{ alignSelf: 'center', marginTop: SPACING.md, padding: SPACING.sm }}
+      >
+        <Text style={{
+          color: COLORS.gold, fontSize: 13, fontWeight: '600',
+          opacity: (sending || verifying || verified) ? 0.5 : 1,
+        }}>
           {sending ? 'Sending…' : 'Resend code'}
         </Text>
       </TouchableOpacity>
-      <TouchableOpacity onPress={onBack} style={{ alignSelf: 'center', padding: SPACING.sm }}>
-        <Text style={{ color: COLORS.muted, fontSize: 12, textDecorationLine: 'underline' }}>
+      <TouchableOpacity
+        onPress={onBack}
+        disabled={verifying || verified}
+        style={{ alignSelf: 'center', padding: SPACING.sm }}
+      >
+        <Text style={{
+          color: COLORS.muted, fontSize: 12, textDecorationLine: 'underline',
+          opacity: (verifying || verified) ? 0.5 : 1,
+        }}>
           ‹ Change email / phone
         </Text>
       </TouchableOpacity>
@@ -505,7 +579,7 @@ const OtpStep = ({
 // ─── Identity — Google Sign-In primary, manual fallback ──────────
 
 const Identity = ({
-  name, contact, contactType, password,
+  name, contact, contactType, password, signedInAs,
   onName, onContact, onTypeChange, onPassword,
   onNext,
 }: {
@@ -513,6 +587,9 @@ const Identity = ({
   contact: string;
   contactType: 'email' | 'phone';
   password: string;
+  /** v133: non-null during the ~0.9s success hold the parent uses before
+   *  flipping to the Ring step. Renders the inline "Signed in · X" banner. */
+  signedInAs: string | null;
   onName: (s: string) => void;
   onContact: (s: string) => void;
   onTypeChange: (t: 'email' | 'phone') => void;
@@ -525,40 +602,54 @@ const Identity = ({
   const { showToast } = useSadhana();
   const [signingIn, setSigningIn] = useState(false);
   const [skipping, setSkipping] = useState(false);
-  const [showManual, setShowManual] = useState(false);
+  // 'none'  — three top-level choices visible (Google / Email / Phone / Skip)
+  // 'email' — email form expanded
+  // 'phone' — phone form expanded
+  const [method, setMethod] = useState<'none' | 'email' | 'phone'>('none');
   const [firebaseAvailable, setFirebaseAvailable] = useState(false);
+
+  // One in-flight flag covers ALL async actions (Google / email / phone / skip)
+  // so a second tap on ANY button during an in-flight call is a no-op. Without
+  // this each handler only guarded against its own state, so tapping Google
+  // then Email in quick succession could fire both. Also freezes the UI while
+  // the success banner is visible so the user can't trigger a second sign-in
+  // during the 0.9s hold before Ring step.
+  const busy = signingIn || skipping || !!signedInAs;
 
   useEffect(() => {
     isFirebaseAvailable().then(setFirebaseAvailable);
   }, []);
 
   const handleGoogleSignIn = async () => {
+    if (busy) return;
     setSigningIn(true);
     try {
       const u = await signInWithGoogle();
       if (u && u.email) {
         // Pass the values straight through — don't route via state setters,
-        // which raced and got cleared by onTypeChange before validation.
+        // which raced and got cleared by onTypeChange before validation. The
+        // parent (submitIdentity) sets signedInAs on the skipOtp branch, so
+        // the success banner shows for the same ~0.9s hold used by the other
+        // paths before Ring step appears.
         const resolvedName = u.name || u.email.split('@')[0];
         onName(resolvedName);
         onContact(u.email);
-        // skipOtp: Firebase already authenticated the user via Google — no
-        // OTP, no password check should run on top of that.
         onNext({ name: resolvedName, contact: u.email, type: 'email', skipOtp: true });
       } else {
         // v67: null now means ONLY user-cancelled (real failures throw and
         // are caught below with their actual error code). Calm message.
-        showToast('Sign-in cancelled. Pick your account, or use manual entry below.');
+        showToast('Sign-in cancelled. Pick your account, or use Email / Phone below.');
       }
     } catch (e: any) {
       console.warn('[Onboarding] Google sign-in failed:', e?.message);
-      showToast(`Google sign-in error: ${e?.message || 'unknown'}. Use manual entry instead.`);
+      showToast(`Google sign-in error: ${e?.message || 'unknown'}. Try Email or Phone instead.`);
     } finally {
       setSigningIn(false);
     }
   };
 
   const handleSkipWithAnonymous = async () => {
+    if (busy) return;
     setSkipping(true);
     try {
       await signInAnonymously();
@@ -573,60 +664,102 @@ const Identity = ({
     }
   };
 
+  // Email / Phone forms both route through here. Validation and sign-in run
+  // in the parent (submitIdentity). The parent also sets the success banner
+  // state and delays the step flip — all this handler does is gate against
+  // double-tap and show the local spinner until the parent resolves.
+  const handleContinue = async () => {
+    if (busy) return;
+    setSigningIn(true);
+    try {
+      await Promise.resolve(onNext());
+    } finally {
+      setSigningIn(false);
+    }
+  };
+
   return (
     <View style={styles.stepContent}>
       <Text style={styles.stepLabel}>STEP 1 OF 4</Text>
       <Text style={styles.title}>Sign in</Text>
       <Text style={styles.subtitle}>
-        Use your Google account already on this phone{'\n'}
-        <Text style={{ color: '#3ddc84' }}>✓ One tap · No password · No OTP</Text>
-        {'\n'}Or use email + password, or phone + OTP below.
+        Pick any one method below to continue.
       </Text>
 
+      {/* Full-width success banner — appears for ~0.9s after a sign-in
+          succeeds before the step advances. The user asked for a clearer
+          confirmation than a toast, which can be easy to miss. */}
+      {signedInAs && (
+        <View style={styles.successBanner}>
+          <Text style={styles.successBannerTick}>✓</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.successBannerTitle}>Signed in</Text>
+            <Text style={styles.successBannerSub}>{signedInAs}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* ── Method 1: Google ── */}
       <TouchableOpacity
-        style={[styles.googleBtn, signingIn && { opacity: 0.6 }]}
+        style={[styles.googleBtn, busy && { opacity: 0.55 }]}
         onPress={handleGoogleSignIn}
-        disabled={signingIn || skipping || !firebaseAvailable}
+        disabled={busy || !firebaseAvailable}
+        activeOpacity={0.75}
       >
-        {signingIn ? (
+        {signingIn && !method ? (
           <RingSpinner size={22} color={COLORS.deep} />
         ) : (
           <>
             <Text style={styles.googleG}>G</Text>
             <Text style={styles.googleBtnText}>
-              {firebaseAvailable ? 'Continue with Google' : 'Google sign-in unavailable on web'}
+              {firebaseAvailable ? 'Continue with Google' : 'Google unavailable on web'}
             </Text>
           </>
         )}
       </TouchableOpacity>
 
-      <Text style={styles.googleHint}>
-        Tap above → pick your Google account → app auto-fills your name and email.
-      </Text>
-
+      {/* ── Method 2 & 3: Email / Phone method cards ── */}
       {firebaseAvailable && (
-        <TouchableOpacity
-          style={[styles.skipBtn, skipping && { opacity: 0.6 }]}
-          onPress={handleSkipWithAnonymous}
-          disabled={signingIn || skipping}
-        >
-          {skipping
-            ? <RingSpinner size={18} color={COLORS.cream} />
-            : <Text style={styles.skipBtnText}>Skip for now · continue without sign-in</Text>}
-        </TouchableOpacity>
+        <View style={styles.methodRow}>
+          <TouchableOpacity
+            style={[
+              styles.methodBtn,
+              method === 'email' && styles.methodBtnActive,
+              busy && { opacity: 0.55 },
+            ]}
+            onPress={() => { if (!busy) setMethod(method === 'email' ? 'none' : 'email'); }}
+            disabled={busy}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.methodIcon}>✉️</Text>
+            <Text style={[styles.methodLabel, method === 'email' && styles.methodLabelActive]}>Email</Text>
+            <Text style={styles.methodSub}>& password</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.methodBtn,
+              method === 'phone' && styles.methodBtnActive,
+              busy && { opacity: 0.55 },
+            ]}
+            onPress={() => {
+              if (busy) return;
+              onTypeChange('phone');
+              setMethod(method === 'phone' ? 'none' : 'phone');
+            }}
+            disabled={busy}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.methodIcon}>📱</Text>
+            <Text style={[styles.methodLabel, method === 'phone' && styles.methodLabelActive]}>Phone</Text>
+            <Text style={styles.methodSub}>& OTP</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
-      {!showManual ? (
-        <TouchableOpacity
-          onPress={() => setShowManual(true)}
-          style={{ alignSelf: 'center', marginTop: SPACING.md, padding: SPACING.sm }}
-        >
-          <Text style={{ color: COLORS.muted, fontSize: 12, textDecorationLine: 'underline' }}>
-            Or sign in with Email / Phone
-          </Text>
-        </TouchableOpacity>
-      ) : (
-        <View style={{ marginTop: SPACING.lg }}>
+      {/* ── Email form (expanded when method === 'email') ── */}
+      {method === 'email' && (
+        <View style={styles.methodForm}>
           <View style={styles.field}>
             <Text style={styles.fieldLabel}>Your name</Text>
             <TextInput
@@ -635,64 +768,106 @@ const Identity = ({
               onChangeText={onName}
               placeholder="e.g. Lakshmi Pavani"
               placeholderTextColor={COLORS.muted}
+              editable={!busy}
             />
           </View>
-          <View style={styles.toggleRow}>
-            <TouchableOpacity
-              style={[styles.toggleBtn, contactType === 'email' && styles.toggleBtnActive]}
-              onPress={() => onTypeChange('email')}
-            >
-              <Text style={[styles.toggleText, contactType === 'email' && styles.toggleTextActive]}>Email</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.toggleBtn, contactType === 'phone' && styles.toggleBtnActive]}
-              onPress={() => onTypeChange('phone')}
-            >
-              <Text style={[styles.toggleText, contactType === 'phone' && styles.toggleTextActive]}>Phone</Text>
-            </TouchableOpacity>
-          </View>
           <View style={styles.field}>
-            <Text style={styles.fieldLabel}>
-              {contactType === 'email' ? 'Email address' : 'Phone number'}
-            </Text>
+            <Text style={styles.fieldLabel}>Email address</Text>
             <TextInput
               style={styles.input}
               value={contact}
-              onChangeText={onContact}
-              placeholder={contactType === 'email' ? 'you@example.com' : '+91 98765 43210'}
+              onChangeText={(t) => { onTypeChange('email'); onContact(t); }}
+              placeholder="you@example.com"
               placeholderTextColor={COLORS.muted}
-              keyboardType={contactType === 'email' ? 'email-address' : 'phone-pad'}
+              keyboardType="email-address"
               autoCapitalize="none"
+              editable={!busy}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>Password</Text>
+            <TextInput
+              style={styles.input}
+              value={password}
+              onChangeText={onPassword}
+              placeholder="At least 6 characters"
+              placeholderTextColor={COLORS.muted}
+              secureTextEntry
+              autoCapitalize="none"
+              editable={!busy}
             />
             <Text style={styles.hint}>
-              {contactType === 'email'
-                ? 'We sign you in via Firebase — no OTP for email.'
-                : 'We will text you a 6-digit code via Firebase.'}
+              New email → account is created. Existing email → you're signed in. No OTP.
             </Text>
           </View>
-          {contactType === 'email' && (
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Password</Text>
-              <TextInput
-                style={styles.input}
-                value={password}
-                onChangeText={onPassword}
-                placeholder="At least 6 characters"
-                placeholderTextColor={COLORS.muted}
-                secureTextEntry
-                autoCapitalize="none"
-              />
-              <Text style={styles.hint}>
-                If you have an account we sign you in; otherwise we create one.
-              </Text>
-            </View>
-          )}
-          <TouchableOpacity style={[styles.primaryBtn, { marginTop: SPACING.sm }]} onPress={() => onNext()}>
-            <Text style={styles.primaryBtnText}>
-              {contactType === 'email' ? 'Sign in / Sign up →' : 'Send OTP →'}
-            </Text>
+          <TouchableOpacity
+            style={[styles.primaryBtn, busy && { opacity: 0.55 }]}
+            onPress={handleContinue}
+            disabled={busy}
+            activeOpacity={0.8}
+          >
+            {signingIn
+              ? <RingSpinner size={20} color={COLORS.deep} />
+              : <Text style={styles.primaryBtnText}>Sign in / Sign up →</Text>}
           </TouchableOpacity>
         </View>
+      )}
+
+      {/* ── Phone form (expanded when method === 'phone') ── */}
+      {method === 'phone' && (
+        <View style={styles.methodForm}>
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>Your name</Text>
+            <TextInput
+              style={styles.input}
+              value={name}
+              onChangeText={onName}
+              placeholder="e.g. Lakshmi Pavani"
+              placeholderTextColor={COLORS.muted}
+              editable={!busy}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>Phone number</Text>
+            <TextInput
+              style={styles.input}
+              value={contact}
+              onChangeText={(t) => { onTypeChange('phone'); onContact(t); }}
+              placeholder="+91 98765 43210"
+              placeholderTextColor={COLORS.muted}
+              keyboardType="phone-pad"
+              autoCapitalize="none"
+              editable={!busy}
+            />
+            <Text style={styles.hint}>
+              Include country code. A 6-digit code arrives via SMS.
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.primaryBtn, busy && { opacity: 0.55 }]}
+            onPress={handleContinue}
+            disabled={busy}
+            activeOpacity={0.8}
+          >
+            {signingIn
+              ? <RingSpinner size={20} color={COLORS.deep} />
+              : <Text style={styles.primaryBtnText}>Send OTP →</Text>}
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* ── Skip (anonymous) ── */}
+      {firebaseAvailable && method === 'none' && (
+        <TouchableOpacity
+          style={[styles.skipBtn, busy && { opacity: 0.55 }]}
+          onPress={handleSkipWithAnonymous}
+          disabled={busy}
+          activeOpacity={0.8}
+        >
+          {skipping
+            ? <RingSpinner size={18} color={COLORS.cream} />
+            : <Text style={styles.skipBtnText}>Skip for now · continue without sign-in</Text>}
+        </TouchableOpacity>
       )}
     </View>
   );
@@ -1172,6 +1347,74 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   skipBtnText: { color: COLORS.cream, fontSize: 13, fontWeight: '500' },
+
+  // ── v133: Email / Phone method buttons ──
+  // Shown side-by-side under the Google button. Replaces the tiny underlined
+  // "Or sign in with Email / Phone" link that users were missing entirely.
+  methodRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
+  },
+  methodBtn: {
+    flex: 1,
+    paddingVertical: 16,
+    paddingHorizontal: SPACING.md,
+    borderRadius: 12,
+    backgroundColor: COLORS.cardBg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 92,
+  },
+  methodBtnActive: {
+    borderColor: COLORS.gold,
+    backgroundColor: 'rgba(212,160,23,0.12)',
+  },
+  methodIcon: { fontSize: 28, marginBottom: 6 },
+  methodLabel: { fontSize: 15, color: COLORS.cream, fontWeight: '700' },
+  methodLabelActive: { color: COLORS.gold },
+  methodSub: { fontSize: 11, color: COLORS.muted, marginTop: 2, fontWeight: '500' },
+
+  // Container for the expanded email / phone form.
+  methodForm: {
+    marginTop: SPACING.md,
+    padding: SPACING.md,
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+
+  // ── Success banner shown briefly after a sign-in before auto-advance ──
+  successBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    padding: SPACING.md,
+    borderRadius: 12,
+    backgroundColor: 'rgba(61, 220, 132, 0.12)',
+    borderWidth: 1.5,
+    borderColor: '#3ddc84',
+    marginBottom: SPACING.md,
+  },
+  successBannerTick: {
+    fontSize: 28,
+    color: '#3ddc84',
+    fontWeight: '900',
+  },
+  successBannerTitle: {
+    fontSize: 15,
+    color: '#3ddc84',
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  successBannerSub: {
+    fontSize: 13,
+    color: COLORS.cream,
+    marginTop: 2,
+  },
 });
 
 // ─── Welcome-screen styles (separate for visual isolation) ───────
