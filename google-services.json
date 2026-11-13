@@ -1,20 +1,46 @@
 {
   "project_info": {
-    "project_number": "000000000000",
-    "project_id": "sadhana-placeholder",
-    "storage_bucket": "sadhana-placeholder.appspot.com"
+    "project_number": "283536111171",
+    "project_id": "body-and-soul-ring",
+    "storage_bucket": "body-and-soul-ring.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
-        "android_client_info": { "package_name": "com.bodyandsoulring.app" }
+        "mobilesdk_app_id": "1:283536111171:android:e00a7ef86d69fb717b46f6",
+        "android_client_info": {
+          "package_name": "com.bodyandsoulring.app"
+        }
       },
       "oauth_client": [
-        { "client_id": "000000000000-placeholder.apps.googleusercontent.com", "client_type": 3 }
+        {
+          "client_id": "283536111171-9k613oons4l3doe1jljoovam9qr2te9t.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bodyandsoulring.app",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "283536111171-6e2fs7u0f1t9rc6l56rqugufnsiga9kc.apps.googleusercontent.com",
+          "client_type": 3
+        }
       ],
-      "api_key": [{ "current_key": "AIzaPlaceholderKeyReplaceWithRealOne" }],
-      "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+      "api_key": [
+        {
+          "current_key": "AIzaSyBLilCvH7wdBZNdu5vtkxmIJ41jKikAHmw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "283536111171-6e2fs7u0f1t9rc6l56rqugufnsiga9kc.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
     }
   ],
   "configuration_version": "1"

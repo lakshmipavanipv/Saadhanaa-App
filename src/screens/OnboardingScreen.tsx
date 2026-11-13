@@ -36,6 +36,11 @@ import {
   isFirebaseAvailable,
   signInWithGoogle,
   signInAnonymously,
+  signInWithEmail,
+  signUpWithEmail,
+  sendPhoneVerification,
+  confirmPhoneCode,
+  type PhoneConfirmation,
 } from '../services/firebaseAuth';
 import {
   requestBlePermissions,
@@ -77,9 +82,13 @@ export const OnboardingScreen = () => {
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
   const [contactType, setContactType] = useState<'email' | 'phone'>('email');
+  const [password, setPassword] = useState('');
   // v71: OTP verification for the manual email/phone path.
   const [otpDemo, setOtpDemo] = useState<string | null>(null);
   const [otpSending, setOtpSending] = useState(false);
+  // v132: Firebase Phone Auth confirmation — when set, the OTP step verifies
+  // the code against Firebase rather than against the Cloudflare OTP worker.
+  const [phoneConfirmation, setPhoneConfirmation] = useState<PhoneConfirmation | null>(null);
 
   // About you
   const [dob, setDob] = useState('');
@@ -101,46 +110,135 @@ export const OnboardingScreen = () => {
   // "Email or phone is required". Passing values directly removes both races.
   const submitIdentity = async (override?: {
     name?: string; contact?: string; type?: 'email' | 'phone'; skipOtp?: boolean;
+    password?: string;
   }) => {
     const n = (override?.name ?? name).trim();
     const c = (override?.contact ?? contact).trim();
     const t = override?.type ?? contactType;
+    const pw = (override?.password ?? password);
     if (!n) { showToast('Please enter your name'); return; }
     if (!c) { showToast('Email or phone is required'); return; }
     if (t === 'email' && !validEmail(c)) { showToast('Please enter a valid email'); return; }
     if (t === 'phone' && !validPhone(c)) { showToast('Please enter a valid phone number'); return; }
+    if (t === 'email' && !override?.skipOtp && (!pw || pw.length < 6)) {
+      showToast('Password needs at least 6 characters');
+      return;
+    }
     // Persist the resolved identity so later steps + the final save have it.
     if (override) { setName(n); setContact(c); setContactType(t); }
-    // v74: anonymous skip is the ONLY path that bypasses OTP. BOTH manual
-    // entry AND Google sign-in now go through the OTP screen (the user wants
-    // to verify the code after signing in). In demo mode the code shows
-    // on-screen; with the backend deployed it's a real emailed code.
+    // Anonymous "skip" and Google sign-in both pass skipOtp — they've already
+    // authenticated and should land straight on the ring step.
     if (override?.skipOtp) {
       showToast('Welcome 🙏');
       setStep('ring');
       return;
     }
-    setOtpSending(true);
-    const res = await otpClient.send(c, t);
-    setOtpSending(false);
-    if (!res.sent) {
-      showToast(`Could not send code: ${res.error}`);
+
+    // v132: Email path uses Firebase Email/Password directly — no OTP step.
+    // Sign in if the account exists; sign up if it doesn't; link onto any
+    // anonymous UID so earlier data stays attached to the same Firebase user.
+    if (t === 'email') {
+      setOtpSending(true);
+      try {
+        try {
+          await signInWithEmail(c, pw);
+          showToast('✓ Welcome back 🙏');
+        } catch (err: any) {
+          // "user not found" / "wrong password" at first attempt is fine on a
+          // fresh sign-up, but "wrong password" for an existing account is not.
+          // Only fall through to sign-up when the account really doesn't exist.
+          if (err?.code === 'auth/user-not-found' || err?.code === 'auth/invalid-credential') {
+            await signUpWithEmail(c, pw, n);
+            showToast(`Account created · welcome ${n} 🙏`);
+          } else {
+            throw err;
+          }
+        }
+        setStep('ring');
+      } catch (err: any) {
+        const msg = err?.code === 'auth/wrong-password'
+          ? 'Wrong password for this email — try again or reset it.'
+          : err?.code === 'auth/email-already-in-use'
+            ? 'That email is already registered — enter the right password.'
+            : err?.code === 'auth/weak-password'
+              ? 'Password needs at least 6 characters.'
+              : (err?.message || 'Sign-in failed. Try again.');
+        showToast(msg);
+      } finally {
+        setOtpSending(false);
+      }
       return;
     }
-    setOtpDemo(res.demoOtp ?? null);
-    showToast(`Code sent to ${c}`);
-    setStep('otp');
+
+    // v132: Phone path uses Firebase Phone Auth. SMS goes out via Firebase
+    // (Play Integrity / SafetyNet gated), the confirmation is held and the
+    // OTP step calls confirmPhoneCode with the code the user types.
+    setOtpSending(true);
+    try {
+      const pending = await sendPhoneVerification(c);
+      setPhoneConfirmation(pending);
+      setOtpDemo(null);
+      showToast(`Code sent to ${c}`);
+      setStep('otp');
+    } catch (err: any) {
+      const msg = err?.code === 'auth/invalid-phone-number'
+        ? 'That phone number format isn\'t valid — include country code (e.g. +91…).'
+        : err?.code === 'auth/too-many-requests'
+          ? 'Too many attempts from this device — wait a bit and retry.'
+          : (err?.message || 'Could not send the code. Try again.');
+      showToast(msg);
+    } finally {
+      setOtpSending(false);
+    }
   };
 
   const resendOtp = async () => {
     setOtpSending(true);
-    const res = await otpClient.send(contact, contactType);
-    setOtpSending(false);
-    if (res.sent) { setOtpDemo(res.demoOtp ?? null); showToast('New code sent'); }
-    else showToast(`Could not resend: ${res.error}`);
+    try {
+      // v132: Firebase Phone Auth for phone; fall back to the Cloudflare OTP
+      // worker only for the email path, which no longer uses OTP at all —
+      // this branch is here for safety if a future flow re-uses the OTP step.
+      if (contactType === 'phone') {
+        const pending = await sendPhoneVerification(contact);
+        setPhoneConfirmation(pending);
+        setOtpDemo(null);
+        showToast('New code sent');
+      } else {
+        const res = await otpClient.send(contact, contactType);
+        if (res.sent) { setOtpDemo(res.demoOtp ?? null); showToast('New code sent'); }
+        else showToast(`Could not resend: ${res.error}`);
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Could not resend');
+    } finally {
+      setOtpSending(false);
+    }
   };
 
   const verifyOtp = async (code: string) => {
+    // v132: phone path verifies via Firebase. Email path never lands here
+    // any more (it finishes in submitIdentity directly), but if some older
+    // caller still triggers it, fall back to the legacy OTP worker.
+    if (phoneConfirmation) {
+      try {
+        const u = await confirmPhoneCode(phoneConfirmation, code);
+        if (u) {
+          showToast('✓ Verified 🙏');
+          setPhoneConfirmation(null);
+          setStep('ring');
+        } else {
+          showToast('Could not verify — try again');
+        }
+      } catch (err: any) {
+        const msg = err?.code === 'auth/invalid-verification-code'
+          ? 'Wrong code — check the SMS and try again.'
+          : err?.code === 'auth/code-expired'
+            ? 'That code expired — tap resend.'
+            : (err?.message || 'Could not verify — try again');
+        showToast(msg);
+      }
+      return;
+    }
     const res = await otpClient.verify(contact, code, otpDemo ?? undefined);
     if (res.verified) { showToast('✓ Verified 🙏'); setStep('ring'); }
     else showToast('Incorrect code — please try again');
@@ -249,12 +347,15 @@ export const OnboardingScreen = () => {
             name={name}
             contact={contact}
             contactType={contactType}
+            password={password}
             onName={setName}
             onContact={setContact}
             onTypeChange={t => {
               setContactType(t);
               setContact('');
+              setPassword('');
             }}
+            onPassword={setPassword}
             onNext={submitIdentity}
           />
         )}
@@ -404,17 +505,22 @@ const OtpStep = ({
 // ─── Identity — Google Sign-In primary, manual fallback ──────────
 
 const Identity = ({
-  name, contact, contactType,
-  onName, onContact, onTypeChange,
+  name, contact, contactType, password,
+  onName, onContact, onTypeChange, onPassword,
   onNext,
 }: {
   name: string;
   contact: string;
   contactType: 'email' | 'phone';
+  password: string;
   onName: (s: string) => void;
   onContact: (s: string) => void;
   onTypeChange: (t: 'email' | 'phone') => void;
-  onNext: (override?: { name?: string; contact?: string; type?: 'email' | 'phone'; skipOtp?: boolean }) => void;
+  onPassword: (s: string) => void;
+  onNext: (override?: {
+    name?: string; contact?: string; type?: 'email' | 'phone';
+    skipOtp?: boolean; password?: string;
+  }) => void;
 }) => {
   const { showToast } = useSadhana();
   const [signingIn, setSigningIn] = useState(false);
@@ -436,7 +542,9 @@ const Identity = ({
         const resolvedName = u.name || u.email.split('@')[0];
         onName(resolvedName);
         onContact(u.email);
-        onNext({ name: resolvedName, contact: u.email, type: 'email' });
+        // skipOtp: Firebase already authenticated the user via Google — no
+        // OTP, no password check should run on top of that.
+        onNext({ name: resolvedName, contact: u.email, type: 'email', skipOtp: true });
       } else {
         // v67: null now means ONLY user-cancelled (real failures throw and
         // are caught below with their actual error code). Calm message.
@@ -472,6 +580,7 @@ const Identity = ({
       <Text style={styles.subtitle}>
         Use your Google account already on this phone{'\n'}
         <Text style={{ color: '#3ddc84' }}>✓ One tap · No password · No OTP</Text>
+        {'\n'}Or use email + password, or phone + OTP below.
       </Text>
 
       <TouchableOpacity
@@ -513,7 +622,7 @@ const Identity = ({
           style={{ alignSelf: 'center', marginTop: SPACING.md, padding: SPACING.sm }}
         >
           <Text style={{ color: COLORS.muted, fontSize: 12, textDecorationLine: 'underline' }}>
-            Or enter details manually
+            Or sign in with Email / Phone
           </Text>
         </TouchableOpacity>
       ) : (
@@ -555,10 +664,33 @@ const Identity = ({
               keyboardType={contactType === 'email' ? 'email-address' : 'phone-pad'}
               autoCapitalize="none"
             />
-            <Text style={styles.hint}>Stored only on this device.</Text>
+            <Text style={styles.hint}>
+              {contactType === 'email'
+                ? 'We sign you in via Firebase — no OTP for email.'
+                : 'We will text you a 6-digit code via Firebase.'}
+            </Text>
           </View>
+          {contactType === 'email' && (
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>Password</Text>
+              <TextInput
+                style={styles.input}
+                value={password}
+                onChangeText={onPassword}
+                placeholder="At least 6 characters"
+                placeholderTextColor={COLORS.muted}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+              <Text style={styles.hint}>
+                If you have an account we sign you in; otherwise we create one.
+              </Text>
+            </View>
+          )}
           <TouchableOpacity style={[styles.primaryBtn, { marginTop: SPACING.sm }]} onPress={() => onNext()}>
-            <Text style={styles.primaryBtnText}>Continue →</Text>
+            <Text style={styles.primaryBtnText}>
+              {contactType === 'email' ? 'Sign in / Sign up →' : 'Send OTP →'}
+            </Text>
           </TouchableOpacity>
         </View>
       )}
