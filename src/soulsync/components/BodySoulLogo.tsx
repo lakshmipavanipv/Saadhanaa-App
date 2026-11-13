@@ -28,7 +28,11 @@ const INF_PATH =
   'M 50 65 C 50 30, 90 30, 140 65 C 190 100, 230 100, 230 65 C 230 30, 190 30, 140 65 C 90 100, 50 100, 50 65';
 const INF_LENGTH = 420; // approx path length — used for dasharray draw-in effect
 
-export const BodySoulLogo: React.FC<{ width?: number }> = ({ width = 240 }) => {
+export const BodySoulLogo: React.FC<{
+  width?: number;
+  /** Show the small "Powered by VELVUE" tagline under the brand text. */
+  showPoweredBy?: boolean;
+}> = ({ width = 240, showPoweredBy = true }) => {
   const { palette } = useTheme();
   const ratio = width / VBW;
   const height = VBH * ratio;
@@ -131,6 +135,11 @@ export const BodySoulLogo: React.FC<{ width?: number }> = ({ width = 240 }) => {
       <Animated.Text style={[styles.brandText, { color: palette.cream, opacity: textFade }]}>
         BODY & SOUL
       </Animated.Text>
+      {showPoweredBy && (
+        <Animated.Text style={[styles.tagline, { color: palette.muted, opacity: textFade }]}>
+          Powered by VELVUE
+        </Animated.Text>
+      )}
     </View>
   );
 };
@@ -146,5 +155,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 6,
     marginTop: -8,
+  },
+  tagline: {
+    color: COLORS.muted,
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 2.5,
+    marginTop: 6,
+    textTransform: 'uppercase',
   },
 });

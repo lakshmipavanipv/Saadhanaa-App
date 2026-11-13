@@ -130,6 +130,7 @@ export const SideDrawer: React.FC<Props> = ({ visible, onClose, onSelect }) => {
             {/* Was a hardcoded "v1.0.75" — which stayed put through months of
                 builds and so told the reader nothing true. */}
             <Text style={[styles.footer, { color: palette.muted }]}>Body & Soul Ring</Text>
+            <Text style={[styles.poweredBy, { color: palette.muted }]}>Powered by VELVUE</Text>
             <BuildStamp />
           </ScrollView>
         </TouchableOpacity>
@@ -184,5 +185,10 @@ const styles = StyleSheet.create({
   footer: {
     color: COLORS.muted, fontSize: FONT_SIZES.xs,
     textAlign: 'center', marginTop: SPACING.lg, paddingHorizontal: SPACING.md,
+  },
+  poweredBy: {
+    color: COLORS.muted, fontSize: 10,
+    textAlign: 'center', marginTop: 2, letterSpacing: 2,
+    textTransform: 'uppercase', opacity: 0.75,
   },
 });
