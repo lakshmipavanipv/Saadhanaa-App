@@ -252,3 +252,183 @@ export const signOut = async (): Promise<void> => {
     await m.auth().signOut();
   } catch { /* ignore */ }
 };
+
+// ─── Email / password ───────────────────────────────────────────────
+
+const toSignedInUser = (u: any, source: SignedInUser['source']): SignedInUser => ({
+  uid: u.uid,
+  email: u.email ?? null,
+  name: u.displayName ?? null,
+  photoUrl: u.photoURL ?? null,
+  isAnonymous: !!u.isAnonymous,
+  source,
+});
+
+/**
+ * Create a new account with email + password.
+ *
+ * If the user is currently signed in anonymously, their anonymous UID is
+ * preserved by LINKING the email credential onto it — so any sadhana data
+ * written while they were anonymous stays attached to the same Firebase user.
+ *
+ * Common error codes surfaced verbatim so the UI can translate them:
+ *   'auth/email-already-in-use'    → call signInWithEmail instead
+ *   'auth/weak-password'           → Firebase minimum is 6 chars
+ *   'auth/invalid-email'           → client-side validation didn't catch it
+ */
+export const signUpWithEmail = async (
+  email: string,
+  password: string,
+  displayName?: string,
+): Promise<SignedInUser | null> => {
+  const m = await loadModules();
+  if (!m) return null;
+  const e = email.trim();
+  try {
+    const current = m.auth().currentUser;
+    let userCred: any;
+
+    if (current?.isAnonymous) {
+      const credential = m.auth.EmailAuthProvider.credential(e, password);
+      try {
+        userCred = await current.linkWithCredential(credential);
+      } catch (err: any) {
+        // Someone already owns this email. Sign them in plainly (they lose the
+        // anon UID — acceptable; their locally-stored data stays on device and
+        // the migrator can lift it onto the new UID later).
+        if (err?.code === 'auth/credential-already-in-use' ||
+            err?.code === 'auth/email-already-in-use') {
+          userCred = await m.auth().signInWithEmailAndPassword(e, password);
+        } else {
+          throw err;
+        }
+      }
+    } else {
+      userCred = await m.auth().createUserWithEmailAndPassword(e, password);
+    }
+
+    if (displayName && userCred.user?.updateProfile) {
+      try { await userCred.user.updateProfile({ displayName }); } catch { /* non-fatal */ }
+    }
+    return toSignedInUser(userCred.user, 'manual');
+  } catch (err: any) {
+    console.warn('[firebaseAuth] signUpWithEmail failed:', err?.code, err?.message);
+    throw err;
+  }
+};
+
+/** Sign in to an existing email+password account. */
+export const signInWithEmail = async (
+  email: string,
+  password: string,
+): Promise<SignedInUser | null> => {
+  const m = await loadModules();
+  if (!m) return null;
+  try {
+    const userCred = await m.auth().signInWithEmailAndPassword(email.trim(), password);
+    return toSignedInUser(userCred.user, 'manual');
+  } catch (err: any) {
+    console.warn('[firebaseAuth] signInWithEmail failed:', err?.code, err?.message);
+    throw err;
+  }
+};
+
+/** Send a password-reset email. Firebase handles the email itself. */
+export const sendPasswordReset = async (email: string): Promise<boolean> => {
+  const m = await loadModules();
+  if (!m) return false;
+  try {
+    await m.auth().sendPasswordResetEmail(email.trim());
+    return true;
+  } catch (err: any) {
+    console.warn('[firebaseAuth] sendPasswordReset failed:', err?.code, err?.message);
+    throw err;
+  }
+};
+
+// ─── Phone (OTP) ────────────────────────────────────────────────────
+
+/**
+ * A pending phone sign-in: hand this back to `confirmPhoneCode` with the
+ * OTP the user typed to complete the flow. The object is opaque from the
+ * caller's side; it carries the Firebase confirmation reference internally.
+ */
+export interface PhoneConfirmation {
+  /** Internal — do not rely on this field's shape. */
+  _confirmation: any;
+}
+
+/**
+ * Start a phone number sign-in. Sends an SMS with a one-time code to the
+ * number (E.164 format, e.g. "+91XXXXXXXXXX"). The returned confirmation
+ * must be held in state and passed to `confirmPhoneCode`.
+ *
+ * Firebase Phone Auth prerequisites — must be configured ONCE in Firebase:
+ *   1. Authentication → Sign-in method → enable "Phone"
+ *   2. Project settings → Cloud Messaging → an APNs key (iOS) and
+ *      SHA-1/SHA-256 (Android) registered so the ReCAPTCHA / Play Integrity
+ *      check can run.
+ *
+ * In development, numbers on the Firebase console's "Phone numbers for
+ * testing" list bypass the real SMS and accept a fixed code.
+ */
+export const sendPhoneVerification = async (
+  phoneE164: string,
+): Promise<PhoneConfirmation | null> => {
+  const m = await loadModules();
+  if (!m) return null;
+  try {
+    const confirmation = await m.auth().signInWithPhoneNumber(phoneE164.trim());
+    return { _confirmation: confirmation };
+  } catch (err: any) {
+    console.warn('[firebaseAuth] sendPhoneVerification failed:', err?.code, err?.message);
+    throw err;
+  }
+};
+
+/**
+ * Finish a phone sign-in by confirming the SMS code.
+ *
+ * If an anonymous user is currently signed in, the phone credential is
+ * LINKED onto them so their anonymous UID is preserved. Otherwise a new
+ * account is created on the phone number.
+ */
+export const confirmPhoneCode = async (
+  pending: PhoneConfirmation,
+  code: string,
+): Promise<SignedInUser | null> => {
+  const m = await loadModules();
+  if (!m || !pending?._confirmation) return null;
+
+  const trimmed = code.trim();
+  try {
+    const current = m.auth().currentUser;
+
+    // The confirmation object has `.confirm(code)` which both verifies and
+    // signs in. For the "link onto anonymous" path we need a Credential
+    // explicitly, which the confirmation also carries internally.
+    if (current?.isAnonymous && pending._confirmation.verificationId) {
+      const credential = m.auth.PhoneAuthProvider.credential(
+        pending._confirmation.verificationId,
+        trimmed,
+      );
+      try {
+        const userCred = await current.linkWithCredential(credential);
+        return toSignedInUser(userCred.user, 'manual');
+      } catch (err: any) {
+        if (err?.code === 'auth/credential-already-in-use') {
+          const userCred = await m.auth().signInWithCredential(credential);
+          return toSignedInUser(userCred.user, 'manual');
+        }
+        throw err;
+      }
+    }
+
+    // Normal path — the confirmation object handles both verify and sign-in.
+    const userCred = await pending._confirmation.confirm(trimmed);
+    return toSignedInUser(userCred.user, 'manual');
+  } catch (err: any) {
+    console.warn('[firebaseAuth] confirmPhoneCode failed:', err?.code, err?.message);
+    throw err;
+  }
+};
