@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Body & Soul Ring",
+    "name": "Body & Soul Saadhana",
     "slug": "sadhana-app",
-    "version": "1.0.133",
+    "version": "1.0.134",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "sadhana",
@@ -14,7 +14,7 @@
       "fallbackToCacheTimeout": 3000,
       "checkAutomatically": "ON_LOAD"
     },
-    "runtimeVersion": "133",
+    "runtimeVersion": "134",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.bodyandsoulring.app"
@@ -27,7 +27,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.bodyandsoulring.app",
-      "versionCode": 133,
+      "versionCode": 134,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.BLUETOOTH",

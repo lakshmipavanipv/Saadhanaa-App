@@ -311,7 +311,7 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
     if (code === 'no-speech') {
       setStatusMsg('🤐  Didn\'t hear anything — tap "Tap to speak" and try again.');
     } else if (code === 'service-not-allowed' || code === 'not-allowed') {
-      setStatusMsg('🔒  Microphone permission denied. Enable it in Settings → Apps → Body & Soul Ring.');
+      setStatusMsg('🔒  Microphone permission denied. Enable it in Settings → Apps → Body & Soul Saadhana.');
     } else if (code === 'language-not-supported') {
       setStatusMsg('🌐  This language isn\'t supported by the device speech engine.');
     } else if (code === 'network') {
@@ -359,7 +359,7 @@ export const VoiceAssistant: React.FC<Props> = ({ navRef, bottom = 100 }) => {
       const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
       if (!perm.granted) {
         setStatusKind('error');
-        setStatusMsg('🔒  Microphone permission denied. Enable it in Settings → Apps → Body & Soul Ring → Permissions.');
+        setStatusMsg('🔒  Microphone permission denied. Enable it in Settings → Apps → Body & Soul Saadhana → Permissions.');
         showToast('Mic permission denied');
         return;
       }

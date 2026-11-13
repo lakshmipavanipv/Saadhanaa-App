@@ -129,7 +129,7 @@ export const SideDrawer: React.FC<Props> = ({ visible, onClose, onSelect }) => {
 
             {/* Was a hardcoded "v1.0.75" — which stayed put through months of
                 builds and so told the reader nothing true. */}
-            <Text style={[styles.footer, { color: palette.muted }]}>Body & Soul Ring</Text>
+            <Text style={[styles.footer, { color: palette.muted }]}>Body & Soul Saadhana</Text>
             <Text style={[styles.poweredBy, { color: palette.muted }]}>Powered by VELVUE</Text>
             <BuildStamp />
           </ScrollView>
